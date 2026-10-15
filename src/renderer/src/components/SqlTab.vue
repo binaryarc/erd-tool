@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import { AgGridVue } from 'ag-grid-vue3';
 import { AllCommunityModule, ModuleRegistry, colorSchemeDark, themeQuartz, type ColDef, type GridApi } from 'ag-grid-community';
 import { bindContext, monaco, registerSqlProviders, unbindContext } from '../sql/monaco';
+import SplitPane from './SplitPane.vue';
 import { statementAt } from '../../../shared/sql/text';
 import type { ConnRef, HistoryEntry, SqlResult, SqlState } from '../../../shared/ipc';
 import type { SchemaModel } from '../../../shared/model/types';
@@ -183,12 +184,19 @@ defineExpose({
         {{ message }}
       </span>
     </div>
-    <div ref="editorEl" class="editor" />
-    <div class="result">
-      <AgGridVue v-if="result?.columns.length" class="grid" :theme="theme" :column-defs="columnDefs" :row-data="result.rows"
-                 :default-col-def="{ width: 140 }" :enable-cell-text-selection="true" @grid-ready="(e: { api: GridApi }) => (grid = e.api)" />
-      <p v-else class="muted empty">Ctrl+Enter 로 커서가 있는 문장을 실행한다. 선택한 부분이 있으면 그것만 실행한다.</p>
-    </div>
+    <!-- 편집기와 결과 사이 경계선을 끌어 높이를 바꾼다 -->
+    <SplitPane dir="col" fixed="first" :initial="260" :min="80" storage-key="sql-editor" class="split">
+      <template #first>
+        <div ref="editorEl" class="editor" />
+      </template>
+      <template #second>
+        <div class="result">
+          <AgGridVue v-if="result?.columns.length" class="grid" :theme="theme" :column-defs="columnDefs" :row-data="result.rows"
+                     :default-col-def="{ width: 140 }" :enable-cell-text-selection="true" @grid-ready="(e: { api: GridApi }) => (grid = e.api)" />
+          <p v-else class="muted empty">Ctrl+Enter 로 커서가 있는 문장을 실행한다. 선택한 부분이 있으면 그것만 실행한다.</p>
+        </div>
+      </template>
+    </SplitPane>
   </div>
 </template>
 
@@ -197,7 +205,8 @@ defineExpose({
 .toolbar { display: flex; gap: 6px; align-items: center; padding: 4px 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .status { font-size: 12px; color: var(--muted); display: flex; gap: 8px; }
 .warn { color: var(--warn); } .ro { color: var(--key); }
-.editor { height: 40%; min-height: 120px; border-bottom: 1px solid var(--line); }
+.split { flex: 1; min-height: 0; }
+.editor { flex: 1; min-height: 0; }
 .result { flex: 1; min-height: 0; }
 .grid { width: 100%; height: 100%; }
 .empty { padding: 12px; }

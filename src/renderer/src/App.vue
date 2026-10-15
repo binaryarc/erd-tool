@@ -4,7 +4,8 @@ import { nextTick, provide, reactive, ref, shallowRef } from 'vue';
 import ConnPanel from './components/ConnPanel.vue';
 import ErdCanvas from './components/ErdCanvas.vue';
 import SqlTab from './components/SqlTab.vue';
-import TerminalTab from './components/TerminalTab.vue';
+import TerminalPanel from './components/TerminalPanel.vue';
+import SplitPane from './components/SplitPane.vue';
 import { buildJoinSelect } from '../../shared/sql/join';
 import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
 import { emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
@@ -86,8 +87,8 @@ function autoArrange() {
   dirty.value = true;
 }
 
-// ---------- 탭: ERD, SQL, 터미널 ----------
-interface Tab { id: string; kind: 'erd' | 'sql' | 'term'; title: string; dirty: boolean; initialSql?: string; shell?: ShellKind }
+// ---------- 위 영역 탭: ERD, SQL / 아래 영역: 터미널 ----------
+interface Tab { id: string; kind: 'erd' | 'sql'; title: string; dirty: boolean; initialSql?: string }
 const tabs = ref<Tab[]>([{ id: 'erd', kind: 'erd', title: 'ERD', dirty: false }]);
 const activeTab = ref('erd');
 const selected = ref<string[]>([]);
@@ -102,12 +103,20 @@ function addSql(initialSql = '') {
   return id;
 }
 
-function addTerm(shell: ShellKind) {
-  const id = `term-${++seq}`;
-  tabs.value.push({ id, kind: 'term', title: shell === 'pwsh' ? `PowerShell ${seq}` : `Git Bash ${seq}`, dirty: false, shell });
-  activeTab.value = id;
-  return id;
+// 아래 터미널 영역 (VS Code 처럼). Ctrl+` 로 보이기, 숨기기
+const terminals = ref<InstanceType<typeof TerminalPanel>>();
+const termVisible = ref(false);
+async function addTerm(shell: ShellKind) {
+  termVisible.value = true;
+  return terminals.value!.add(shell);
 }
+function toggleTerm() {
+  termVisible.value = !termVisible.value;
+  if (termVisible.value && !terminals.value!.terms.length) void terminals.value!.add('powershell');
+}
+window.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleTerm(); }
+});
 
 /** 커밋 안 한 변경 확인 (탭 닫기, 창 닫기 공통) */
 const closeAsk = ref<{ labels: string[]; resolve: (a: 'commit' | 'rollback' | 'cancel') => void } | null>(null);
@@ -182,22 +191,32 @@ async function sqlScenario(beDir: string, dir: string) {
   out.join = { sql: join, columns: jr?.columns.length, error: tab.state() ? undefined : 'no state' };
   ed.setPosition({ lineNumber: 1, column: 1 });
 
-  // 터미널: PowerShell 7 에서 claude --version, 한글 폭
-  const tid = addTerm('pwsh');
+  // 아래 터미널 영역: PowerShell 에서 claude --version, 한글 폭, 시작 폴더(사용자 홈)
+  const tid = await addTerm('powershell');
   await nextTick(); await sleep(3000);
-  const term = tabRefs.get(tid) as InstanceType<typeof TerminalTab>;
+  const term = terminals.value!.get(tid)!;
   term.write('claude --version\r');
   await sleep(8000);
   term.write('echo 가나다ABC\r');
+  await sleep(500);
+  term.write('(Get-Location).Path\r');
   await sleep(1500);
   const buf = term.bufferText();
-  out.terminal = { claude: /\(Claude Code\)/.test(buf), korean: buf.includes('가나다ABC'), tail: buf.split('\n').slice(-6) };
-  // 실행 중에 터미널 탭 하나를 닫아도 오류가 없어야 한다
-  const t2 = addTerm('bash');
-  await nextTick(); await sleep(2500);
-  await closeTab(tabs.value.find(t => t.id === t2)!);
+  out.terminal = { claude: /\(Claude Code\)/.test(buf), korean: buf.includes('가나다ABC'), tail: buf.split('\n').slice(-6),
+    tabTitle: terminals.value!.terms.find(t => t.id === tid)?.title };
+  // 실행 중에 터미널 하나를 닫아도 오류가 없어야 한다
+  const t2 = await addTerm('bash');
+  await sleep(2500);
+  terminals.value!.close(t2);
+  terminals.value!.activate(tid);
   await sleep(1500);
-  out.tabs = { sql: id, term: tid };
+  // 위(ERD)와 아래(터미널)가 같이 보이는지: 두 영역의 화면 위치
+  activeTab.value = 'erd';
+  await nextTick(); await frames(5);
+  const top = document.querySelector('.main-top')?.getBoundingClientRect();
+  const bottom = document.querySelector('.term-panel')?.getBoundingClientRect();
+  out.layout = { topHeight: Math.round(top?.height ?? 0), bottomTop: Math.round(bottom?.top ?? 0), bottomHeight: Math.round(bottom?.height ?? 0) };
+  out.tabs = { sql: id, erd: 'erd' };
   activeTab.value = id;
   return JSON.parse(JSON.stringify(out)); // 반응형 값이 섞여 있어 평범한 값으로 바꿔 돌려준다
 }
@@ -254,28 +273,41 @@ window.__erdBench = async () => {
       <label><input v-model="view.compactOnZoomOut" type="checkbox" /> 축소하면 이름만 보기</label>
     </header>
     <div class="body">
-      <ConnPanel ref="panel" :model-dir="modelDir" @apply="applyReverse" @be-dir="onBeDir" />
-      <main class="main">
-        <nav class="tabs">
-          <button v-for="t in tabs" :key="t.id" :class="{ on: t.id === activeTab }" @click="activeTab = t.id">
-            {{ t.title }}<b v-if="t.dirty" class="warn"> *</b>
-            <span v-if="t.kind !== 'erd'" class="x" title="닫기" @click.stop="closeTab(t)">×</span>
-          </button>
-          <button class="add" @click="addSql()">+ SQL</button>
-          <button class="add" @click="addTerm('pwsh')">+ PowerShell</button>
-          <button class="add" @click="addTerm('bash')">+ Git Bash</button>
-          <button v-if="selected.length" class="add" @click="addSql(buildJoinSelect(model!, selected))">SELECT 만들기 ({{ selected.length }})</button>
-        </nav>
-        <div v-show="activeTab === 'erd'" class="pane canvas">
-          <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" @pin="onPin" @select="n => (selected = n)" />
-          <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
-        </div>
-        <div v-for="t in tabs.filter(x => x.kind !== 'erd')" v-show="activeTab === t.id" :key="t.id" class="pane">
-          <SqlTab v-if="t.kind === 'sql'" :ref="el => setTabRef(t.id, el)" :tab-id="t.id" :schema="model" :initial-sql="t.initialSql"
-                  :active="activeTab === t.id" @state="s => (t.dirty = !!s?.dirty)" />
-          <TerminalTab v-else :ref="el => setTabRef(t.id, el)" :term-id="t.id" :shell="t.shell!" :active="activeTab === t.id" />
-        </div>
-      </main>
+      <!-- 왼쪽 접속 패널 | 오른쪽(위: ERD, SQL 탭 / 아래: 터미널). 경계선을 끌어 크기를 바꾼다 -->
+      <SplitPane dir="row" fixed="first" :initial="300" :min="200" :max="700" storage-key="left">
+        <template #first>
+          <ConnPanel ref="panel" :model-dir="modelDir" @apply="applyReverse" @be-dir="onBeDir" />
+        </template>
+        <template #second>
+          <SplitPane dir="col" fixed="second" :initial="280" :min="100" storage-key="terminal" :hide-fixed="!termVisible">
+            <template #first>
+              <main class="main main-top">
+                <nav class="tabs">
+                  <button v-for="t in tabs" :key="t.id" :class="{ on: t.id === activeTab }" @click="activeTab = t.id">
+                    {{ t.title }}<b v-if="t.dirty" class="warn"> *</b>
+                    <span v-if="t.kind !== 'erd'" class="x" title="닫기" @click.stop="closeTab(t)">×</span>
+                  </button>
+                  <button class="add" @click="addSql()">+ SQL</button>
+                  <button v-if="selected.length" class="add" @click="addSql(buildJoinSelect(model!, selected))">SELECT 만들기 ({{ selected.length }})</button>
+                  <span class="spacer" />
+                  <button class="add" title="Ctrl+`" @click="toggleTerm">{{ termVisible ? '터미널 숨기기 ▾' : '터미널 ▴' }}</button>
+                </nav>
+                <div v-show="activeTab === 'erd'" class="pane canvas">
+                  <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" @pin="onPin" @select="n => (selected = n)" />
+                  <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
+                </div>
+                <div v-for="t in tabs.filter(x => x.kind === 'sql')" v-show="activeTab === t.id" :key="t.id" class="pane">
+                  <SqlTab :ref="el => setTabRef(t.id, el)" :tab-id="t.id" :schema="model" :initial-sql="t.initialSql"
+                          :active="activeTab === t.id" @state="s => (t.dirty = !!s?.dirty)" />
+                </div>
+              </main>
+            </template>
+            <template #second>
+              <TerminalPanel ref="terminals" :visible="termVisible" @hide="termVisible = false" @empty="termVisible = false" />
+            </template>
+          </SplitPane>
+        </template>
+      </SplitPane>
     </div>
     <div v-if="closeAsk" class="modal">
       <div class="dialog">
@@ -316,8 +348,8 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .spacer { flex: 1; }
 .dir { color: var(--muted); max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .body { flex: 1; display: flex; min-height: 0; }
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.tabs { display: flex; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+.tabs { display: flex; gap: 2px; align-items: flex-end; padding: 4px 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .tabs button { border: 1px solid var(--line); border-bottom: none; background: var(--panel-bg); color: var(--fg); padding: 4px 10px; cursor: pointer; }
 .tabs button.on { background: var(--bg); font-weight: bold; border-color: var(--accent); }
 .tabs .add { background: transparent; border-style: dashed; }

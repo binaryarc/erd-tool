@@ -9,6 +9,7 @@ import type { ShellKind } from '../../../shared/ipc';
 import { subscribe } from '../terminal-bus';
 
 const props = defineProps<{ termId: string; shell: ShellKind; active: boolean }>();
+const emit = defineEmits<{ started: [label: string] }>();
 const el = ref<HTMLDivElement>();
 const info = ref('');
 const term = new Terminal({ allowProposedApi: true, fontFamily: "D2Coding, Consolas, 'Malgun Gothic', monospace", fontSize: 13, cursorBlink: true });
@@ -28,7 +29,8 @@ function refit() {
 async function start() {
   try {
     const r = await window.erd.term.spawn(props.termId, props.shell, term.cols, term.rows);
-    info.value = `${r.shell} @ ${r.cwd}`;
+    info.value = `${r.label} (${r.shell}) @ ${r.cwd}`;
+    emit('started', r.label);
   } catch (e) {
     term.writeln(`\x1b[31m${(e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}\x1b[0m`);
   }
