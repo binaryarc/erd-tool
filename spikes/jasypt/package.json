@@ -1,0 +1,9 @@
+{
+  "name": "spike-jasypt",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "crypto-js": "4.2.0",
+    "pg": "8.23.1"
+  }
+}
