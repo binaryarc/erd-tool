@@ -66,7 +66,9 @@ function up() {
 
 onBeforeUnmount(up);
 
-const fixedStyle = () => ({ [props.dir === 'row' ? 'width' : 'height']: size.value + 'px' });
+// 고정 쪽도 줄어들 수 있게 둔다(flex-shrink 1). 기억해 둔 크기가 지금 창보다 크거나 창을 줄였을 때
+// 반대쪽이 0 이 되어 사라지지 않게 하기 위해서다 (반대쪽은 최소 60px, 아래 CSS)
+const fixedStyle = () => ({ flex: `0 1 ${size.value}px` });
 defineExpose({ setSize: (v: number) => (size.value = v) });
 </script>
 
@@ -88,7 +90,9 @@ defineExpose({ setSize: (v: number) => (size.value = v) });
 .split.row { flex-direction: row; }
 .split.col { flex-direction: column; }
 .pane { flex: none; min-width: 0; min-height: 0; overflow: hidden; position: relative; display: flex; flex-direction: column; }
-.pane.grow { flex: 1; }
+.pane.grow { flex: 1 1 0; }
+.row > .pane.grow { min-width: 60px; }
+.col > .pane.grow { min-height: 60px; }
 .handle { flex: none; background: var(--line); }
 .row > .handle { width: 4px; cursor: col-resize; }
 .col > .handle { height: 4px; cursor: row-resize; }

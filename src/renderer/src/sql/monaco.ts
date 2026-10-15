@@ -1,16 +1,19 @@
 // Monaco 설정과 SQL 힌트 (설계 9장). 자동완성, 회색 미리보기 공급자는 한 번만 등록하고,
-// 편집기(텍스트 모델)마다 어느 스키마 모델과 쿼리 이력을 쓸지 contexts 에서 찾는다.
+// 편집기(텍스트 모델)마다 어느 DB 목록과 쿼리 이력을 쓸지 contexts 에서 찾는다.
+// 무엇을 추천할지는 shared/sql/complete.ts 가 정한다 (단위 시험 대상).
 // API 는 monaco-editor 0.57.0 의 monaco.d.ts 로 확인 (STEP 1): registerCompletionItemProvider, registerInlineCompletionsProvider
 
 import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import type { SchemaModel } from '../../../shared/model/types';
-import type { HistoryEntry } from '../../../shared/ipc';
+import type { HistoryEntry, SqlCatalog } from '../../../shared/ipc';
+import { suggest, type ItemKind } from '../../../shared/sql/complete';
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 
 export interface EditorContext {
-  schema: () => SchemaModel | null;
+  /** 접속한 DB 에서 읽은 목록, 없으면 ERD 모델로 만든 목록 */
+  catalog: () => SqlCatalog | null;
   history: () => HistoryEntry[];
 }
 
@@ -18,60 +21,43 @@ const contexts = new Map<string, EditorContext>();
 export const bindContext = (model: monaco.editor.ITextModel, ctx: EditorContext) => contexts.set(model.uri.toString(), ctx);
 export const unbindContext = (model: monaco.editor.ITextModel) => contexts.delete(model.uri.toString());
 
-const KEYWORDS = ['select', 'from', 'where', 'join', 'left join', 'inner join', 'on', 'group by', 'order by', 'having', 'limit',
-  'insert into', 'values', 'update', 'set', 'delete from', 'and', 'or', 'not', 'in', 'exists', 'between', 'like', 'is null',
-  'is not null', 'distinct', 'count(*)', 'as', 'case', 'when', 'then', 'else', 'end', 'commit', 'rollback'];
+/** ERD 모델을 자동완성 목록 모양으로 (DB 목록을 아직 못 읽었을 때) */
+export const catalogFromModel = (m: SchemaModel): SqlCatalog => ({
+  tables: m.tables.map(t => ({ name: t.name, schema: 'public', kind: 'table', comment: t.comment,
+    columns: t.columns.map(c => ({ name: c.name, type: c.type, comment: c.comment ?? '' })) })),
+  functions: m.functions.map(f => ({ name: f.name, args: f.args, returns: '' })),
+});
 
-/** from/join 뒤 「테이블 별칭」을 찾아 별칭 → 테이블 (별칭 없으면 테이블 이름 자신) */
-export function aliasMap(sql: string, schema: SchemaModel): Map<string, string> {
-  const names = new Set(schema.tables.map(t => t.name));
-  const map = new Map<string, string>();
-  const re = /\b(?:from|join|update|into)\s+([a-z_][\w]*)(?:\s+(?:as\s+)?([a-z_]\w*))?/gi;
-  for (const m of sql.matchAll(re)) {
-    const table = m[1].toLowerCase();
-    if (!names.has(table)) continue;
-    map.set(table, table);
-    const alias = m[2]?.toLowerCase();
-    if (alias && !/^(where|join|left|right|inner|outer|on|set|order|group|limit|values|cross|full)$/.test(alias)) map.set(alias, table);
-  }
-  return map;
-}
+const EMPTY: SqlCatalog = { tables: [], functions: [] };
+
+/** 접속 구분 값 → DB 목록. SQL 탭끼리 같이 쓴다 (같은 DB 를 탭마다 다시 읽지 않게) */
+export const catalogCache = new Map<string, SqlCatalog>();
 
 let registered = false;
 
 export function registerSqlProviders() {
   if (registered) return;
   registered = true;
+  const K = monaco.languages.CompletionItemKind;
+  const kinds: Record<ItemKind, monaco.languages.CompletionItemKind> = {
+    table: K.Struct, view: K.Interface, column: K.Field, function: K.Function, keyword: K.Keyword, snippet: K.Snippet,
+  };
 
   monaco.languages.registerCompletionItemProvider('sql', {
-    triggerCharacters: ['.', ' '],
+    // 이 글자를 치면 바로 목록을 연다 (글자를 칠 때는 quickSuggestions 로 열린다)
+    triggerCharacters: ['.', ' ', ','],
     provideCompletionItems(model, position) {
-      const schema = contexts.get(model.uri.toString())?.schema();
+      const offset = model.getOffsetAt(position);
+      const text = model.getValue();
+      const items = suggest(text.slice(0, offset), text.slice(offset), contexts.get(model.uri.toString())?.catalog() ?? EMPTY);
       const word = model.getWordUntilPosition(position);
       const range = { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn };
-      const K = monaco.languages.CompletionItemKind;
-      if (!schema) return { suggestions: KEYWORDS.map(k => ({ label: k, kind: K.Keyword, insertText: k, range })) };
-
-      const byName = new Map(schema.tables.map(t => [t.name, t]));
-      const before = model.getLineContent(position.lineNumber).slice(0, word.startColumn - 1);
-      const dot = before.match(/([a-z_]\w*)\.$/i);
-      const aliases = aliasMap(model.getValue(), schema);
-      if (dot) {
-        // 별칭.  또는  테이블.  → 그 테이블 컬럼
-        const t = byName.get(aliases.get(dot[1].toLowerCase()) ?? dot[1].toLowerCase());
-        return { suggestions: (t?.columns ?? []).map(c => ({
-          label: c.name, kind: K.Field, insertText: c.name, range, detail: c.type, documentation: c.comment,
-        })) };
-      }
-      const used = new Set(aliases.values());
-      return { suggestions: [
-        ...schema.tables.map(t => ({ label: t.name, kind: K.Struct, insertText: t.name, range, detail: t.comment, sortText: '1' + t.name })),
-        // 쿼리에 나온 테이블의 컬럼은 앞에
-        ...[...used].flatMap(n => (byName.get(n)?.columns ?? []).map(c => ({
-          label: c.name, kind: K.Field, insertText: c.name, range, detail: `${n} ${c.type}`, documentation: c.comment, sortText: '0' + c.name,
-        }))),
-        ...KEYWORDS.map(k => ({ label: k, kind: K.Keyword, insertText: k, range, sortText: '2' + k })),
-      ] };
+      return {
+        suggestions: items.map(i => ({
+          label: i.label, kind: kinds[i.kind], insertText: i.insert, detail: i.detail, documentation: i.doc, sortText: i.sort, range,
+          insertTextRules: i.snippet ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+        })),
+      };
     },
   });
 

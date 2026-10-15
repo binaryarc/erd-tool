@@ -2,9 +2,12 @@
 import type { InjectionKey } from 'vue';
 
 export type NameMode = 'physical' | 'logical' | 'both';
+/** Vue Flow 선 종류: 꺾은선, 직선, 곡선 */
+export type EdgeKind = 'smoothstep' | 'straight' | 'default';
 
 export interface ViewState {
   nameMode: NameMode;
+  edgeKind: EdgeKind;
   /** 사용자가 고르면 확대가 COMPACT_ZOOM 미만일 때 컬럼 행을 숨긴다.
    *  성능 대책이 아니다: STEP 3 측정에서 숨김을 켜도 빨라지지 않았고 배율이 기준을 넘나들 때 멈칫했다. */
   compactOnZoomOut: boolean;
@@ -14,3 +17,14 @@ export interface ViewState {
 
 export const COMPACT_ZOOM = 0.4;
 export const VIEW_KEY: InjectionKey<ViewState> = Symbol('erd-view');
+
+/** 이 PC 에 기억하는 보기 설정 (못 쓰면 기억만 안 함) */
+export function loadPref<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
+  try {
+    const v = localStorage.getItem('view:' + key) as T | null;
+    return v && allowed.includes(v) ? v : fallback;
+  } catch { return fallback; }
+}
+export function savePref(key: string, value: string) {
+  try { localStorage.setItem('view:' + key, value); } catch { /* 기억 못 함 */ }
+}

@@ -24,6 +24,7 @@ const api: ErdApi = {
   },
   db: {
     reverse: (ref, modelDir) => ipcRenderer.invoke(IPC.dbReverse, ref, modelDir),
+    catalog: ref => ipcRenderer.invoke(IPC.dbCatalog, ref),
   },
   sql: {
     open: (tabId, ref, label) => ipcRenderer.invoke(IPC.sqlOpen, tabId, ref, label),

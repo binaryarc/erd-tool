@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 화면: 왼쪽 접속 패널, 가운데 ERD 캔버스. 위: 모델 폴더, 저장, 보기 모드, 자동 정렬.
-import { nextTick, provide, reactive, ref, shallowRef } from 'vue';
+import { computed, nextTick, provide, reactive, ref, shallowRef, watch } from 'vue';
 import ConnPanel from './components/ConnPanel.vue';
 import ErdCanvas from './components/ErdCanvas.vue';
 import SqlTab from './components/SqlTab.vue';
@@ -11,9 +11,16 @@ import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
 import { emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
 import type { ModelError, SchemaModel } from '../../shared/model/types';
 import type { ReverseResult, ShellKind } from '../../shared/ipc';
-import { VIEW_KEY, type ViewState } from './view';
+import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
+import { neighborhood } from '../../shared/model/tree';
 
-const view = reactive<ViewState>({ nameMode: 'both', compactOnZoomOut: false, compact: false });
+const view = reactive<ViewState>({
+  nameMode: loadPref('nameMode', 'both', ['physical', 'logical', 'both'] as const),
+  edgeKind: loadPref('edgeKind', 'smoothstep', ['smoothstep', 'straight', 'default'] as const),
+  compactOnZoomOut: false, compact: false,
+});
+watch(() => view.nameMode, v => savePref('nameMode', v));
+watch(() => view.edgeKind, v => savePref('edgeKind', v));
 provide(VIEW_KEY, view);
 
 const modelDir = ref('');
@@ -86,6 +93,21 @@ function autoArrange() {
   version.value++;
   dirty.value = true;
 }
+
+/** 정렬 방식(트리, 그룹 격자)은 layout.json 에 다이어그램별로 저장된다. 바꾸면 끌어 옮긴 위치는 지운다 */
+function setArrangeMode(mode: 'grid' | 'tree') {
+  if (!diagram.value || (diagram.value.mode ?? 'grid') === mode) return;
+  diagram.value.mode = mode;
+  diagram.value.pinned = {};
+  version.value++;
+  dirty.value = true;
+}
+
+// 미니 ERD: 더블클릭한 테이블과 FK 로 바로 이어진 테이블만, 항상 트리로
+const miniName = ref('');
+const miniModel = computed(() => (model.value && miniName.value ? neighborhood(model.value, miniName.value) : null));
+const miniDiagram: Diagram = { mode: 'tree', groups: {}, pinned: {} };
+const mini = ref<InstanceType<typeof ErdCanvas>>();
 
 // ---------- 위 영역 탭: ERD, SQL / 아래 영역: 터미널 ----------
 interface Tab { id: string; kind: 'erd' | 'sql'; title: string; dirty: boolean; initialSql?: string }
@@ -167,14 +189,26 @@ async function sqlScenario(beDir: string, dir: string) {
   await frames(5); await sleep(300);
   out.grid = { ...tab.grid(), state: tab.state() };
 
-  // 자동완성: 별칭 b. 뒤 컬럼
-  ed.setValue('select * from mst_biz b where b.');
-  ed.setPosition({ lineNumber: 1, column: 33 });
-  ed.focus();
-  ed.trigger('auto', 'editor.action.triggerSuggest', {});
-  await sleep(800);
-  out.suggest = Array.from(document.querySelectorAll('.suggest-widget .monaco-list-row')).slice(0, 4).map(r => r.getAttribute('aria-label'));
-  ed.trigger('auto', 'hideSuggestWidget', {});
+  // 자동완성: 목록을 여는 명령 없이 글자만 쳤을 때 저절로 뜨는지 (DBeaver 처럼)
+  await sleep(1500); // 접속한 DB 목록 읽기
+  out.catalogTables = tab.catalogSize();
+  /** text 를 한 글자씩 친다. suffix 를 주면 커서 뒤에 그 글자가 이미 있는 상태에서 친다 */
+  const typeAndRead = async (text: string, suffix = '') => {
+    ed.setValue(suffix);
+    ed.setPosition({ lineNumber: 1, column: 1 });
+    ed.focus();
+    for (const ch of text) ed.trigger('keyboard', 'type', { text: ch });
+    await sleep(900);
+    const rows = Array.from(document.querySelectorAll('.suggest-widget.visible .monaco-list-row')).slice(0, 4).map(r => r.getAttribute('aria-label'));
+    ed.trigger('auto', 'hideSuggestWidget', {});
+    return rows;
+  };
+  out.suggest = {
+    afterFrom: await typeAndRead('select * from mst_b'),
+    afterAliasDot: await typeAndRead('select b.', ' from mst_biz b'),
+    afterWhere: await typeAndRead('select * from mst_biz b where bi'),
+    start: await typeAndRead('se'),
+  };
 
   // 회색 미리보기: 방금 실행한 문장이 이력에 (리터럴은 ?) 있다
   ed.setValue('select g as');
@@ -220,6 +254,46 @@ async function sqlScenario(beDir: string, dir: string) {
   activeTab.value = id;
   return JSON.parse(JSON.stringify(out)); // 반응형 값이 섞여 있어 평범한 값으로 바꿔 돌려준다
 }
+
+// ERD 보기 시험용 (메인이 실제 마우스 입력과 함께 부른다)
+window.__erdView = async (opts: { mode?: 'grid' | 'tree'; edge?: ViewState['edgeKind'] }) => {
+  if (opts.mode) setArrangeMode(opts.mode);
+  if (opts.edge) view.edgeKind = opts.edge;
+  await nextTick(); await frames(10); await sleep(600);
+  // 겹치는 테이블 쌍 수 (화면 위치 기준)
+  const boxes = Array.from(document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table'))
+    .map(e => e.getBoundingClientRect());
+  let overlaps = 0;
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i], b = boxes[j];
+    if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) overlaps++;
+  }
+  return { mode: diagram.value?.mode, edge: view.edgeKind, tables: boxes.length, overlaps };
+};
+/** 본 ERD 에서 이름으로 테이블 노드 화면 위치 (머리 부분). 먼저 그 테이블로 화면을 옮긴다 */
+window.__erdNodeRect = async (name: string) => {
+  await canvas.value?.focusTable(name);
+  await sleep(600);
+  const node = Array.from(document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table'))
+    .find(e => e.querySelector('.head b')?.textContent === name);
+  const r = node?.querySelector('.head')?.getBoundingClientRect();
+  return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+};
+window.__erdInspect = () => ({
+  selected: Array.from(document.querySelectorAll('.vue-flow__node-table.selected .head b')).map(e => e.textContent),
+  selectedOutline: getComputedStyle(document.querySelector('.vue-flow__node-table.selected .tbl') ?? document.body).outlineWidth,
+  mini: miniName.value,
+  miniTables: Array.from(document.querySelectorAll('.mini .vue-flow__node-table .head b')).map(e => e.textContent).sort(),
+  expected: miniModel.value?.tables.map(t => t.name).sort() ?? [],
+  badges: { pk: document.querySelectorAll('.key .pk').length, fk: document.querySelectorAll('.key .fk').length, nn: document.querySelectorAll('.key .nn').length },
+});
+window.__erdGrid = () => {
+  const row = document.querySelector('.ag-row');
+  const cell = document.querySelector('.ag-cell');
+  const body = document.querySelector('.ag-body-viewport');
+  return { rowHeight: row?.getBoundingClientRect().height, fontSize: cell ? getComputedStyle(cell).fontSize : null,
+    visibleRows: body && row ? Math.floor(body.clientHeight / row.getBoundingClientRect().height) : null };
+};
 
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir }) => {
   if (scenario === 'sql') return sqlScenario(beDir, dir);
@@ -269,7 +343,20 @@ window.__erdBench = async () => {
           <option value="both">둘 다</option>
         </select>
       </label>
-      <button :disabled="!model" @click="autoArrange">자동 정렬</button>
+      <label>선
+        <select v-model="view.edgeKind">
+          <option value="smoothstep">꺾은선</option>
+          <option value="straight">직선</option>
+          <option value="default">곡선</option>
+        </select>
+      </label>
+      <label>정렬
+        <select :value="diagram?.mode ?? 'grid'" :disabled="!model" @change="e => setArrangeMode((e.target as HTMLSelectElement).value as 'grid' | 'tree')">
+          <option value="tree">트리 (FK 부모 위)</option>
+          <option value="grid">그룹 격자</option>
+        </select>
+      </label>
+      <button :disabled="!model" title="끌어 옮긴 위치를 지우고 고른 정렬 방식대로 다시 놓는다" @click="autoArrange">자동 정렬</button>
       <label><input v-model="view.compactOnZoomOut" type="checkbox" /> 축소하면 이름만 보기</label>
     </header>
     <div class="body">
@@ -293,8 +380,28 @@ window.__erdBench = async () => {
                   <button class="add" title="Ctrl+`" @click="toggleTerm">{{ termVisible ? '터미널 숨기기 ▾' : '터미널 ▴' }}</button>
                 </nav>
                 <div v-show="activeTab === 'erd'" class="pane canvas">
-                  <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" @pin="onPin" @select="n => (selected = n)" />
-                  <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
+                  <!-- 테이블을 더블클릭하면 오른쪽에 미니 ERD 가 열린다 (그 테이블과 FK 로 바로 이어진 테이블만) -->
+                  <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName">
+                    <template #first>
+                      <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version"
+                                 @pin="onPin" @select="n => (selected = n)" @open="n => (miniName = n)" />
+                      <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
+                    </template>
+                    <template #second>
+                      <section v-if="model && miniName" class="mini">
+                        <header>
+                          <b>{{ miniName }}</b>
+                          <span class="muted">와 바로 이어진 테이블 {{ miniModel!.tables.length - 1 }}개, 더블클릭하면 그 테이블 기준으로 바뀐다</span>
+                          <span class="spacer" />
+                          <button title="닫기" @click="miniName = ''">×</button>
+                        </header>
+                        <div class="mini-body">
+                          <ErdCanvas ref="mini" flow-id="mini" :model="miniModel!" :diagram="miniDiagram" :version="version"
+                                     :focus="miniName" :show-mini-map="false" fit-on-resize @open="n => (miniName = n)" />
+                        </div>
+                      </section>
+                    </template>
+                  </SplitPane>
                 </div>
                 <div v-for="t in tabs.filter(x => x.kind === 'sql')" v-show="activeTab === t.id" :key="t.id" class="pane">
                   <SqlTab :ref="el => setTabRef(t.id, el)" :tab-id="t.id" :schema="model" :initial-sql="t.initialSql"
@@ -359,6 +466,10 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .dialog { background: var(--bg); border: 1px solid var(--line); padding: 16px; max-width: 480px; }
 .dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
+.mini { height: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); }
+.mini header { border-bottom: 1px solid var(--line); font-size: 12px; }
+.mini .muted { color: var(--muted); }
+.mini-body { flex: 1; min-height: 0; position: relative; }
 .empty { padding: 24px; color: var(--muted); }
 .warn { color: var(--warn); }
 </style>
