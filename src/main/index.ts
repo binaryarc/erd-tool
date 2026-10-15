@@ -116,6 +116,16 @@ function createWindow() {
         console.log('[auto]', JSON.stringify(out));
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
         //   ERD_AUTO=step5  DB 비교, ERD 차이 적용(전체 실행 후 롤백). ERD_SHOT 을 주면 비교 탭과 적용 탭 화면을 남긴다
+        //   ERD_AUTO=step6  ERD 수정 → dev 적용(커밋) → 다시 읽어 차이 0 → 되돌리기로 시험 테이블 지움. ERD_SHOT 을 주면 편집 화면을 남긴다
+        if (auto === 'step6') {
+          const shot = process.env.ERD_SHOT;
+          if (shot) {
+            console.log('[shot]', JSON.stringify(await win.webContents.executeJavaScript('window.__erdStep6Shot()')));
+            fs.writeFileSync(`${shot}-edit.png`, (await win.webContents.capturePage()).toPNG());
+          }
+          app.quit();
+          return;
+        }
         if (auto === 'step5') {
           const shot = process.env.ERD_SHOT;
           if (shot) {

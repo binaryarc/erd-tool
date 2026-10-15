@@ -7,6 +7,10 @@ import SqlTab from './components/SqlTab.vue';
 import CompareTab from './components/CompareTab.vue';
 import TerminalPanel from './components/TerminalPanel.vue';
 import SplitPane from './components/SplitPane.vue';
+import TableEditor from './components/TableEditor.vue';
+import { EditHistory, addTable, updateTable } from '../../shared/model/edit';
+import { buildCreateAll } from '../../shared/sql/create';
+import { diffModels } from '../../shared/model/diff';
 import { buildJoinSelect } from '../../shared/sql/join';
 import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
 import { emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
@@ -34,6 +38,8 @@ const message = ref('');
 const dirty = ref(false);
 const panel = ref<InstanceType<typeof ConnPanel>>();
 const canvas = ref<InstanceType<typeof ErdCanvas>>();
+/** 본 ERD 를 전체 보기로 맞추는 때: 모델을 불러올 때만 (고칠 때마다 화면이 튀지 않게) */
+const fitKey = ref(0);
 
 window.erd.settings.get().then(s => { if (s.modelDir) modelDir.value = s.modelDir; });
 
@@ -42,6 +48,86 @@ function show(m: SchemaModel, l: Layout) {
   layout.value = l;
   diagram.value = syncLayout(m, l, DEFAULT_DIAGRAM);
   version.value++;
+  fitKey.value++;
+  history.clear();
+  syncHistory();
+}
+
+// ---------- ERD 수정 (STEP 6) ----------
+// 수정 명령(shared/model/edit.ts)은 새 모델을 돌려준다. 되돌리기는 수정 직전 모델을 기록해 두고 바꿔 끼운다.
+// 끌어 옮긴 위치(layout)는 되돌리기 대상이 아니다. 지운 테이블을 되살리면 위치는 그룹 규칙대로 다시 놓인다.
+const history = new EditHistory();
+const canUndo = ref(false);
+const canRedo = ref(false);
+function syncHistory() { canUndo.value = history.canUndo; canRedo.value = history.canRedo; }
+
+/** 편집 패널에 띄운 테이블 ID. 이름이 아니라 ID 로 들고 있어야 이름을 바꾸거나 되돌려도 패널이 따라간다 */
+const editId = ref('');
+const editName = computed(() => model.value?.tables.find(t => t.id === editId.value)?.name ?? '');
+
+function setModel(m: SchemaModel) {
+  model.value = m;
+  diagram.value = syncLayout(m, layout.value, DEFAULT_DIAGRAM);
+  version.value++;
+  dirty.value = true;
+  syncHistory();
+  if (miniName.value && !m.tables.some(t => t.name === miniName.value)) miniName.value = '';
+}
+
+function edit(fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void): boolean {
+  if (!model.value) { done?.(false); return false; }
+  let next: SchemaModel;
+  try { next = fn(model.value); }
+  catch (e) { message.value = `수정 안 됨: ${(e as Error).message}`; done?.(false); return false; }
+  if (next !== model.value) {
+    history.push(model.value);
+    setModel(next);
+    message.value = '수정함 (저장 전)';
+  }
+  done?.(true);
+  return true;
+}
+
+function undo() {
+  const m = model.value && history.undo(model.value);
+  if (m) { setModel(m); message.value = '되돌림'; }
+}
+function redo() {
+  const m = model.value && history.redo(model.value);
+  if (m) { setModel(m); message.value = '다시 함'; }
+}
+
+function openEditor(name: string) {
+  const t = model.value?.tables.find(x => x.name === name);
+  if (!t) return;
+  miniName.value = '';
+  editId.value = t.id;
+}
+
+/** 새 테이블: 겹치지 않는 임시 이름으로 만들고 편집 패널을 연다. 공통 컬럼(reg_id 등)이 정의돼 있으면 넣는다 */
+async function newTable() {
+  if (!model.value) return;
+  const names = new Set(model.value.tables.map(t => t.name));
+  let name = 'new_table';
+  for (let i = 2; names.has(name); i++) name = `new_table_${i}`;
+  if (!edit(m => addTable(m, name, { withCommon: m.common.length > 0 }))) return;
+  openEditor(name);
+  await nextTick();
+  await canvas.value?.focusTable(name);
+}
+
+/** 모델 전체 CREATE 를 새 SQL 탭에 (바로 실행하지 않는다) */
+function createAll() {
+  if (model.value) addSql(buildCreateAll(model.value).sql);
+}
+
+/** 고친 ERD 를 DB 에 적용: DB 비교 탭에서 오른쪽을 지금 ERD 로 두고 비교한다. 적용은 비교 탭의 「왼쪽 DB 에 적용」으로 (STEP 5) */
+async function applyToDb() {
+  openCompare();
+  await nextTick();
+  await compare.value!.ready;
+  compare.value!.setRightErd();
+  await compare.value!.compare();
 }
 
 async function setModelDir(dir: string) {
@@ -110,6 +196,7 @@ const miniModel = computed(() => (model.value && miniName.value ? neighborhood(m
 const miniDiagram: Diagram = { mode: 'tree', groups: {}, pinned: {} };
 const mini = ref<InstanceType<typeof ErdCanvas>>();
 const compare = ref<InstanceType<typeof CompareTab>>();
+const editor = ref<InstanceType<typeof TableEditor>>();
 
 // ---------- 위 영역 탭: ERD, SQL / 아래 영역: 터미널 ----------
 interface Tab { id: string; kind: 'erd' | 'sql' | 'compare'; title: string; dirty: boolean; initialSql?: string; initialConn?: string }
@@ -146,6 +233,12 @@ function toggleTerm() {
 }
 window.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleTerm(); }
+  // 되돌리기, 다시 하기는 ERD 탭에서만. 입력 칸 안에서는 그 칸의 글자 되돌리기를 그대로 둔다
+  const el = e.target as HTMLElement;
+  if (activeTab.value !== 'erd' || !e.ctrlKey || el.closest('input, textarea, select, [contenteditable]')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
 });
 
 /** 커밋 안 한 변경 확인 (탭 닫기, 창 닫기 공통) */
@@ -349,7 +442,85 @@ async function step5Scenario(beDir: string, dir: string) {
   return JSON.parse(JSON.stringify(out));
 }
 
+/**
+ * STEP 6 시험 (완료 기준): 화면에서 새 테이블에 컬럼을 추가하고 FK 를 만든 뒤 dev 에 적용(커밋)하고 다시 불러오면 차이 0.
+ * 끝에 되돌리기로 수정 전 모델로 돌아가 같은 길로 dev 에 적용(커밋)해 시험 테이블을 지우고, dev 가 수정 전과 같은지 다시 본다.
+ * 기존 테이블은 건드리지 않고 시험 테이블(mst_erd_probe)만 만들었다 지운다. 모델 파일은 저장하지 않는다.
+ */
+async function step6Scenario(beDir: string, dir: string) {
+  await panel.value!.setSource('be');
+  await panel.value!.setBeDir(beDir);
+  await openModel(dir);
+  const out: Record<string, unknown> = {};
+  const devRef = { source: 'be' as const, beDir, name: 'dev' };
+  const diffDev = async () => diffModels((await window.erd.db.read(devRef)).model, model.value!).map(d => `${d.kind} ${d.change} ${d.table ?? ''}.${d.name}`);
+  const original = model.value!;
+  out.before = await diffDev(); // 모델 폴더와 dev 가 처음부터 같아야 시험이 뜻이 있다
+  const probe = 'mst_erd_probe';
+
+  /** 지금 ERD 를 dev 에 적용: 「DB 에 적용」 → 비교 탭 「왼쪽 DB 에 적용」 → 새 SQL 탭 「전체 실행」 → 커밋 */
+  const applyAndCommit = async () => {
+    activeTab.value = 'erd';
+    await applyToDb();
+    const items = compare.value!.items().map(i => `${i.kind} ${i.change} ${i.table ?? ''}.${i.name}`);
+    const before = tabs.value.length;
+    compare.value!.apply();
+    await nextTick(); await frames(5); await sleep(2500); // 새 SQL 탭이 dev 에 접속
+    const t = tabs.value[before];
+    const tab = tabRefs.get(t.id) as InstanceType<typeof SqlTab>;
+    const run = await tab.runAll();
+    await tab.tx('commit');
+    return { items, tab: t.id, run, after: tab.state() };
+  };
+
+  try {
+    activeTab.value = 'erd';
+    await newTable();
+    await nextTick(); await frames(5);
+    const tempName = editName.value;
+    edit(m => updateTable(m, tempName, { name: probe, comment: 'ERD 도구 시험' }));
+    await nextTick(); await frames(3);
+    editor.value!.addColumnDraft({ name: 'probe_seq', type: 'int', pk: true, comment: '시험 SEQ' });
+    await nextTick();
+    editor.value!.addColumnDraft({ name: 'biz_seq', type: 'integer', comment: '사업장' });
+    await nextTick();
+    editor.value!.addFkDraft('mst_biz', ['biz_seq']);
+    await nextTick(); await frames(10); await sleep(800);
+    const t = model.value!.tables.find(x => x.name === probe)!;
+    out.edited = { tempName, editor: editName.value, columns: t.columns.map(c => `${c.name} ${c.type}${c.notNull ? ' NN' : ''}`), pk: t.pk, fks: t.fks,
+      node: Array.from(document.querySelectorAll('.vue-flow__node-table .head b')).some(e => e.textContent === probe),
+      edge: !!document.querySelector(`.vue-flow__edge[data-id="${t.id}:${t.fks[0]?.name}"]`), canUndo: canUndo.value, message: message.value };
+    // 잘못된 수정은 막히고 모델은 그대로
+    const bad = edit(m => updateTable(m, probe, { name: 'mst_biz' }));
+    out.badEdit = { applied: bad, message: message.value };
+    out.apply = await applyAndCommit();
+    out.afterApply = await diffDev(); // 다시 불러오면 차이 0 (완료 기준)
+  } finally {
+    // 되돌리기로 수정 전 모델로 → 같은 길로 dev 에 적용해 시험 테이블을 지운다
+    let undos = 0;
+    while (canUndo.value) { undo(); undos++; }
+    out.undo = { undos, sameAsOriginal: model.value === original };
+    out.cleanup = await applyAndCommit();
+    out.afterCleanup = await diffDev();
+    activeTab.value = 'erd';
+  }
+  return JSON.parse(JSON.stringify(out));
+}
+
+/** STEP 6 화면 캡처용: 되돌린 수정을 다시 하기로 되살려 편집 패널과 함께 보여준다 (DB 는 건드리지 않는다) */
+window.__erdStep6Shot = async () => {
+  let redos = 0;
+  while (canRedo.value) { redo(); redos++; }
+  activeTab.value = 'erd';
+  openEditor('mst_erd_probe');
+  await nextTick(); await frames(5);
+  await canvas.value?.focusTable('mst_erd_probe');
+  await frames(10); await sleep(800);
+  return { redos, editor: editName.value };
+};
+
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir }) => {
+  if (scenario === 'step6') return step6Scenario(beDir, dir);
   if (scenario === 'step5') return step5Scenario(beDir, dir);
   if (scenario === 'sql') return sqlScenario(beDir, dir);
   await panel.value!.setSource('be');
@@ -389,6 +560,11 @@ window.__erdBench = async () => {
     <header>
       <button @click="openModel()">모델 폴더 열기</button>
       <button :disabled="!model" @click="save">저장{{ dirty ? ' *' : '' }}</button>
+      <button :disabled="!model" title="새 테이블을 만들고 편집 패널을 연다" @click="newTable">테이블 추가</button>
+      <button :disabled="!canUndo" title="Ctrl+Z" @click="undo">되돌리기</button>
+      <button :disabled="!canRedo" title="Ctrl+Y" @click="redo">다시 하기</button>
+      <button :disabled="!model" title="모델 전체 CREATE 문을 새 SQL 탭에 넣는다" @click="createAll">전체 CREATE</button>
+      <button :disabled="!model" title="DB 비교 탭에서 지금 ERD 와 DB 를 비교한다. 적용은 그 탭의 「왼쪽 DB 에 적용」으로" @click="applyToDb">DB 에 적용</button>
       <span class="dir" :title="modelDir">{{ modelDir || '모델 폴더 없음' }}</span>
       <span class="spacer" />
       <label>보기
@@ -432,19 +608,21 @@ window.__erdBench = async () => {
                   <button class="add" @click="addSql()">+ SQL</button>
                   <button class="add" @click="openCompare">DB 비교</button>
                   <button v-if="selected.length" class="add" @click="addSql(buildJoinSelect(model!, selected))">SELECT 만들기 ({{ selected.length }})</button>
+                  <button v-if="selected.length === 1" class="add" @click="openEditor(selected[0])">테이블 편집</button>
                   <span class="spacer" />
                   <button class="add" title="Ctrl+`" @click="toggleTerm">{{ termVisible ? '터미널 숨기기 ▾' : '터미널 ▴' }}</button>
                 </nav>
                 <div v-show="activeTab === 'erd'" class="pane canvas">
                   <!-- 테이블을 더블클릭하면 오른쪽에 미니 ERD 가 열린다 (그 테이블과 FK 로 바로 이어진 테이블만) -->
-                  <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName">
+                  <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName">
                     <template #first>
-                      <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version"
-                                 @pin="onPin" @select="n => (selected = n)" @open="n => (miniName = n)" />
+                      <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" :fit-key="fitKey"
+                                 @pin="onPin" @select="n => (selected = n)" @open="n => { editId = ''; miniName = n; }" />
                       <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
                     </template>
                     <template #second>
-                      <section v-if="model && miniName" class="mini">
+                      <TableEditor v-if="model && editName" ref="editor" :model="model" :name="editName" @edit="edit" @close="editId = ''" />
+                      <section v-else-if="model && miniName" class="mini">
                         <header>
                           <b>{{ miniName }}</b>
                           <span class="muted">와 바로 이어진 테이블 {{ miniModel!.tables.length - 1 }}개, 더블클릭하면 그 테이블 기준으로 바뀐다</span>
@@ -510,6 +688,7 @@ html, body, #app { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--fg); font: 13px 'Malgun Gothic', sans-serif; }
 .app { height: 100%; display: flex; flex-direction: column; }
 header, footer { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+header button, header label { white-space: nowrap; }
 footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px; color: var(--muted); }
 .spacer { flex: 1; }
 .dir { color: var(--muted); max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -12,6 +12,7 @@ declare global {
     __erdNodeRect?: (name: string) => Promise<{ x: number; y: number } | null>;
     __erdInspect?: () => unknown;
     __erdGrid?: () => unknown;
+    __erdStep6Shot?: () => Promise<unknown>;
   }
 }
 
