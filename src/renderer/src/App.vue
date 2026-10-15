@@ -4,6 +4,7 @@ import { computed, nextTick, provide, reactive, ref, shallowRef, watch } from 'v
 import ConnPanel from './components/ConnPanel.vue';
 import ErdCanvas from './components/ErdCanvas.vue';
 import SqlTab from './components/SqlTab.vue';
+import CompareTab from './components/CompareTab.vue';
 import TerminalPanel from './components/TerminalPanel.vue';
 import SplitPane from './components/SplitPane.vue';
 import { buildJoinSelect } from '../../shared/sql/join';
@@ -108,9 +109,10 @@ const miniName = ref('');
 const miniModel = computed(() => (model.value && miniName.value ? neighborhood(model.value, miniName.value) : null));
 const miniDiagram: Diagram = { mode: 'tree', groups: {}, pinned: {} };
 const mini = ref<InstanceType<typeof ErdCanvas>>();
+const compare = ref<InstanceType<typeof CompareTab>>();
 
 // ---------- 위 영역 탭: ERD, SQL / 아래 영역: 터미널 ----------
-interface Tab { id: string; kind: 'erd' | 'sql'; title: string; dirty: boolean; initialSql?: string }
+interface Tab { id: string; kind: 'erd' | 'sql' | 'compare'; title: string; dirty: boolean; initialSql?: string; initialConn?: string }
 const tabs = ref<Tab[]>([{ id: 'erd', kind: 'erd', title: 'ERD', dirty: false }]);
 const activeTab = ref('erd');
 const selected = ref<string[]>([]);
@@ -118,9 +120,15 @@ const tabRefs = new Map<string, unknown>();
 const setTabRef = (id: string, el: unknown) => { if (el) tabRefs.set(id, el); else tabRefs.delete(id); };
 let seq = 0;
 
-function addSql(initialSql = '') {
+/** DB 비교 탭은 하나만 연다 */
+function openCompare() {
+  if (!tabs.value.some(t => t.id === 'compare')) tabs.value.splice(1, 0, { id: 'compare', kind: 'compare', title: 'DB 비교', dirty: false });
+  activeTab.value = 'compare';
+}
+
+function addSql(initialSql = '', initialConn?: string) {
   const id = `sql-${++seq}`;
-  tabs.value.push({ id, kind: 'sql', title: `SQL ${seq}`, dirty: false, initialSql });
+  tabs.value.push({ id, kind: 'sql', title: `SQL ${seq}`, dirty: false, initialSql, initialConn });
   activeTab.value = id;
   return id;
 }
@@ -295,7 +303,54 @@ window.__erdGrid = () => {
     visibleRows: body && row ? Math.floor(body.clientHeight / row.getBoundingClientRect().height) : null };
 };
 
+/** STEP 5 시험: DB 비교(dev 대 test), ERD 차이를 dev 에 적용(전체 실행) 후 롤백 */
+async function step5Scenario(beDir: string, dir: string) {
+  await panel.value!.setSource('be');
+  await panel.value!.setBeDir(beDir);
+  await openModel(dir);
+  const out: Record<string, unknown> = {};
+
+  openCompare();
+  await nextTick(); await frames(5);
+  compare.value!.setLeft('be:dev');
+  compare.value!.setRight('be:test');
+  await sleep(300);
+  out.devVsTest = await compare.value!.compare();
+  await nextTick(); await frames(5); await sleep(300);
+
+  // ERD 에만 컬럼 하나를 더한다 (화면 모델만, 파일 저장 안 함) → dev 와 비교 → dev 에 적용 → 전체 실행 → 롤백
+  const original = model.value!;
+  const probe = 'erd_tool_probe';
+  model.value = { ...original, tables: original.tables.map(t => t.name === 'mst_biz' ? { ...t, columns: [...t.columns, { name: probe, type: 'varchar(10)', notNull: false }] } : t) };
+  compare.value!.setRight('be:dev');
+  compare.value!.setLeft('be:dev');
+  await sleep(200);
+  // 왼쪽 dev, 오른쪽 지금 ERD
+  compare.value!.setRightErd();
+  out.devVsErd = await compare.value!.compare();
+  out.alter = compare.value!.alter().split('\n').filter(l => l && !l.startsWith('--'));
+  const before = tabs.value.length;
+  compare.value!.apply();
+  await nextTick(); await frames(5); await sleep(2500); // 새 SQL 탭이 dev 에 접속
+  const sqlTab = tabs.value[before];
+  const tab = tabRefs.get(sqlTab.id) as InstanceType<typeof SqlTab>;
+  out.applyTab = { title: sqlTab.title, conn: sqlTab.initialConn, state: tab.state() };
+  out.runAll = await tab.runAll();
+  out.afterRun = tab.state();
+  const check = await window.erd.sql.run(sqlTab.id, `select ${probe} from mst_biz limit 0`);
+  out.columnExistsInTx = !check.error;
+  await tab.tx('rollback');
+  const after = await window.erd.sql.run(sqlTab.id, `select ${probe} from mst_biz limit 0`);
+  out.columnGoneAfterRollback = !!after.error && /does not exist/.test(after.error.message);
+  await tab.tx('rollback');
+  model.value = original;
+  activeTab.value = sqlTab.id;
+  out.tabs = { apply: sqlTab.id };
+  return JSON.parse(JSON.stringify(out));
+}
+
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir }) => {
+  if (scenario === 'step5') return step5Scenario(beDir, dir);
   if (scenario === 'sql') return sqlScenario(beDir, dir);
   await panel.value!.setSource('be');
   await panel.value!.setBeDir(beDir);
@@ -375,6 +430,7 @@ window.__erdBench = async () => {
                     <span v-if="t.kind !== 'erd'" class="x" title="닫기" @click.stop="closeTab(t)">×</span>
                   </button>
                   <button class="add" @click="addSql()">+ SQL</button>
+                  <button class="add" @click="openCompare">DB 비교</button>
                   <button v-if="selected.length" class="add" @click="addSql(buildJoinSelect(model!, selected))">SELECT 만들기 ({{ selected.length }})</button>
                   <span class="spacer" />
                   <button class="add" title="Ctrl+`" @click="toggleTerm">{{ termVisible ? '터미널 숨기기 ▾' : '터미널 ▴' }}</button>
@@ -404,8 +460,11 @@ window.__erdBench = async () => {
                   </SplitPane>
                 </div>
                 <div v-for="t in tabs.filter(x => x.kind === 'sql')" v-show="activeTab === t.id" :key="t.id" class="pane">
-                  <SqlTab :ref="el => setTabRef(t.id, el)" :tab-id="t.id" :schema="model" :initial-sql="t.initialSql"
+                  <SqlTab :ref="el => setTabRef(t.id, el)" :tab-id="t.id" :schema="model" :initial-sql="t.initialSql" :initial-conn="t.initialConn"
                           :active="activeTab === t.id" @state="s => (t.dirty = !!s?.dirty)" />
+                </div>
+                <div v-if="tabs.some(x => x.kind === 'compare')" v-show="activeTab === 'compare'" class="pane">
+                  <CompareTab ref="compare" :model="model" @open-sql="p => addSql(p.sql, p.conn)" />
                 </div>
               </main>
             </template>

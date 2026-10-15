@@ -6,7 +6,8 @@ import { AgGridVue } from 'ag-grid-vue3';
 import { AllCommunityModule, ModuleRegistry, colorSchemeDark, themeQuartz, type ColDef, type GridApi } from 'ag-grid-community';
 import { bindContext, catalogCache, catalogFromModel, monaco, registerSqlProviders, unbindContext } from '../sql/monaco';
 import SplitPane from './SplitPane.vue';
-import { statementAt } from '../../../shared/sql/text';
+import { loadConnOptions, type ConnOption } from '../conn-options';
+import { splitStatements, statementAt } from '../../../shared/sql/text';
 import type { ConnRef, HistoryEntry, SqlCatalog, SqlResult, SqlState } from '../../../shared/ipc';
 import type { SchemaModel } from '../../../shared/model/types';
 
@@ -16,10 +17,13 @@ const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 const compact = { fontSize: 12, dataFontSize: 12, headerFontSize: 12, spacing: 4, rowHeight: 22, headerHeight: 26, cellHorizontalPadding: 6 };
 const theme = (dark ? themeQuartz.withPart(colorSchemeDark) : themeQuartz).withParams(compact);
 
-const props = defineProps<{ tabId: string; schema: SchemaModel | null; initialSql?: string; active: boolean }>();
+const props = defineProps<{
+  tabId: string; schema: SchemaModel | null; initialSql?: string; active: boolean;
+  /** 열 때 바로 접속할 접속 (예: 'be:dev', 'manual:{id}'). DB 비교 화면의 「DB 에 적용」이 준다 */
+  initialConn?: string;
+}>();
 const emit = defineEmits<{ state: [s: SqlState | null] }>();
 
-interface ConnOption { key: string; label: string; ref: ConnRef; readOnly: boolean }
 // ref 값을 IPC 로 보내므로 Vue 반응형으로 감싸지 않는다 (감싸면 복사 오류)
 const options = shallowRef<ConnOption[]>([]);
 const chosen = ref('');
@@ -39,16 +43,8 @@ const fetched = ref(0);
 const clean = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
 async function loadOptions() {
-  const s = await window.erd.settings.get();
-  const be = s.beDir ? (await window.erd.conn.list(s.beDir)).map(p => ({
-    key: 'be:' + p.name, label: `${p.name} (${p.database})`, readOnly: p.readOnly,
-    ref: { source: 'be', beDir: s.beDir!, name: p.name } as ConnRef,
-  })) : [];
-  const manual = (await window.erd.manual.list()).map(c => ({
-    key: 'manual:' + c.id, label: `${c.name} (${c.database})`, readOnly: c.readOnly, ref: { source: 'manual', id: c.id } as ConnRef,
-  }));
-  options.value = [...be, ...manual];
-  if (!chosen.value) chosen.value = (be.find(o => o.key === 'be:dev') ?? options.value[0])?.key ?? '';
+  options.value = await loadConnOptions();
+  if (!chosen.value) chosen.value = (options.value.find(o => o.key === 'be:dev') ?? options.value[0])?.key ?? '';
 }
 
 async function connect(key = chosen.value) {
@@ -133,6 +129,41 @@ async function run(sqlText?: string) {
   return result.value;
 }
 
+/**
+ * 전체 실행: 편집기의 문장을 차례로 한 트랜잭션 안에서 실행하고 첫 오류에서 멈춘다 (커밋은 사람이 버튼으로).
+ * 각 문장은 savepoint 로 감싸 실행되므로(STEP 4) 오류가 난 문장만 취소되고 앞 문장 변경은 남는다
+ */
+async function runAll() {
+  if (!state.value) await connect();
+  if (!state.value || !editor) return;
+  const model = editor.getModel()!;
+  // 문장 앞 주석 줄(ALTER 의 [위험] 표시 등)은 떼고 실행한다. lead 는 떼어 낸 글자 수 (오류 위치 계산용)
+  const LEAD_COMMENTS = /^(\s*--[^\n]*\n)+/;
+  const stmts = splitStatements(model.getValue())
+    .map(s => {
+      const body = s.text.replace(LEAD_COMMENTS, '');
+      return { ...s, body: body.trim(), lead: s.text.length - body.length };
+    })
+    .filter(s => s.body);
+  busy.value = true;
+  let done = 0;
+  try {
+    for (const s of stmts) {
+      const r = await window.erd.sql.run(props.tabId, s.body);
+      show(r, s.start + s.lead);
+      if (r.error) {
+        message.value = `${done + 1}번째 문장에서 멈춤 (앞 ${done}개 실행됨, 커밋 안 함): ${r.error.message}`;
+        editor.revealLineInCenter(model.getPositionAt(s.start).lineNumber);
+        return { done, total: stmts.length, error: r.error.message };
+      }
+      done++;
+    }
+    message.value = `${done}개 문장 실행${state.value?.dirty ? ', 커밋 안 함' : ''}`;
+    return { done, total: stmts.length };
+  } catch (e) { message.value = clean(e); return { done, total: stmts.length, error: clean(e) }; }
+  finally { busy.value = false; }
+}
+
 async function more() {
   busy.value = true;
   try {
@@ -171,7 +202,9 @@ onMounted(async () => {
     history: () => history.value,
   });
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => void run());
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => void runAll());
   await loadOptions();
+  if (props.initialConn) await connect(props.initialConn);
 });
 
 watch(() => props.active, a => { if (a) setTimeout(() => editor?.focus(), 0); });
@@ -183,7 +216,7 @@ onBeforeUnmount(() => {
 });
 
 defineExpose({
-  run, connect, tx, allowWrite, loadOptions,
+  run, runAll, connect, tx, allowWrite, loadOptions,
   state: () => state.value,
   message: () => message.value,
   options: () => options.value.map(o => o.key),
@@ -201,7 +234,8 @@ defineExpose({
         <option v-for="o in options" :key="o.key" :value="o.key">{{ o.label }}{{ o.readOnly ? ' [읽기 전용]' : '' }}</option>
       </select>
       <button :disabled="busy" @click="connect()">{{ state ? '다시 접속' : '접속' }}</button>
-      <button :disabled="busy" title="Ctrl+Enter" @click="run()">실행</button>
+      <button :disabled="busy" title="Ctrl+Enter: 커서가 있는 문장" @click="run()">실행</button>
+      <button :disabled="busy" title="Ctrl+Shift+Enter: 모든 문장을 한 트랜잭션 안에서 차례로" @click="runAll()">전체 실행</button>
       <button :disabled="busy || !state?.inTx" @click="tx('commit')">커밋</button>
       <button :disabled="busy || !state?.inTx" @click="tx('rollback')">롤백</button>
       <button v-if="state?.readOnly" :disabled="busy" @click="allowWrite">쓰기 허용</button>

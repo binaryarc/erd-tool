@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { IPC, type ConnRef, type ManualConn, type ShellKind } from '../shared/ipc';
 import { forgetSessionPasswords, listManual, removeManual, saveManual } from './db/manual';
-import { reverse, testConnection, testDraft } from './db/reverse';
+import { readDb, reverse, testConnection, testDraft } from './db/reverse';
 import { loadCatalog } from './db/catalog';
 import { getProfile, listProfiles, passwordOf, toInfo } from './db/profiles';
 import { allowWrite, closeAll, closeSession, commitTx, dirtyTabs, fetchMore, openSession, rollbackTx, runSql } from './db/session';
@@ -28,6 +28,7 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.manualSave, (_e, conn: ManualConn, password?: string) => saveManual(conn, password));
   ipcMain.handle(IPC.manualRemove, (_e, id: string) => removeManual(id));
   ipcMain.handle(IPC.dbCatalog, (_e, ref: ConnRef) => loadCatalog(ref));
+  ipcMain.handle(IPC.dbRead, (_e, ref: ConnRef) => readDb(ref));
   ipcMain.handle(IPC.dbReverse, (_e, ref: ConnRef, modelDir: string) => reverse(ref, modelDir, getSettings().beDir));
 
   // SQL 탭 (설계 5장). 성공한 문장은 리터럴을 지워 이력에 남긴다
@@ -114,6 +115,18 @@ function createWindow() {
         const out = await win.webContents.executeJavaScript(`window.__erdAuto(${JSON.stringify(args)})`);
         console.log('[auto]', JSON.stringify(out));
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
+        //   ERD_AUTO=step5  DB 비교, ERD 차이 적용(전체 실행 후 롤백). ERD_SHOT 을 주면 비교 탭과 적용 탭 화면을 남긴다
+        if (auto === 'step5') {
+          const shot = process.env.ERD_SHOT;
+          if (shot) {
+            for (const [name, id] of [['compare', 'compare'], ['apply', (out.tabs as Record<string, string>).apply]]) {
+              await win.webContents.executeJavaScript(`window.__erdActivate(${JSON.stringify(id)})`);
+              fs.writeFileSync(`${shot}-${name}.png`, (await win.webContents.capturePage()).toPNG());
+            }
+          }
+          app.quit();
+          return;
+        }
         if (auto === 'sql') {
           // 경계선 끌기: 실제 마우스 입력으로 터미널 위 경계선을 100px 올리고, 왼쪽 패널 경계선을 80px 오른쪽으로
           const js = (s: string) => win.webContents.executeJavaScript(s);

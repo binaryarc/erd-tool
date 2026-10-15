@@ -19,6 +19,7 @@ export const IPC = {
   manualRemove: 'manual:remove',
   dbReverse: 'db:reverse',
   dbCatalog: 'db:catalog',
+  dbRead: 'db:read',
   sqlOpen: 'sql:open',
   sqlRun: 'sql:run',
   sqlFetchMore: 'sql:fetchMore',
@@ -113,6 +114,8 @@ export interface ReverseResult {
   hadModel: boolean;
   /** 모델 폴더의 기존 화면 배치 (없으면 빈 배치). 적용할 때 이것을 써야 끌어 옮긴 위치가 지워지지 않는다 */
   layout: Layout;
+  /** 모델 폴더의 기존 모델 (골라 받기에서 고르지 않은 테이블은 이것을 유지) */
+  prev: SchemaModel | null;
 }
 
 /** SQL 탭 세션 상태 */
@@ -183,6 +186,8 @@ export interface ErdApi {
     reverse(ref: ConnRef, modelDir: string): Promise<ReverseResult>;
     /** SQL 자동완성용 테이블, 컬럼, 함수 목록 */
     catalog(ref: ConnRef): Promise<SqlCatalog>;
+    /** DB 구조를 읽기만 한다 (모델 폴더와 맞추지 않음, DB 비교용) */
+    read(ref: ConnRef): Promise<{ model: SchemaModel; warnings: string[] }>;
   };
   sql: {
     open(tabId: string, ref: ConnRef, label: string): Promise<SqlState>;
