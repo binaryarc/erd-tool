@@ -13,6 +13,7 @@ import { arrange } from '../../../shared/model/arrange';
 import type { Diagram } from '../../../shared/model/layout';
 import type { SchemaModel } from '../../../shared/model/types';
 import { COMPACT_ZOOM, VIEW_KEY, type ViewState } from '../view';
+import { tableWidth } from '../text-width';
 
 const props = defineProps<{ model: SchemaModel; diagram: Diagram; version: number }>();
 const emit = defineEmits<{ pin: [id: string, x: number, y: number] }>();
@@ -20,7 +21,9 @@ const view = inject(VIEW_KEY) as ViewState;
 
 const nodes = computed<Node[]>(() => {
   void props.version; // layout 이 바뀌면 다시 계산
-  const { positions, groups } = arrange(props.model, props.diagram);
+  // 폭은 보기 모드에 따라 바뀐다 (둘 다 보기에서 긴 이름이 잘리지 않게)
+  const widths = new Map(props.model.tables.map(t => [t.id, tableWidth(t, view.nameMode)]));
+  const { positions, groups } = arrange(props.model, props.diagram, t => widths.get(t.id)!);
   const groupNodes: Node[] = groups.map(g => ({
     id: 'group:' + g.name, type: 'group', position: { x: g.x, y: g.y }, data: { name: g.name },
     style: { width: `${g.width}px`, height: `${g.height}px` }, draggable: false, selectable: false, zIndex: -1,
@@ -28,7 +31,7 @@ const nodes = computed<Node[]>(() => {
   const tableNodes: Node[] = props.model.tables.map(t => {
     const fkCols = new Set(t.fks.flatMap(f => f.columns));
     const data: TableNodeData = {
-      name: t.name, comment: t.comment,
+      name: t.name, comment: t.comment, width: widths.get(t.id)!,
       columns: t.columns.map(c => ({ name: c.name, type: c.type, comment: c.comment, notNull: c.notNull, pk: t.pk.includes(c.name), fk: fkCols.has(c.name) })),
     };
     return { id: t.id, type: 'table', position: positions.get(t.id) ?? { x: 0, y: 0 }, data };

@@ -8,6 +8,8 @@ import { VIEW_KEY, type ViewState } from '../view';
 export interface TableNodeData {
   name: string;
   comment: string;
+  /** 내용에 맞춘 폭 (text-width.ts 가 계산) */
+  width: number;
   columns: { name: string; type: string; comment?: string; pk: boolean; fk: boolean; notNull: boolean }[];
 }
 
@@ -21,7 +23,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
 </script>
 
 <template>
-  <div class="tbl" :class="{ compact: view.compact }">
+  <div class="tbl" :class="{ compact: view.compact }" :style="{ width: data.width + 'px' }">
     <div class="head" :title="data.comment">
       <b>{{ title(data) }}</b>
       <span v-if="view.nameMode === 'both' && data.comment" class="logical">{{ data.comment }}</span>
@@ -45,14 +47,17 @@ const colName = (c: TableNodeData['columns'][number]) =>
 </template>
 
 <style scoped>
-.tbl { width: 260px; box-sizing: border-box; background: var(--node-bg); border: 1px solid var(--node-border); font: 11px/18px Consolas, 'Malgun Gothic', monospace; color: var(--fg); }
+.tbl { box-sizing: border-box; background: var(--node-bg); border: 1px solid var(--node-border); font: 11px/18px Consolas, 'Malgun Gothic', monospace; color: var(--fg); }
 .head { height: 24px; box-sizing: border-box; background: var(--node-head); border-bottom: 1px solid var(--node-border); padding: 0 6px; display: flex; gap: 6px; align-items: center; overflow: hidden; white-space: nowrap; }
 .compact .head { border-bottom: none; height: 22px; }
 .logical { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .row { position: relative; height: 18px; display: flex; gap: 6px; padding: 0 6px; white-space: nowrap; overflow: hidden; }
 .row.pk { background: var(--pk-bg); }
 .key { width: 26px; flex: none; color: var(--key); font-weight: bold; }
-.name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+/* 폭은 내용에 맞춰 계산되므로 이름은 줄이지 않는다. 최대 폭에 걸리면 논리명부터 줄어든다 */
+.name { flex: none; }
+.row .logical { flex: 1; min-width: 0; }
+.row .name + .type { margin-left: auto; }
 .name.nn { font-weight: bold; }
 .type { color: var(--muted); flex: none; }
 .h { width: 6px; height: 6px; min-width: 0; min-height: 0; opacity: 0; }

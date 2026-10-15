@@ -5,8 +5,8 @@ import { groupOf } from './erd-format';
 import type { Diagram, Layout } from './layout';
 import type { SchemaModel, Table } from './types';
 
-/** 화면 크기 (TableNode.vue 의 CSS 와 같아야 한다) */
-export const NODE = { width: 260, headHeight: 24, rowHeight: 18, compactHeight: 24 } as const;
+/** 화면 크기 (TableNode.vue 의 CSS 와 같아야 한다). width 는 최소 폭, 실제 폭은 내용에 맞춘다 */
+export const NODE = { width: 220, maxWidth: 560, headHeight: 24, rowHeight: 18, compactHeight: 24 } as const;
 export const DEFAULT_RULE = { cols: 4, gap: 40 } as const;
 const GROUP_GAP = 160;
 const GROUP_TITLE = 36;
@@ -56,22 +56,33 @@ export function syncLayout(model: SchemaModel, layout: Layout, diagram = DEFAULT
   return d;
 }
 
-const groupWidth = (rule: { cols: number; gap: number }) => rule.cols * NODE.width + (rule.cols - 1) * rule.gap;
+const groupWidth = (rule: { cols: number; gap: number }, colWidth: number = NODE.width) => rule.cols * colWidth + (rule.cols - 1) * rule.gap;
 
-/** 격자 배치: 순서대로 왼쪽에서 오른쪽, 줄 높이는 그 줄에서 가장 높은 테이블 */
-export function arrange(model: SchemaModel, d: Diagram, compact = false): Arranged {
+/**
+ * 격자 배치: 순서대로 왼쪽에서 오른쪽, 줄 높이는 그 줄에서 가장 높은 테이블.
+ * widthOf 를 주면 테이블마다 폭이 다를 수 있다. 그룹 안 칸 폭은 그 그룹에서 가장 넓은 테이블에 맞춰 격자를 지킨다.
+ * 폭이 늘어 그룹이 겹치면 뒤 그룹을 오른쪽으로 민다 (저장된 시작점은 바꾸지 않는다).
+ */
+export function arrange(model: SchemaModel, d: Diagram, widthOf: (t: Table) => number = () => NODE.width): Arranged {
   const byId = new Map(model.tables.map(t => [t.id, t]));
   const positions = new Map<string, { x: number; y: number }>();
   const groups: GroupBox[] = [];
-  for (const [name, g] of Object.entries(d.groups)) {
+  let prevRight = -Infinity;
+  const entries = Object.entries(d.groups).sort(([, a], [, b]) => a.rule.origin[0] - b.rule.origin[0]);
+  for (const [name, g] of entries) {
     const { cols, gap, origin } = g.rule;
+    const tables = g.order.map(id => byId.get(id)).filter((t): t is Table => !!t);
+    const colWidth = Math.max(NODE.width, ...tables.map(widthOf));
+    const x0 = Math.max(origin[0], prevRight + GROUP_GAP);
     let y = origin[1] + GROUP_TITLE;
-    for (let i = 0; i < g.order.length; i += cols) {
-      const row = g.order.slice(i, i + cols).map(id => byId.get(id)).filter((t): t is Table => !!t);
-      row.forEach((t, c) => positions.set(t.id, { x: origin[0] + c * (NODE.width + gap), y }));
-      y += Math.max(0, ...row.map(t => tableHeight(t, compact))) + gap;
+    for (let i = 0; i < tables.length; i += cols) {
+      const row = tables.slice(i, i + cols);
+      row.forEach((t, c) => positions.set(t.id, { x: x0 + c * (colWidth + gap), y }));
+      y += Math.max(0, ...row.map(t => tableHeight(t))) + gap;
     }
-    groups.push({ name, x: origin[0] - 20, y: origin[1], width: groupWidth(g.rule) + 40, height: y - origin[1] });
+    const width = groupWidth(g.rule, colWidth) + 40;
+    groups.push({ name, x: x0 - 20, y: origin[1], width, height: y - origin[1] });
+    prevRight = x0 - 20 + width;
   }
   for (const [id, [x, y]] of Object.entries(d.pinned)) if (byId.has(id)) positions.set(id, { x, y });
   return { positions, groups };

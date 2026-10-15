@@ -19,7 +19,7 @@ describe.skipIf(!!skip)('dev DB 리버스', () => {
   it('테이블 수, FK 수가 DB 직접 집계와 같고, 다시 리버스해도 ID 와 파일이 그대로다', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-'));
 
-    const first = await reverse(BE, 'dev', dir);
+    const first = await reverse({ source: 'be', beDir: BE, name: 'dev' }, dir);
     expect(first.hadModel).toBe(false);
     expect(first.model.tables.length).toBe(first.counts.tables);
     expect(first.model.tables.reduce((n, t) => n + t.fks.length, 0)).toBe(first.counts.fks);
@@ -30,8 +30,9 @@ describe.skipIf(!!skip)('dev DB 리버스', () => {
     const loaded = await loadModel(dir);
     expect(loaded.errors).toEqual([]);
 
-    const second = await reverse(BE, 'dev', dir);
+    const second = await reverse({ source: 'be', beDir: BE, name: 'dev' }, dir);
     expect(second.hadModel).toBe(true);
+    expect(second.layout).toEqual(loaded.layout); // 기존 배치를 함께 돌려준다
     expect(isEmptyDiff(second.diff)).toBe(true);
     expect(second.model.tables.map(t => t.id)).toEqual(first.model.tables.map(t => t.id));
     const saved = await saveModel(dir, second.model, loaded.layout);

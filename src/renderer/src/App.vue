@@ -55,7 +55,8 @@ async function openModel(dir?: string) {
 
 function applyReverse(r: ReverseResult) {
   errors.value = [];
-  show(r.model, layout.value);
+  // 모델 폴더의 기존 배치를 쓴다 (화면에 띄운 배치가 아니라). 끌어 옮긴 위치를 지키기 위해서다
+  show(r.model, r.layout);
   dirty.value = true;
   message.value = `DB 에서 불러옴: 테이블 ${r.model.tables.length}개 (저장 전)`;
 }
@@ -85,9 +86,10 @@ function autoArrange() {
 // 시험 모드 (메인의 ERD_AUTO 가 부른다)
 const frames = (n: number) => new Promise<void>(r => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
 window.__erdAuto = async ({ beDir, profile, modelDir: dir }) => {
+  await panel.value!.setSource('be');
   await panel.value!.setBeDir(beDir);
   await setModelDir(dir);
-  panel.value!.selectProfile(profile);
+  panel.value!.select(profile);
   await panel.value!.doReverse();
   const r = panel.value!.pending;
   if (!r) throw new Error('리버스 결과가 없다');
@@ -97,7 +99,15 @@ window.__erdAuto = async ({ beDir, profile, modelDir: dir }) => {
   panel.value!.apply();
   const saved = await save();
   await nextTick(); await frames(10); await new Promise(res => setTimeout(res, 1500));
-  const drawn = { tableNodes: document.querySelectorAll('.vue-flow__node-table').length, edges: document.querySelectorAll('.vue-flow__edge').length };
+  // 보기 모드마다 글자가 잘린 칸(이름, 논리명, 타입) 수를 센다
+  const truncated: Record<string, number> = {};
+  for (const mode of ['both', 'physical', 'logical'] as const) {
+    view.nameMode = mode; await nextTick(); await frames(3);
+    truncated[mode] = Array.from(document.querySelectorAll('.vue-flow__node-table .row > span, .vue-flow__node-table .head > *'))
+      .filter(e => e.scrollWidth > e.clientWidth + 1).length;
+  }
+  view.nameMode = 'both'; await nextTick(); await frames(3);
+  const drawn = { tableNodes: document.querySelectorAll('.vue-flow__node-table').length, edges: document.querySelectorAll('.vue-flow__edge').length, truncated };
   return { summary, saved: { written: saved?.written.length, unchanged: saved?.unchanged.length, removed: saved?.removed.length }, drawn };
 };
 // 화면 캡처 뒤 메인이 부른다: 기본 설정(컬럼 숨김 끔)으로 성능 측정
