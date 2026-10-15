@@ -5,11 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { loadModel, saveModel } from '../../src/main/model-store';
 import { emptyLayout } from '../../src/shared/model/layout';
 import type { SchemaModel } from '../../src/shared/model/types';
-import { SHOP_GROUPS } from '../helpers/catalog';
+import { SHOP_GROUPS } from '../helpers/fixtures';
 
 const model = (names: string[]): SchemaModel => ({
-  version: 1, groups: SHOP_GROUPS, common: [], sequences: [],
-  tables: names.map((name, i) => ({ id: 't' + (i + 1), name, comment: '', columns: [{ name: 'seq', type: 'integer', notNull: true }], pk: ['seq'], fks: [], indexes: [] })),
+  version: 1, groups: SHOP_GROUPS, common: [], sequences: [], functions: [],
+  tables: names.map((name, i) => ({ id: 't' + (i + 1), name, comment: '', columns: [{ name: 'seq', type: 'integer', notNull: true }], pk: ['seq'], fks: [], uniques: [], indexes: [] })),
 });
 
 describe('모델 폴더 저장', () => {

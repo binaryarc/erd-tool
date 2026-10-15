@@ -2,16 +2,24 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { INDEX_FILE, parseModel, serializeModel } from '../shared/model/erd-format';
+import { FUNCTIONS_DIR, INDEX_FILE, parseModel, serializeModel } from '../shared/model/erd-format';
 import { emptyLayout, LAYOUT_FILE, parseLayout, serializeLayout, type Layout } from '../shared/model/layout';
 import { validateModel } from '../shared/model/validate';
 import type { SchemaModel } from '../shared/model/types';
 import type { LoadResult, SaveResult } from '../shared/ipc';
 
+const listDir = (dir: string) => fs.readdir(dir).catch(() => [] as string[]);
+
+/** 모델 파일 이름 목록: *.erd 와 functions/*.sql (폴더 기준 상대 경로, / 구분) */
+async function modelFiles(dir: string): Promise<string[]> {
+  const erd = (await listDir(dir)).filter(f => f.endsWith('.erd'));
+  const fns = (await listDir(path.join(dir, FUNCTIONS_DIR))).filter(f => f.endsWith('.sql')).map(f => FUNCTIONS_DIR + f);
+  return [...erd, ...fns].sort();
+}
+
 export async function loadModel(dir: string): Promise<LoadResult> {
-  const names = (await fs.readdir(dir)).filter(f => f.endsWith('.erd')).sort();
   const files: Record<string, string> = {};
-  for (const f of names) files[f] = await fs.readFile(path.join(dir, f), 'utf8');
+  for (const f of await modelFiles(dir)) files[f] = await fs.readFile(path.join(dir, f), 'utf8');
   const parsed = parseModel(files);
   const errors = validateModel(parsed);
 
@@ -24,20 +32,21 @@ export async function loadModel(dir: string): Promise<LoadResult> {
   return { model: parsed.model, layout, errors };
 }
 
-/** 내용이 바뀐 파일만 쓰고, 테이블이 없어진 그룹 파일은 지운다 */
+/** 내용이 바뀐 파일만 쓰고, 테이블이나 함수가 없어진 파일은 지운다 */
 export async function saveModel(dir: string, model: SchemaModel, layout: Layout): Promise<SaveResult> {
   await fs.mkdir(dir, { recursive: true });
-  const out = { ...serializeModel(model), [LAYOUT_FILE]: serializeLayout(layout) };
+  const out: Record<string, string> = { ...serializeModel(model), [LAYOUT_FILE]: serializeLayout(layout) };
   const result: SaveResult = { written: [], unchanged: [], removed: [] };
   for (const [name, text] of Object.entries(out).sort(([a], [b]) => (a < b ? -1 : 1))) {
     const file = path.join(dir, name);
     const old = await fs.readFile(file, 'utf8').catch(() => null);
     if (old === text) { result.unchanged.push(name); continue; }
+    await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, text, 'utf8');
     result.written.push(name);
   }
-  for (const f of await fs.readdir(dir)) {
-    if (f.endsWith('.erd') && f !== INDEX_FILE && !(f in out)) {
+  for (const f of await modelFiles(dir)) {
+    if (f !== INDEX_FILE && !(f in out)) {
       await fs.unlink(path.join(dir, f));
       result.removed.push(f);
     }

@@ -31,6 +31,9 @@ export function validateModel({ model, errors: parseErrors, where }: ParseResult
       cols.add(c.name);
     }
     for (const p of t.pk) if (!cols.has(p)) at(t.name, `${t.name}: PK 컬럼 ${p} 이 없다`);
+    for (const u of t.uniques) {
+      for (const c of u.columns) if (!cols.has(c)) at(t.name, `${t.name}: UNIQUE ${u.name} 의 컬럼 ${c} 이 없다`);
+    }
     for (const ix of t.indexes) {
       for (const c of ix.columns) {
         if (/^\w+$/.test(c) && !cols.has(c)) at(t.name, `${t.name}: 인덱스 ${ix.name} 의 컬럼 ${c} 이 없다`);
