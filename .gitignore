@@ -1,0 +1,7 @@
+node_modules/
+dist/
+out/
+*.log
+spikes/**/catalog.json
+spikes/**/catalog.lines.txt
+spikes/pty/result.txt
