@@ -147,7 +147,7 @@ export interface HistoryEntry {
   last: string;
 }
 
-export type ShellKind = 'pwsh' | 'bash';
+export type ShellKind = 'powershell' | 'bash';
 
 export interface ErdApi {
   pickFolder(defaultPath?: string): Promise<string | null>;
@@ -188,7 +188,7 @@ export interface ErdApi {
     list(connKey: string): Promise<HistoryEntry[]>;
   };
   term: {
-    spawn(termId: string, shell: ShellKind, cols: number, rows: number): Promise<{ shell: string; cwd: string }>;
+    spawn(termId: string, shell: ShellKind, cols: number, rows: number): Promise<{ shell: string; label: string; cwd: string }>;
     input(termId: string, data: string): void;
     resize(termId: string, cols: number, rows: number): void;
     kill(termId: string): void;

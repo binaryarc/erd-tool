@@ -159,7 +159,7 @@ defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v),
 </template>
 
 <style scoped>
-.panel { width: 300px; flex: none; padding: 12px; border-right: 1px solid var(--line); overflow: auto; background: var(--panel-bg); }
+.panel { width: 100%; height: 100%; box-sizing: border-box; padding: 12px; border-right: 1px solid var(--line); overflow: auto; background: var(--panel-bg); }
 h3 { margin: 0 0 8px; } h4 { margin: 8px 0 4px; }
 label { font-size: 12px; color: var(--muted); }
 .tabs { display: flex; margin-bottom: 8px; }

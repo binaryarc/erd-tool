@@ -44,7 +44,7 @@ function registerIpc(win: BrowserWindow) {
 
   // 터미널 (설계 11장)
   ipcMain.handle(IPC.termSpawn, (_e, id: string, kind: ShellKind, cols: number, rows: number) =>
-    spawnTerm(id, kind, cols, rows, getSettings().beDir,
+    spawnTerm(id, kind, cols, rows,
       d => !win.isDestroyed() && win.webContents.send(IPC.termData, id, d),
       c => !win.isDestroyed() && win.webContents.send(IPC.termExit, id, c)));
   ipcMain.on(IPC.termInput, (_e, id: string, d: string) => inputTerm(id, d));
@@ -108,6 +108,29 @@ function createWindow() {
         console.log('[auto]', JSON.stringify(out));
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
         if (auto === 'sql') {
+          // 경계선 끌기: 실제 마우스 입력으로 터미널 위 경계선을 100px 올리고, 왼쪽 패널 경계선을 80px 오른쪽으로
+          const js = (s: string) => win.webContents.executeJavaScript(s);
+          const rect = (sel: string) => js(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+          const drag = async (x: number, y: number, dx: number, dy: number) => {
+            const ev = (type: 'mouseDown' | 'mouseMove' | 'mouseUp', px: number, py: number) =>
+              win.webContents.sendInputEvent({ type, x: Math.round(px), y: Math.round(py), button: 'left', clickCount: 1 });
+            ev('mouseDown', x, y);
+            for (let i = 1; i <= 5; i++) { ev('mouseMove', x + (dx * i) / 5, y + (dy * i) / 5); await new Promise(r => setTimeout(r, 30)); }
+            ev('mouseUp', x + dx, y + dy);
+            await new Promise(r => setTimeout(r, 300));
+          };
+          const termBefore = await rect('.term-panel');
+          const leftBefore = await rect('.panel');
+          await drag(termBefore.x + 200, termBefore.y - 2, 0, -100);
+          await drag(leftBefore.x + leftBefore.w + 2, leftBefore.y + 200, 80, 0);
+          const termAfter = await rect('.term-panel');
+          const leftAfter = await rect('.panel');
+          console.log('[resize]', JSON.stringify({
+            terminalHeight: [Math.round(termBefore.h), Math.round(termAfter.h)], leftWidth: [Math.round(leftBefore.w), Math.round(leftAfter.w)],
+            saved: await js(`[localStorage.getItem('split:terminal'), localStorage.getItem('split:left')]`),
+          }));
+          // 시험이 바꾼 크기는 사용자 설정에 남기지 않는다
+          await js(`localStorage.removeItem('split:terminal'); localStorage.removeItem('split:left')`);
           const shot = process.env.ERD_SHOT;
           if (shot) {
             for (const [name, id] of Object.entries(out.tabs as Record<string, string>)) {
