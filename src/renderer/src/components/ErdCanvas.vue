@@ -25,6 +25,8 @@ const props = withDefaults(defineProps<{
   showMiniMap?: boolean;
   /** 영역 크기가 바뀔 때마다 전체 보기로 맞춘다 (미니 ERD: 패널이 열리는 순간 폭이 0 이라 처음 맞춤이 틀어진다) */
   fitOnResize?: boolean;
+  /** 이 값이 바뀔 때만 전체 보기로 맞춘다 (없으면 모델이 바뀔 때마다). 본 ERD 는 모델을 고칠 때마다 화면이 튀지 않게 불러올 때만 바꾼다 */
+  fitKey?: number;
 }>(), { flowId: 'main', showMiniMap: true, fitOnResize: false });
 const emit = defineEmits<{ pin: [id: string, x: number, y: number]; select: [names: string[]]; open: [name: string] }>();
 const view = inject(VIEW_KEY) as ViewState;
@@ -82,7 +84,7 @@ async function refit() {
   await nextTick();
   setTimeout(() => fitView({ padding: 0.15 }), 50);
 }
-watch(() => props.model, refit);
+watch(() => props.fitKey ?? props.model, refit);
 
 const box = ref<HTMLDivElement>();
 let observer: ResizeObserver | undefined;

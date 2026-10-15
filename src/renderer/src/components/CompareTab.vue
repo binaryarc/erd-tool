@@ -26,11 +26,13 @@ const dangerOnly = ref(false);
 const KIND_LABEL: Record<DiffKind, string> = { table: '테이블', column: '컬럼', pk: 'PK', fk: 'FK', unique: 'UNIQUE', index: '인덱스', sequence: '시퀀스', function: '함수' };
 const CHANGE_LABEL = { add: '추가', drop: '삭제', alter: '변경' } as const;
 
-onMounted(async () => {
+/** 접속 목록을 다 읽었을 때 풀린다 (탭을 열자마자 비교하는 「DB 에 적용」 버튼이 기다린다) */
+const ready = new Promise<void>(done => onMounted(async () => {
   options.value = await loadConnOptions();
   left.value.key = options.value.find(o => o.key === 'be:dev')?.key ?? options.value[0]?.key ?? '';
   right.value.key = options.value.find(o => o.key === 'be:test')?.key ?? options.value[1]?.key ?? '';
-});
+  done();
+}));
 
 const sideValue = (s: Side) => (s.kind === 'conn' ? 'conn:' + s.key : s.kind);
 async function setSide(which: 'left' | 'right', v: string) {
@@ -89,7 +91,7 @@ function apply() {
   emit('openSql', { sql: alterSql.value, conn: c.key });
 }
 
-defineExpose({ compare, setLeft: (k: string) => (left.value = { kind: 'conn', key: k, dir: '' }), setRight: (k: string) => (right.value = { kind: 'conn', key: k, dir: '' }),
+defineExpose({ ready, compare, setLeft: (k: string) => (left.value = { kind: 'conn', key: k, dir: '' }), setRight: (k: string) => (right.value = { kind: 'conn', key: k, dir: '' }),
   setRightErd: () => (right.value = { kind: 'erd', key: '', dir: '' }), items: () => items.value, alter: () => alterSql.value, apply });
 </script>
 
