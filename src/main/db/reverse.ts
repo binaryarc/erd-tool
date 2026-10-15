@@ -57,7 +57,18 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
       functions: raw.functions,
     };
     const { model, diff } = mergeModel(prev, next);
-    return { model, diff, warnings: raw.warnings, counts, hadModel: !!prev, layout: loaded?.layout ?? emptyLayout() };
+    return { model, diff, warnings: raw.warnings, counts, hadModel: !!prev, layout: loaded?.layout ?? emptyLayout(), prev };
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+/** DB 구조를 읽기만 한다 (DB 비교 화면용). 읽기 전용 연결, 모델 폴더와 맞추지 않는다 */
+export async function readDb(ref: ConnRef): Promise<{ model: SchemaModel; warnings: string[] }> {
+  const client = await connect(await resolve(ref), true);
+  try {
+    const raw = await reversePg(client);
+    return { model: { version: MODEL_VERSION, groups: [], common: [], tables: raw.tables, sequences: raw.sequences, functions: raw.functions }, warnings: raw.warnings };
   } finally {
     await client.end().catch(() => {});
   }

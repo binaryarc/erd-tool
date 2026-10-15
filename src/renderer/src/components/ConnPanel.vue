@@ -2,7 +2,7 @@
 // 접속 패널: 접속 정보 가져오는 방법(BE 폴더 자동 매핑, 직접 입력)을 고르고 → 접속 시험, DB 에서 불러오기 → 차이 확인 → 적용
 import { computed, onMounted, ref, shallowRef } from 'vue';
 import type { ConnRef, ConnSource, ConnTestResult, ManualConnInfo, ProfileInfo, ReverseResult } from '../../../shared/ipc';
-import { isEmptyDiff } from '../../../shared/model/merge';
+import { applySelected, isEmptyDiff } from '../../../shared/model/merge';
 import ManualConnForm from './ManualConnForm.vue';
 
 const props = defineProps<{ modelDir: string }>();
@@ -72,22 +72,47 @@ async function run<T>(label: string, f: () => Promise<T>): Promise<T | undefined
 }
 
 const doTest = () => run('접속 시험 중', async () => { test.value = await window.erd.conn.test(ref_()); });
-const doReverse = () => run('DB 구조 읽는 중', async () => { pending.value = await window.erd.db.reverse(ref_(), props.modelDir); });
+const doReverse = () => run('DB 구조 읽는 중', async () => {
+  pending.value = await window.erd.db.reverse(ref_(), props.modelDir);
+  const d = pending.value.diff;
+  picked.value = new Set([...d.added, ...d.removed, ...d.changed]); // 기본은 모두 받기
+  takeRoutines.value = true;
+});
+
+// DB → ERD 골라 받기: 고른 테이블만 DB 것으로, 나머지는 지금 모델 그대로 (설계 6-1)
+const picked = ref(new Set<string>());
+const takeRoutines = ref(true);
+const changedNames = computed(() => {
+  const d = pending.value?.diff;
+  return d ? [...d.added, ...d.removed, ...d.changed] : [];
+});
+function toggle(name: string) {
+  const s = new Set(picked.value);
+  if (s.has(name)) s.delete(name); else s.add(name);
+  picked.value = s;
+}
+const pickAll = (on: boolean) => { picked.value = new Set(on ? changedNames.value : []); };
+
 function apply() {
-  if (pending.value) emit('apply', pending.value);
+  const r = pending.value;
+  if (!r) return;
+  const model = r.hadModel ? applySelected(r.prev, r.model, picked.value, takeRoutines.value) : r.model;
+  emit('apply', { ...r, model });
   pending.value = null;
 }
 
-const diffRows = computed(() => {
+const tableRows = computed(() => {
   const d = pending.value?.diff;
   if (!d) return [];
-  return [
-    ['추가된 테이블', d.added], ['없어진 테이블', d.removed], ['바뀐 테이블', d.changed],
-    ['추가된 함수', d.functionsAdded], ['없어진 함수', d.functionsRemoved], ['바뀐 함수', d.functionsChanged],
-  ].filter(([, v]) => (v as string[]).length) as [string, string[]][];
+  return ([['추가된 테이블', d.added], ['없어진 테이블', d.removed], ['바뀐 테이블', d.changed]] as [string, string[]][])
+    .filter(([, v]) => v.length);
+});
+const routineCount = computed(() => {
+  const d = pending.value?.diff;
+  return d ? d.functionsAdded.length + d.functionsRemoved.length + d.functionsChanged.length + (d.sequencesChanged ? 1 : 0) : 0;
 });
 
-defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v), doReverse, pending, apply });
+defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v), doReverse, pending, apply, picked, toggle });
 </script>
 
 <template>
@@ -145,15 +170,20 @@ defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v),
       <p>모델: 테이블 {{ pending.model.tables.length }}, FK {{ pending.model.tables.reduce((n, t) => n + t.fks.length, 0) }}, 함수 {{ pending.model.functions.length }}, 시퀀스 {{ pending.model.sequences.length }}</p>
       <p v-if="!pending.hadModel">모델 폴더에 기존 모델이 없어 새로 만든다</p>
       <p v-else-if="isEmptyDiff(pending.diff)">기존 모델과 같다</p>
-      <details v-for="[label, list] in diffRows" :key="label" open>
-        <summary>{{ label }} {{ list.length }}개</summary>
-        <ul><li v-for="n in list" :key="n">{{ n }}</li></ul>
-      </details>
+      <template v-if="pending.hadModel && changedNames.length">
+        <p class="muted">받을 테이블을 고른다. 고르지 않은 테이블은 지금 모델 그대로 둔다.
+          <a @click="pickAll(true)">모두 고르기</a> <a @click="pickAll(false)">모두 풀기</a></p>
+        <details v-for="[label, list] in tableRows" :key="label" open>
+          <summary>{{ label }} {{ list.length }}개</summary>
+          <ul class="picks"><li v-for="n in list" :key="n"><label><input type="checkbox" :checked="picked.has(n)" @change="toggle(n)" /> {{ n }}</label></li></ul>
+        </details>
+      </template>
+      <label v-if="pending.hadModel && routineCount" class="check"><input v-model="takeRoutines" type="checkbox" /> 함수, 시퀀스 변화도 받기 ({{ routineCount }}개)</label>
       <details v-if="pending.warnings.length">
         <summary>모델에 담지 않은 것 {{ pending.warnings.length }}개</summary>
         <ul><li v-for="w in pending.warnings" :key="w">{{ w }}</li></ul>
       </details>
-      <div class="row"><button @click="apply">화면에 적용</button><button @click="pending = null">취소</button></div>
+      <div class="row"><button @click="apply">{{ pending.hadModel && changedNames.length ? `고른 것 적용 (${picked.size}개)` : '화면에 적용' }}</button><button @click="pending = null">취소</button></div>
     </div>
   </aside>
 </template>
@@ -175,5 +205,8 @@ label { font-size: 12px; color: var(--muted); }
 .acts { float: right; } .acts a { margin-left: 6px; color: var(--accent); cursor: pointer; }
 .pending { border-top: 1px solid var(--line); margin-top: 8px; font-size: 12px; }
 .pending ul { margin: 2px 0; padding-left: 18px; max-height: 160px; overflow: auto; }
+.pending .picks { list-style: none; padding-left: 4px; }
+.pending a { color: var(--accent); cursor: pointer; margin-left: 6px; }
+.check { display: block; margin: 4px 0; color: var(--fg); }
 .ok { color: var(--ok); } .warn { color: var(--warn); } .muted { color: var(--muted); }
 </style>
