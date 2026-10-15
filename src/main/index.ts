@@ -1,12 +1,15 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { IPC, type ConnRef, type ManualConn } from '../shared/ipc';
+import { IPC, type ConnRef, type ManualConn, type ShellKind } from '../shared/ipc';
 import { forgetSessionPasswords, listManual, removeManual, saveManual } from './db/manual';
 import { reverse, testConnection, testDraft } from './db/reverse';
 import { getProfile, listProfiles, passwordOf, toInfo } from './db/profiles';
+import { allowWrite, closeAll, closeSession, commitTx, dirtyTabs, fetchMore, openSession, rollbackTx, runSql } from './db/session';
+import { addHistory, listHistory, setHistoryDir } from './history';
 import { loadModel, saveModel } from './model-store';
 import { getSettings, setSettings } from './settings';
+import { inputTerm, killTerm, resizeTerm, spawnTerm } from './terminal';
 
 function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.pickFolder, async (_e, defaultPath?: string) => {
@@ -24,7 +27,49 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.manualSave, (_e, conn: ManualConn, password?: string) => saveManual(conn, password));
   ipcMain.handle(IPC.manualRemove, (_e, id: string) => removeManual(id));
   ipcMain.handle(IPC.dbReverse, (_e, ref: ConnRef, modelDir: string) => reverse(ref, modelDir, getSettings().beDir));
+
+  // SQL 탭 (설계 5장). 성공한 문장은 리터럴을 지워 이력에 남긴다
+  ipcMain.handle(IPC.sqlOpen, (_e, tabId: string, ref: ConnRef, label: string) => openSession(tabId, ref, label));
+  ipcMain.handle(IPC.sqlRun, async (_e, tabId: string, sql: string) => {
+    const r = await runSql(tabId, sql);
+    if (!r.error) addHistory(r.state.connKey, sql);
+    return r;
+  });
+  ipcMain.handle(IPC.sqlFetchMore, (_e, tabId: string) => fetchMore(tabId));
+  ipcMain.handle(IPC.sqlCommit, (_e, tabId: string) => commitTx(tabId));
+  ipcMain.handle(IPC.sqlRollback, (_e, tabId: string) => rollbackTx(tabId));
+  ipcMain.handle(IPC.sqlAllowWrite, (_e, tabId: string) => allowWrite(tabId));
+  ipcMain.handle(IPC.sqlClose, (_e, tabId: string) => closeSession(tabId));
+  ipcMain.handle(IPC.historyList, (_e, key: string) => listHistory(key));
+
+  // 터미널 (설계 11장)
+  ipcMain.handle(IPC.termSpawn, (_e, id: string, kind: ShellKind, cols: number, rows: number) =>
+    spawnTerm(id, kind, cols, rows, getSettings().beDir,
+      d => !win.isDestroyed() && win.webContents.send(IPC.termData, id, d),
+      c => !win.isDestroyed() && win.webContents.send(IPC.termExit, id, c)));
+  ipcMain.on(IPC.termInput, (_e, id: string, d: string) => inputTerm(id, d));
+  ipcMain.on(IPC.termResize, (_e, id: string, c: number, r: number) => resizeTerm(id, c, r));
+  ipcMain.on(IPC.termKill, (_e, id: string) => killTerm(id));
+
+  // 창 닫기: 커밋 안 한 탭이 있으면 화면에 묻는다 (설계 5장 6번)
+  let closing = false;
+  win.on('close', e => {
+    if (closing) return;
+    const dirty = dirtyTabs();
+    if (!dirty.length) return;
+    e.preventDefault();
+    win.webContents.send(IPC.closeRequest, dirty);
+  });
+  ipcMain.on(IPC.closeConfirm, (_e, ok: boolean) => {
+    if (!ok) return;
+    closing = true;
+    win.close();
+  });
 }
+
+// 앱을 끌 때는 셸에 kill 을 보내지 않는다. Windows 에서 node-pty 의 kill 은 콘솔 목록을 읽는 보조 프로세스를 띄우는데,
+// 앱이 끝나는 중이면 그 프로세스가 「AttachConsole failed」 오류를 낸다. 앱이 끝나면 의사 콘솔이 닫혀 셸도 같이 끝난다.
+app.on('before-quit', () => { void closeAll(); });
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -61,6 +106,18 @@ function createWindow() {
       try {
         const out = await win.webContents.executeJavaScript(`window.__erdAuto(${JSON.stringify(args)})`);
         console.log('[auto]', JSON.stringify(out));
+        //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
+        if (auto === 'sql') {
+          const shot = process.env.ERD_SHOT;
+          if (shot) {
+            for (const [name, id] of Object.entries(out.tabs as Record<string, string>)) {
+              await win.webContents.executeJavaScript(`window.__erdActivate(${JSON.stringify(id)})`);
+              fs.writeFileSync(`${shot}-${name}.png`, (await win.webContents.capturePage()).toPNG());
+            }
+          }
+          app.quit();
+          return;
+        }
         // ERD_SHOT 을 주면 처음 화면(전체 보기)과 100% 확대 화면을 PNG 로 남긴다
         const shot = process.env.ERD_SHOT;
         if (shot) {
@@ -107,5 +164,8 @@ async function manualScenario(beDir: string) {
   return out;
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  setHistoryDir(path.join(app.getPath('userData'), 'history'));
+  createWindow();
+});
 app.on('window-all-closed', () => app.quit());

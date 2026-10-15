@@ -25,6 +25,28 @@ const api: ErdApi = {
   db: {
     reverse: (ref, modelDir) => ipcRenderer.invoke(IPC.dbReverse, ref, modelDir),
   },
+  sql: {
+    open: (tabId, ref, label) => ipcRenderer.invoke(IPC.sqlOpen, tabId, ref, label),
+    run: (tabId, sql) => ipcRenderer.invoke(IPC.sqlRun, tabId, sql),
+    fetchMore: tabId => ipcRenderer.invoke(IPC.sqlFetchMore, tabId),
+    commit: tabId => ipcRenderer.invoke(IPC.sqlCommit, tabId),
+    rollback: tabId => ipcRenderer.invoke(IPC.sqlRollback, tabId),
+    allowWrite: tabId => ipcRenderer.invoke(IPC.sqlAllowWrite, tabId),
+    close: tabId => ipcRenderer.invoke(IPC.sqlClose, tabId),
+  },
+  history: {
+    list: key => ipcRenderer.invoke(IPC.historyList, key),
+  },
+  term: {
+    spawn: (id, shell, cols, rows) => ipcRenderer.invoke(IPC.termSpawn, id, shell, cols, rows),
+    input: (id, data) => ipcRenderer.send(IPC.termInput, id, data),
+    resize: (id, cols, rows) => ipcRenderer.send(IPC.termResize, id, cols, rows),
+    kill: id => ipcRenderer.send(IPC.termKill, id),
+    onData: cb => { ipcRenderer.on(IPC.termData, (_e, id, d) => cb(id, d)); },
+    onExit: cb => { ipcRenderer.on(IPC.termExit, (_e, id, c) => cb(id, c)); },
+  },
+  onCloseRequest: cb => { ipcRenderer.on(IPC.closeRequest, (_e, dirty) => cb(dirty)); },
+  confirmClose: ok => ipcRenderer.send(IPC.closeConfirm, ok),
 };
 
 contextBridge.exposeInMainWorld('erd', api);

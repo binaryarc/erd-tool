@@ -1,0 +1,167 @@
+// SQL 탭 세션 (설계 5장): 탭마다 전용 연결 1개, 자동 커밋 끔, 결과는 1,000행씩.
+// - 첫 실행 때 BEGIN 하고 커밋, 롤백 전까지 같은 트랜잭션을 쓴다
+// - 문장마다 SAVEPOINT 로 감싸 한 문장이 실패해도 트랜잭션 전체가 망가지지 않게 한다
+// - 읽기 전용 접속은 DB 서버가 막는다(default_transaction_read_only). 앱이 문장 종류를 추측하지 않는다
+
+import pg from 'pg';
+import Cursor from 'pg-cursor';
+import type { ConnRef, SqlResult, SqlState } from '../../shared/ipc';
+import { connect, connKey, resolve, type Target } from './connect';
+
+export const FETCH_SIZE = 1000;
+
+// DB 도구라 값은 DB 가 준 글자 그대로 보여준다 (날짜, numeric, json, bytea, 배열). 숫자와 참거짓만 바꾼다
+const KEEP_PARSED = new Set([16, 21, 23, 26, 700, 701]); // bool, int2, int4, oid, float4, float8
+const rawTypes = {
+  getTypeParser: (oid: number, format?: string) =>
+    KEEP_PARSED.has(oid) ? pg.types.getTypeParser(oid, format as 'text') : (v: string) => v,
+};
+
+const WRITE_FREE = new Set(['SELECT', 'SHOW', 'EXPLAIN', 'FETCH', 'SAVEPOINT', 'RELEASE', 'SET']);
+
+class Session {
+  private cursor: Cursor | null = null;
+  private columns: { name: string }[] = [];
+  inTx = false;
+  dirty = false;
+  readOnly: boolean;
+
+  constructor(private client: pg.Client, readonly label: string, readonly key: string, readOnly: boolean) {
+    this.readOnly = readOnly;
+  }
+
+  state(more = false): SqlState {
+    return { label: this.label, connKey: this.key, inTx: this.inTx, dirty: this.dirty, readOnly: this.readOnly, more };
+  }
+
+  private async closeCursor() {
+    const c = this.cursor;
+    this.cursor = null;
+    if (c) await c.close().catch(() => {});
+  }
+
+  async run(sql: string): Promise<SqlResult> {
+    await this.closeCursor();
+    const t0 = Date.now();
+    const s = sql.trim().replace(/;\s*$/, '');
+    // 편집기에 직접 쓴 트랜잭션 명령은 버튼과 같게 처리한다
+    if (/^(commit|end)\b/i.test(s)) return { ...(await this.commit()), ms: Date.now() - t0 };
+    if (/^(rollback|abort)\b(?!\s+to\b)/i.test(s)) return { ...(await this.rollback()), ms: Date.now() - t0 };
+    if (/^(begin|start\s+transaction)\b/i.test(s)) {
+      if (!this.inTx) { await this.client.query('BEGIN'); this.inTx = true; }
+      return this.done('BEGIN', null, t0);
+    }
+
+    if (!this.inTx) { await this.client.query('BEGIN'); this.inTx = true; }
+    await this.client.query('SAVEPOINT erd_stmt');
+    try {
+      const cursor = this.client.query(new Cursor(s, undefined, { rowMode: 'array', types: rawTypes }));
+      const { rows, result } = await read(cursor, FETCH_SIZE);
+      const command = result.command ?? '';
+      if (command && !WRITE_FREE.has(command)) this.dirty = true;
+      this.columns = (result.fields ?? []).map(f => ({ name: f.name }));
+      const more = rows.length === FETCH_SIZE;
+      // 커서가 열려 있는 동안 연결은 다른 문장을 받지 않는다(pg 대기열). 더 받을 행이 없을 때만 닫고 savepoint 를 푼다.
+      // 열어 둔 커서의 savepoint 는 남아도 된다 (같은 이름 savepoint 를 다시 만들 수 있다)
+      if (more) this.cursor = cursor;
+      else {
+        await cursor.close().catch(() => {});
+        await this.client.query('RELEASE SAVEPOINT erd_stmt');
+      }
+      return {
+        command, columns: this.columns, rows, rowCount: this.columns.length ? rows.length : result.rowCount ?? null,
+        ms: Date.now() - t0, state: this.state(more),
+      };
+    } catch (e) {
+      await this.client.query('ROLLBACK TO SAVEPOINT erd_stmt').catch(() => {});
+      const err = e as Error & { position?: string; code?: string };
+      return { command: '', columns: [], rows: [], rowCount: null, ms: Date.now() - t0, state: this.state(),
+        error: { message: err.message, code: err.code, position: err.position ? Number(err.position) : undefined } };
+    }
+  }
+
+  async fetchMore(): Promise<SqlResult> {
+    const t0 = Date.now();
+    if (!this.cursor) return this.done('', null, t0);
+    const { rows } = await read(this.cursor, FETCH_SIZE);
+    const more = rows.length === FETCH_SIZE;
+    if (!more) await this.closeCursor();
+    return { command: 'FETCH', columns: this.columns, rows, rowCount: rows.length, ms: Date.now() - t0, state: this.state(more) };
+  }
+
+  async commit(): Promise<SqlResult> {
+    const t0 = Date.now();
+    await this.closeCursor();
+    if (this.inTx) await this.client.query('COMMIT');
+    this.inTx = false; this.dirty = false;
+    return this.done('COMMIT', null, t0);
+  }
+
+  async rollback(): Promise<SqlResult> {
+    const t0 = Date.now();
+    await this.closeCursor();
+    if (this.inTx) await this.client.query('ROLLBACK');
+    this.inTx = false; this.dirty = false;
+    return this.done('ROLLBACK', null, t0);
+  }
+
+  /** 이 탭만 쓰기를 허용한다. 열린 읽기 전용 트랜잭션은 바뀐 것이 없으니 롤백하고 다음 트랜잭션부터 적용 */
+  async allowWrite(): Promise<SqlState> {
+    await this.closeCursor();
+    if (this.inTx) { await this.client.query('ROLLBACK'); this.inTx = false; this.dirty = false; }
+    await this.client.query('set default_transaction_read_only = off');
+    this.readOnly = false;
+    return this.state();
+  }
+
+  async close() {
+    await this.closeCursor();
+    if (this.inTx) await this.client.query('ROLLBACK').catch(() => {});
+    await this.client.end().catch(() => {});
+  }
+
+  private done(command: string, rowCount: number | null, t0: number): SqlResult {
+    return { command, columns: [], rows: [], rowCount, ms: Date.now() - t0, state: this.state() };
+  }
+}
+
+function read(cursor: Cursor, n: number): Promise<{ rows: unknown[][]; result: pg.QueryResult }> {
+  return new Promise((ok, fail) => cursor.read(n, (err, rows, result) => (err ? fail(err) : ok({ rows: rows as unknown[][], result }))));
+}
+
+const sessions = new Map<string, Session>();
+
+const get = (tabId: string) => {
+  const s = sessions.get(tabId);
+  if (!s) throw new Error('이 탭은 아직 접속하지 않았다');
+  return s;
+};
+
+/** 탭에 접속한다. 이미 접속돼 있으면 닫고 새로 연다 (커밋 안 한 변경이 있으면 화면이 먼저 물어본다) */
+export async function openSession(tabId: string, ref: ConnRef, label: string, resolver: (r: ConnRef) => Promise<Target> = resolve): Promise<SqlState> {
+  await closeSession(tabId);
+  const t = await resolver(ref);
+  const client = await connect(t, t.readOnly);
+  const s = new Session(client, label, connKey(ref), t.readOnly);
+  sessions.set(tabId, s);
+  return s.state();
+}
+
+export const runSql = (tabId: string, sql: string) => get(tabId).run(sql);
+export const fetchMore = (tabId: string) => get(tabId).fetchMore();
+export const commitTx = (tabId: string) => get(tabId).commit();
+export const rollbackTx = (tabId: string) => get(tabId).rollback();
+export const allowWrite = (tabId: string) => get(tabId).allowWrite();
+
+export async function closeSession(tabId: string) {
+  const s = sessions.get(tabId);
+  sessions.delete(tabId);
+  await s?.close();
+}
+
+/** 커밋 안 한 변경이 있는 탭 (창 닫기 확인용) */
+export const dirtyTabs = () => [...sessions].filter(([, s]) => s.dirty).map(([id, s]) => ({ tabId: id, label: s.label }));
+
+export async function closeAll() {
+  await Promise.all([...sessions.keys()].map(closeSession));
+}

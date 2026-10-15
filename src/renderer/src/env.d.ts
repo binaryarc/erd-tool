@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type { ErdApi } from '../../shared/ipc';
 
 declare global {
@@ -6,6 +7,7 @@ declare global {
     /** 시험 모드용: 메인이 executeJavaScript 로 부른다 */
     __erdAuto?: (args: { scenario: string; beDir: string; profile: string; modelDir: string }) => Promise<unknown>;
     __erdBench?: () => Promise<unknown>;
+    __erdActivate?: (tabId: string) => Promise<void>;
   }
 }
 

@@ -9,30 +9,8 @@ import { emptyLayout } from '../../shared/model/layout';
 import { MODEL_VERSION, type GroupRule, type SchemaModel } from '../../shared/model/types';
 import type { ConnRef, ConnTestResult, ManualConn, ReverseResult } from '../../shared/ipc';
 import { loadModel } from '../model-store';
+import { connect, resolve, type Target } from './connect';
 import { countPg, reversePg } from './pg-reverse';
-import { getProfile, passwordOf } from './profiles';
-
-interface Target { host: string; port: number; database: string; user: string; password: string }
-
-/** 접속 정보를 BE properties 또는 직접 입력 목록에서 찾는다. 비밀번호는 여기서만 다룬다 */
-async function resolve(ref: ConnRef): Promise<Target> {
-  if (ref.source === 'be') {
-    const p = getProfile(ref.beDir, ref.name);
-    return { host: p.host, port: p.port, database: p.database, user: p.user, password: passwordOf(p, ref.beDir) };
-  }
-  // electron 모듈을 쓰므로 직접 입력일 때만 불러온다 (BE 통합 시험은 Electron 밖에서 돈다)
-  const { resolveManual } = await import('./manual');
-  const { conn, password } = await resolveManual(ref.id);
-  return { ...conn, password };
-}
-
-async function connect(t: Target): Promise<pg.Client> {
-  const client = new pg.Client({ ...t, connectionTimeoutMillis: 10_000, application_name: 'erd-tool' });
-  await client.connect();
-  // 리버스와 접속 시험은 읽기만 한다
-  await client.query('set default_transaction_read_only = on');
-  return client;
-}
 
 export const testConnection = async (ref: ConnRef) => test(() => resolve(ref));
 export const testDraft = async (c: ManualConn, password: string) => test(async () => ({ ...c, password }));
@@ -40,7 +18,8 @@ export const testDraft = async (c: ManualConn, password: string) => test(async (
 async function test(target: () => Promise<Target>): Promise<ConnTestResult> {
   let client: pg.Client | undefined;
   try {
-    client = await connect(await target());
+    // 리버스와 접속 시험은 읽기만 한다
+    client = await connect(await target(), true);
     const c = await countPg(client);
     const v = await client.query('select current_database() db, version() ver');
     return { ok: true, message: `${v.rows[0].db} 접속 성공`, tables: c.tables, fks: c.fks, server: String(v.rows[0].ver).split(',')[0] };
@@ -65,7 +44,7 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
   const beDir = ref.source === 'be' ? ref.beDir : hubBeDir;
   const loaded = fs.existsSync(path.join(modelDir, '_index.erd')) ? await loadModel(modelDir) : null;
   const prev = loaded?.model ?? null;
-  const client = await connect(await resolve(ref));
+  const client = await connect(await resolve(ref), true);
   try {
     const raw = await reversePg(client);
     const counts = await countPg(client);
