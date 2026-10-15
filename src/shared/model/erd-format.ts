@@ -1,10 +1,12 @@
 // .erd 한 줄 표기 읽기, 쓰기 (설계 문서 4장)
 // 같은 모델은 항상 같은 바이트로 저장한다: 테이블 이름순, 키 줄은 종류 후 이름순, 컬럼은 정의 순서, LF, 끝 줄바꿈 1개.
 
-import { MODEL_VERSION, type Column, type GroupRule, type ModelError, type SchemaModel, type Table } from './types';
+import { MODEL_VERSION, type Column, type FunctionDef, type GroupRule, type ModelError, type SchemaModel, type Table } from './types';
 
 export const INDEX_FILE = '_index.erd';
+export const FUNCTIONS_DIR = 'functions/';
 const COMMON_MARK = '+common';
+const FUNCTION_HEAD = '-- erd-function ';
 
 // ---------- 쓰기 ----------
 
@@ -19,6 +21,13 @@ export function serializeModel(model: SchemaModel): Record<string, string> {
   for (const [g, tables] of [...byGroup].sort(([a], [b]) => cmp(a, b))) {
     const lines = tables.sort((a, b) => cmp(a.name, b.name)).flatMap(t => tableLines(t, model.common));
     files[`${g}.erd`] = lines.join('\n') + '\n';
+  }
+  // 함수: 이름마다 파일 하나, 같은 이름(인자만 다름)은 인자 순으로 한 파일에
+  const byName = new Map<string, FunctionDef[]>();
+  for (const f of model.functions) byName.set(f.name, [...(byName.get(f.name) ?? []), f]);
+  for (const [name, defs] of byName) {
+    files[`${FUNCTIONS_DIR}${name}.sql`] = defs.sort((a, b) => cmp(a.args, b.args))
+      .map(f => `${FUNCTION_HEAD}${f.name}(${f.args})\n${f.definition}\n`).join('\n');
   }
   return files;
 }
@@ -44,6 +53,8 @@ function tableLines(t: Table, common: Column[]): string[] {
     ...(t.pk.length > 1 ? [`  PK (${t.pk.join(', ')})`] : []),
     ...[...t.fks].sort((a, b) => cmp(a.name, b.name))
       .map(f => `  FK ${f.name} (${f.columns.join(', ')}) > ${f.refTable}(${f.refColumns.join(', ')})`),
+    ...[...t.uniques].sort((a, b) => cmp(a.name, b.name))
+      .map(u => `  UQ ${u.name} (${u.columns.join(', ')})`),
     ...[...t.indexes].sort((a, b) => cmp(a.name, b.name))
       .map(i => `  IX ${i.name} (${i.columns.join(', ')})${i.unique ? ' UNIQUE' : ''}`),
   ];
@@ -96,13 +107,17 @@ export interface ParseResult {
 export function parseModel(files: Record<string, string>): ParseResult {
   const errors: ModelError[] = [];
   const where = new Map<string, { file: string; line: number }>();
-  const model: SchemaModel = { version: MODEL_VERSION, groups: [], common: [], sequences: [], tables: [] };
+  const model: SchemaModel = { version: MODEL_VERSION, groups: [], common: [], sequences: [], tables: [], functions: [] };
 
   const index = files[INDEX_FILE];
   if (index === undefined) errors.push({ file: INDEX_FILE, line: 0, message: '파일이 없다' });
   else parseIndex(index, model, errors);
 
-  for (const file of Object.keys(files).filter(f => f !== INDEX_FILE).sort(cmp)) {
+  for (const file of Object.keys(files).filter(f => f.startsWith(FUNCTIONS_DIR)).sort(cmp)) {
+    parseFunctions(file, files[file], model, errors);
+  }
+
+  for (const file of Object.keys(files).filter(f => f !== INDEX_FILE && f.endsWith('.erd')).sort(cmp)) {
     let cur: Table | undefined;
     let wantCommon = false;
     const finish = () => { if (cur && wantCommon) cur.columns.push(...model.common.map(c => ({ ...c }))); };
@@ -117,7 +132,7 @@ export function parseModel(files: Record<string, string>): ParseResult {
         let rest = m[3] ?? '';
         wantCommon = rest === COMMON_MARK || rest.endsWith(' ' + COMMON_MARK);
         if (wantCommon) rest = rest.slice(0, rest.length - COMMON_MARK.length).trimEnd();
-        cur = { id: m[2], name: m[1], comment: unesc(rest), columns: [], pk: [], fks: [], indexes: [] };
+        cur = { id: m[2], name: m[1], comment: unesc(rest), columns: [], pk: [], fks: [], uniques: [], indexes: [] };
         model.tables.push(cur);
         where.set(cur.name, { file, line });
         return;
@@ -133,6 +148,10 @@ export function parseModel(files: Record<string, string>): ParseResult {
         if (!m) return err(`FK 줄 형식이 아니다: ${body}`);
         cur.fks.push({ name: m[1], columns: splitList(m[2]), refTable: m[3], refColumns: splitList(m[4]) });
         where.set(`${cur.name} ${m[1]}`, { file, line });
+      } else if (body.startsWith('UQ ')) {
+        const m = body.match(/^UQ (\S+) \((.+)\)$/);
+        if (!m) return err(`UQ 줄 형식이 아니다: ${body}`);
+        cur.uniques.push({ name: m[1], columns: splitList(m[2]) });
       } else if (body.startsWith('IX ')) {
         const m = body.match(/^IX (\S+) \((.+)\)( UNIQUE)?$/);
         if (!m) return err(`IX 줄 형식이 아니다: ${body}`);
@@ -147,6 +166,29 @@ export function parseModel(files: Record<string, string>): ParseResult {
     finish();
   }
   return { model, errors, where };
+}
+
+/** `-- erd-function 이름(인자)` 줄로 나뉜 함수 정의들 */
+function parseFunctions(file: string, text: string, model: SchemaModel, errors: ModelError[]) {
+  let cur: FunctionDef | undefined;
+  let body: string[] = [];
+  const finish = () => {
+    if (!cur) return;
+    while (body.length && body[body.length - 1] === '') body.pop();
+    cur.definition = body.join('\n');
+    model.functions.push(cur);
+  };
+  lines(text).forEach((raw, i) => {
+    if (raw.startsWith(FUNCTION_HEAD)) {
+      finish();
+      const m = raw.slice(FUNCTION_HEAD.length).match(/^([^(]+)\((.*)\)$/);
+      if (!m) { cur = undefined; errors.push({ file, line: i + 1, message: `함수 머리 줄 형식이 아니다: ${raw}` }); return; }
+      cur = { name: m[1], args: m[2], definition: '' };
+      body = [];
+    } else if (cur) body.push(raw);
+    else if (raw.trim()) errors.push({ file, line: i + 1, message: '함수 머리 줄 없이 본문이 나왔다' });
+  });
+  finish();
 }
 
 function parseIndex(text: string, model: SchemaModel, errors: ModelError[]) {

@@ -24,6 +24,21 @@ export interface Index {
   unique: boolean;
 }
 
+/** UNIQUE 제약 (UNIQUE 인덱스와 DDL 이 달라 따로 둔다) */
+export interface Unique {
+  name: string;
+  columns: string[];
+}
+
+/** 함수. 본문이 길어 functions/{이름}.sql 로 따로 저장한다 */
+export interface FunctionDef {
+  name: string;
+  /** 인자 타입 (같은 이름 함수 구분) */
+  args: string;
+  /** CREATE OR REPLACE FUNCTION ... 전체 */
+  definition: string;
+}
+
 export interface Table {
   /** 이름을 바꿔도 유지되는 내부 ID (t1, t2, ...) */
   id: string;
@@ -34,6 +49,7 @@ export interface Table {
   /** PK 컬럼 (순서 유지). 없으면 빈 배열 */
   pk: string[];
   fks: ForeignKey[];
+  uniques: Unique[];
   indexes: Index[];
 }
 
@@ -57,6 +73,7 @@ export interface SchemaModel {
   common: Column[];
   sequences: Sequence[];
   tables: Table[];
+  functions: FunctionDef[];
 }
 
 export interface ModelError {

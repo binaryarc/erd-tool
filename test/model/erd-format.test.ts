@@ -1,10 +1,9 @@
-import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseModel, serializeModel } from '../../src/shared/model/erd-format';
 import { validateModel } from '../../src/shared/model/validate';
 import { emptyLayout, parseLayout, serializeLayout } from '../../src/shared/model/layout';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
-import { catalogToModel, SHOP_GROUPS } from '../helpers/catalog';
+import { SHOP_GROUPS } from '../helpers/fixtures';
 
 const COMMON: Column[] = [
   { name: 'reg_id', type: 'varchar(50)', notNull: true, comment: '등록자_ID' },
@@ -12,10 +11,10 @@ const COMMON: Column[] = [
 ];
 
 const table = (id: string, name: string, extra: Partial<Table> = {}): Table => ({
-  id, name, comment: '', columns: [{ name: 'seq', type: 'integer', notNull: true }], pk: ['seq'], fks: [], indexes: [], ...extra,
+  id, name, comment: '', columns: [{ name: 'seq', type: 'integer', notNull: true }], pk: ['seq'], fks: [], uniques: [], indexes: [], ...extra,
 });
 
-const model = (tables: Table[]): SchemaModel => ({ version: 1, groups: SHOP_GROUPS, common: COMMON, sequences: [], tables });
+const model = (tables: Table[]): SchemaModel => ({ version: 1, groups: SHOP_GROUPS, common: COMMON, sequences: [], tables, functions: [] });
 
 /** 저장 → 읽기 → 저장 */
 function roundTrip(m: SchemaModel) {
@@ -137,33 +136,28 @@ describe('layout.json', () => {
   });
 });
 
-describe('실제 DB 구조 (spikes/format/catalog.json)', () => {
-  const path = new URL('../../spikes/format/catalog.json', import.meta.url);
-  const has = fs.existsSync(path);
-  if (!has) console.warn('catalog.json 이 없어 실제 데이터 시험을 건너뛴다 (spikes/format/catalog.mjs 로 생성)');
-
-  it.skipIf(!has)('dev DB 구조를 저장 → 읽기 → 저장해도 바이트 동일, 테이블과 FK 수 유지, 검증 오류 없음', () => {
-    const cat = JSON.parse(fs.readFileSync(path, 'utf8'));
-    // dev DB 의 실제 공통 컬럼 정의 (2026-10-15 catalog.json 확인)
-    const m = catalogToModel(cat, [
-      { name: 'reg_id', type: 'varchar(20)', notNull: true, comment: '등록_ID' },
-      { name: 'reg_dt', type: 'timestamp', notNull: true, default: 'now()', comment: '등록_일시' },
-      { name: 'mod_id', type: 'varchar(20)', notNull: false, comment: '수정_ID' },
-      { name: 'mod_dt', type: 'timestamp', notNull: false, comment: '수정_일시' },
-    ]);
+describe('UNIQUE 제약과 함수', () => {
+  it('UQ 줄과 functions/*.sql 을 저장 → 읽기 → 저장해도 바이트 동일', () => {
+    const t = table('t1', 'mst_a', {
+      columns: [{ name: 'seq', type: 'integer', notNull: true }, { name: 'cd', type: 'varchar(10)', notNull: true }],
+      uniques: [{ name: 'uq_b', columns: ['cd', 'seq'] }, { name: 'uq_a', columns: ['cd'] }],
+    });
+    const m = { ...model([t]), functions: [
+      { name: 'fn_lpad', args: 'text, integer', definition: 'CREATE OR REPLACE FUNCTION public.fn_lpad(text, integer)\n RETURNS text\nAS $$ select 1 $$;' },
+      { name: 'fn_lpad', args: 'text', definition: 'CREATE OR REPLACE FUNCTION public.fn_lpad(text)\n\n  RETURNS text' },
+      { name: 'fn_split', args: '', definition: 'CREATE FUNCTION fn_split()' },
+    ] };
     const { first, parsed, second } = roundTrip(m);
-    expect(validateModel(parsed)).toEqual([]);
+    expect(parsed.errors).toEqual([]);
     expect(second).toEqual(first);
-    expect(parsed.model.tables.length).toBe(Object.keys(cat.tables).length);
-    expect(parsed.model.tables.flatMap(t => t.fks).length).toBe(m.tables.flatMap(t => t.fks).length);
-    const size = Object.values(first).reduce((n, s) => n + s.length, 0);
-    // ERD_SAMPLE_OUT 을 주면 앱 실행 확인용 모델 폴더를 남긴다
-    const out = process.env.ERD_SAMPLE_OUT;
-    if (out) {
-      fs.mkdirSync(out, { recursive: true });
-      for (const [name, text] of Object.entries(first)) fs.writeFileSync(`${out}/${name}`, text);
-    }
-    console.log(Object.entries(first).map(([n, s]) => `${n} ${s.length}자`).join(', '));
-    console.log(`테이블 ${parsed.model.tables.length}, FK ${parsed.model.tables.flatMap(t => t.fks).length}, 파일 ${Object.keys(first).length}개, 전체 ${size}자`);
+    expect(first['mdm.erd']).toContain('  UQ uq_a (cd)\n  UQ uq_b (cd, seq)\n');
+    expect(Object.keys(first).filter(f => f.startsWith('functions/')).sort()).toEqual(['functions/fn_lpad.sql', 'functions/fn_split.sql']);
+    expect(parsed.model.tables[0].uniques.map(u => u.name)).toEqual(['uq_a', 'uq_b']); // 저장하면 이름순
+    expect(parsed.model.functions.find(f => f.args === 'text')?.definition).toBe(m.functions[1].definition);
+  });
+
+  it('UNIQUE 의 없는 컬럼을 검증 오류로 낸다', () => {
+    const t = table('t1', 'mst_a', { uniques: [{ name: 'uq_x', columns: ['nope'] }] });
+    expect(validateModel(roundTrip(model([t])).parsed).map(e => e.message)).toEqual(['mst_a: UNIQUE uq_x 의 컬럼 nope 이 없다']);
   });
 });

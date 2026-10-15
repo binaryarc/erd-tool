@@ -3,10 +3,21 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, type ErdApi } from '../shared/ipc';
 
 const api: ErdApi = {
+  pickFolder: defaultPath => ipcRenderer.invoke(IPC.pickFolder, defaultPath),
+  settings: {
+    get: () => ipcRenderer.invoke(IPC.settingsGet),
+    set: patch => ipcRenderer.invoke(IPC.settingsSet, patch),
+  },
   model: {
-    pickFolder: () => ipcRenderer.invoke(IPC.modelPickFolder),
     load: dir => ipcRenderer.invoke(IPC.modelLoad, dir),
     save: (dir, model, layout) => ipcRenderer.invoke(IPC.modelSave, dir, model, layout),
+  },
+  conn: {
+    list: beDir => ipcRenderer.invoke(IPC.connList, beDir),
+    test: (beDir, profile) => ipcRenderer.invoke(IPC.connTest, beDir, profile),
+  },
+  db: {
+    reverse: (beDir, profile, modelDir) => ipcRenderer.invoke(IPC.dbReverse, beDir, profile, modelDir),
   },
 };
 

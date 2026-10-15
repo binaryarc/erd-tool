@@ -1,0 +1,78 @@
+// layout.json 의 그룹 규칙(열 수, 간격, 시작점)과 순서로 테이블 좌표를 계산한다 (설계 4장, 10-3)
+// 좌표는 저장하지 않는다. 사람이 끌어 옮긴 테이블만 pinned 에 좌표가 있다.
+
+import { groupOf } from './erd-format';
+import type { Diagram, Layout } from './layout';
+import type { SchemaModel, Table } from './types';
+
+/** 화면 크기 (TableNode.vue 의 CSS 와 같아야 한다) */
+export const NODE = { width: 260, headHeight: 24, rowHeight: 18, compactHeight: 24 } as const;
+export const DEFAULT_RULE = { cols: 4, gap: 40 } as const;
+const GROUP_GAP = 160;
+const GROUP_TITLE = 36;
+
+export const DEFAULT_DIAGRAM = '전체';
+
+export const tableHeight = (t: Table, compact = false) =>
+  compact ? NODE.compactHeight : NODE.headHeight + t.columns.length * NODE.rowHeight + 2;
+
+export interface GroupBox { name: string; x: number; y: number; width: number; height: number }
+
+export interface Arranged {
+  positions: Map<string, { x: number; y: number }>;
+  groups: GroupBox[];
+}
+
+/**
+ * 다이어그램이 없으면 만들고, 그룹마다 순서를 모델에 맞춘다(없어진 ID 는 빼고 새 테이블은 이름순으로 뒤에 붙임).
+ * 처음 만드는 그룹은 앞 그룹 오른쪽에 놓는다. layout 을 직접 고친다.
+ */
+export function syncLayout(model: SchemaModel, layout: Layout, diagram = DEFAULT_DIAGRAM): Diagram {
+  const d = (layout.diagrams[diagram] ??= { groups: {}, pinned: {} });
+  const byGroup = new Map<string, Table[]>();
+  for (const t of [...model.tables].sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    const g = groupOf(t.name, model.groups);
+    byGroup.set(g, [...(byGroup.get(g) ?? []), t]);
+  }
+  const ids = new Set(model.tables.map(t => t.id));
+  for (const g of Object.keys(d.groups)) if (!byGroup.has(g)) delete d.groups[g];
+  for (const id of Object.keys(d.pinned)) if (!ids.has(id)) delete d.pinned[id];
+
+  // 그룹 규칙 순서대로, 새 그룹은 지금 있는 그룹들의 오른쪽 끝에 붙인다
+  let right = Math.max(0, ...Object.values(d.groups).map(g => g.rule.origin[0] + groupWidth(g.rule) + GROUP_GAP));
+  for (const rule of model.groups) {
+    const tables = byGroup.get(rule.name);
+    if (!tables) continue;
+    let g = d.groups[rule.name];
+    if (!g) {
+      g = d.groups[rule.name] = { rule: { cols: DEFAULT_RULE.cols, gap: DEFAULT_RULE.gap, origin: [right, 0] }, order: [] };
+      right += groupWidth(g.rule) + GROUP_GAP;
+    }
+    const inGroup = new Set(tables.map(t => t.id));
+    g.order = g.order.filter(id => inGroup.has(id));
+    const placed = new Set(g.order);
+    for (const t of tables) if (!placed.has(t.id)) g.order.push(t.id);
+  }
+  return d;
+}
+
+const groupWidth = (rule: { cols: number; gap: number }) => rule.cols * NODE.width + (rule.cols - 1) * rule.gap;
+
+/** 격자 배치: 순서대로 왼쪽에서 오른쪽, 줄 높이는 그 줄에서 가장 높은 테이블 */
+export function arrange(model: SchemaModel, d: Diagram, compact = false): Arranged {
+  const byId = new Map(model.tables.map(t => [t.id, t]));
+  const positions = new Map<string, { x: number; y: number }>();
+  const groups: GroupBox[] = [];
+  for (const [name, g] of Object.entries(d.groups)) {
+    const { cols, gap, origin } = g.rule;
+    let y = origin[1] + GROUP_TITLE;
+    for (let i = 0; i < g.order.length; i += cols) {
+      const row = g.order.slice(i, i + cols).map(id => byId.get(id)).filter((t): t is Table => !!t);
+      row.forEach((t, c) => positions.set(t.id, { x: origin[0] + c * (NODE.width + gap), y }));
+      y += Math.max(0, ...row.map(t => tableHeight(t, compact))) + gap;
+    }
+    groups.push({ name, x: origin[0] - 20, y: origin[1], width: groupWidth(g.rule) + 40, height: y - origin[1] });
+  }
+  for (const [id, [x, y]] of Object.entries(d.pinned)) if (byId.has(id)) positions.set(id, { x, y });
+  return { positions, groups };
+}
