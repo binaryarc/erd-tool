@@ -4,6 +4,7 @@ import path from 'node:path';
 import { IPC, type ConnRef, type ManualConn, type ShellKind } from '../shared/ipc';
 import { forgetSessionPasswords, listManual, removeManual, saveManual } from './db/manual';
 import { reverse, testConnection, testDraft } from './db/reverse';
+import { loadCatalog } from './db/catalog';
 import { getProfile, listProfiles, passwordOf, toInfo } from './db/profiles';
 import { allowWrite, closeAll, closeSession, commitTx, dirtyTabs, fetchMore, openSession, rollbackTx, runSql } from './db/session';
 import { addHistory, listHistory, setHistoryDir } from './history';
@@ -26,6 +27,7 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.manualList, () => listManual());
   ipcMain.handle(IPC.manualSave, (_e, conn: ManualConn, password?: string) => saveManual(conn, password));
   ipcMain.handle(IPC.manualRemove, (_e, id: string) => removeManual(id));
+  ipcMain.handle(IPC.dbCatalog, (_e, ref: ConnRef) => loadCatalog(ref));
   ipcMain.handle(IPC.dbReverse, (_e, ref: ConnRef, modelDir: string) => reverse(ref, modelDir, getSettings().beDir));
 
   // SQL 탭 (설계 5장). 성공한 문장은 리터럴을 지워 이력에 남긴다
@@ -101,7 +103,12 @@ function createWindow() {
     return;
   }
   if (auto) {
+    // 시험 모드에서는 화면 쪽 오류와 불러오기 실패를 그대로 출력한다 (멈춘 곳을 찾기 위해)
+    win.webContents.on('console-message', e => { if (e.level === 'error' || e.level === 'warning') console.log('[renderer]', e.level, e.message.slice(0, 300)); });
+    win.webContents.on('did-fail-load', (_e, code, desc) => console.log('[load-fail]', code, desc));
+    win.webContents.on('render-process-gone', (_e, d) => console.log('[renderer-gone]', d.reason, d.exitCode));
     win.webContents.once('did-finish-load', async () => {
+      console.log('[loaded]');
       const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR };
       try {
         const out = await win.webContents.executeJavaScript(`window.__erdAuto(${JSON.stringify(args)})`);
@@ -129,8 +136,31 @@ function createWindow() {
             terminalHeight: [Math.round(termBefore.h), Math.round(termAfter.h)], leftWidth: [Math.round(leftBefore.w), Math.round(leftAfter.w)],
             saved: await js(`[localStorage.getItem('split:terminal'), localStorage.getItem('split:left')]`),
           }));
-          // 시험이 바꾼 크기는 사용자 설정에 남기지 않는다
-          await js(`localStorage.removeItem('split:terminal'); localStorage.removeItem('split:left')`);
+
+          // SQL 결과 그리드 촘촘함
+          await js(`window.__erdActivate('sql-1')`);
+          console.log('[grid]', JSON.stringify(await js('window.__erdGrid()')));
+
+          // ERD: 트리 정렬, 직선, 한 번 클릭 → 선택 테두리, 더블클릭 → 미니 ERD
+          await js(`window.__erdActivate('erd')`);
+          console.log('[tree]', JSON.stringify(await js(`window.__erdView({ mode: 'tree', edge: 'straight' })`)));
+          await js(`window.__erdView({ mode: 'tree' })`);
+          await new Promise(r => setTimeout(r, 1000));
+          const p = await js(`window.__erdNodeRect('mst_center')`);
+          if (p) {
+            console.log('[hit]', JSON.stringify(await js(`(() => { const e = document.elementFromPoint(${Math.round(p.x)}, ${Math.round(p.y)});
+              return { at: [${Math.round(p.x)}, ${Math.round(p.y)}], el: e?.tagName + '.' + e?.className, node: e?.closest('.vue-flow__node')?.className ?? null }; })()`)));
+            const click = (count: number) => {
+              win.webContents.sendInputEvent({ type: 'mouseDown', x: Math.round(p.x), y: Math.round(p.y), button: 'left', clickCount: count });
+              win.webContents.sendInputEvent({ type: 'mouseUp', x: Math.round(p.x), y: Math.round(p.y), button: 'left', clickCount: count });
+            };
+            click(1);
+            await new Promise(r => setTimeout(r, 400));
+            const afterClick = await js('window.__erdInspect()');
+            click(1); click(2);
+            await new Promise(r => setTimeout(r, 1500));
+            console.log('[select]', JSON.stringify({ afterClick, afterDouble: await js('window.__erdInspect()') }));
+          } else console.log('[select] mst_center 노드를 화면에서 찾지 못함');
           const shot = process.env.ERD_SHOT;
           if (shot) {
             for (const [name, id] of Object.entries(out.tabs as Record<string, string>)) {
@@ -186,6 +216,10 @@ async function manualScenario(beDir: string) {
   out.listAfterRemove = listManual().length;
   return out;
 }
+
+// 시험 모드는 ERD_USER_DATA 폴더를 앱 설정 폴더로 쓴다. 사용자의 설정(패널 크기, 접속 정보, 이력)을 건드리지 않고,
+// 사용자가 띄워 둔 앱과 캐시 폴더가 겹치지 않게 하기 위해서다
+if (process.env.ERD_USER_DATA) app.setPath('userData', process.env.ERD_USER_DATA);
 
 app.whenReady().then(() => {
   setHistoryDir(path.join(app.getPath('userData'), 'history'));

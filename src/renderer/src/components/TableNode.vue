@@ -10,6 +10,8 @@ export interface TableNodeData {
   comment: string;
   /** 내용에 맞춘 폭 (text-width.ts 가 계산) */
   width: number;
+  /** 미니 ERD 가운데 테이블 */
+  focus?: boolean;
   columns: { name: string; type: string; comment?: string; pk: boolean; fk: boolean; notNull: boolean }[];
 }
 
@@ -23,7 +25,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
 </script>
 
 <template>
-  <div class="tbl" :class="{ compact: view.compact }" :style="{ width: data.width + 'px' }">
+  <div class="tbl" :class="{ compact: view.compact, focus: data.focus }" :style="{ width: data.width + 'px' }">
     <div class="head" :title="data.comment">
       <b>{{ title(data) }}</b>
       <span v-if="view.nameMode === 'both' && data.comment" class="logical">{{ data.comment }}</span>
@@ -31,7 +33,8 @@ const colName = (c: TableNodeData['columns'][number]) =>
     <template v-if="!view.compact">
       <div v-for="c in data.columns" :key="c.name" class="row" :class="{ pk: c.pk }" :title="c.comment">
         <Handle :id="'t-' + c.name" type="target" :position="Position.Left" class="h" />
-        <span class="key">{{ c.pk ? 'PK' : '' }}{{ c.fk ? 'FK' : '' }}</span>
+        <!-- 키 표시: PK, FK, NN(NOT NULL). PK 는 NOT NULL 이 당연해 NN 을 따로 적지 않는다 -->
+        <span class="key"><i v-if="c.pk" class="pk">PK</i><i v-if="c.fk" class="fk">FK</i><i v-if="c.notNull && !c.pk" class="nn">NN</i></span>
         <span class="name" :class="{ nn: c.notNull }">{{ colName(c) }}</span>
         <span v-if="view.nameMode === 'both' && c.comment" class="logical">{{ c.comment }}</span>
         <span class="type">{{ c.type }}</span>
@@ -53,7 +56,13 @@ const colName = (c: TableNodeData['columns'][number]) =>
 .logical { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .row { position: relative; height: 18px; display: flex; gap: 6px; padding: 0 6px; white-space: nowrap; overflow: hidden; }
 .row.pk { background: var(--pk-bg); }
-.key { width: 26px; flex: none; color: var(--key); font-weight: bold; }
+/* 배지 칸 폭은 text-width.ts 의 KEY 와 같아야 한다 (배지 둘: PK+FK 또는 FK+NN) */
+.key { width: 38px; flex: none; display: flex; gap: 2px; align-items: center; }
+.key i { font: bold 9px/12px Consolas, monospace; font-style: normal; padding: 0 2px; border-radius: 2px; }
+.key .pk { color: #7a4b00; background: #ffd970; }
+.key .fk { color: #0b4f8a; background: #bcdcff; }
+.key .nn { color: var(--muted); border: 1px solid var(--line); line-height: 10px; }
+.tbl.focus { box-shadow: 0 0 0 3px var(--warn); }
 /* 폭은 내용에 맞춰 계산되므로 이름은 줄이지 않는다. 최대 폭에 걸리면 논리명부터 줄어든다 */
 .name { flex: none; }
 .row .logical { flex: 1; min-width: 0; }

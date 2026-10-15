@@ -8,6 +8,10 @@ declare global {
     __erdAuto?: (args: { scenario: string; beDir: string; profile: string; modelDir: string }) => Promise<unknown>;
     __erdBench?: () => Promise<unknown>;
     __erdActivate?: (tabId: string) => Promise<void>;
+    __erdView?: (opts: { mode?: 'grid' | 'tree'; edge?: 'smoothstep' | 'straight' | 'default' }) => Promise<unknown>;
+    __erdNodeRect?: (name: string) => Promise<{ x: number; y: number } | null>;
+    __erdInspect?: () => unknown;
+    __erdGrid?: () => unknown;
   }
 }
 

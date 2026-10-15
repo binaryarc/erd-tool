@@ -20,7 +20,7 @@ function measure(text: string, font = FONT): number {
 }
 
 // TableNode.vue: 좌우 여백 6, 칸 사이 6, 키 칸 26, 테두리 1+1
-const PAD = 12, GAP = 6, KEY = 26, BORDER = 2;
+const PAD = 12, GAP = 6, KEY = 38, BORDER = 2;
 
 export function tableWidth(t: Table, mode: NameMode): number {
   const title = mode === 'logical' ? t.comment || t.name : t.name;

@@ -18,6 +18,7 @@ export const IPC = {
   manualSave: 'manual:save',
   manualRemove: 'manual:remove',
   dbReverse: 'db:reverse',
+  dbCatalog: 'db:catalog',
   sqlOpen: 'sql:open',
   sqlRun: 'sql:run',
   sqlFetchMore: 'sql:fetchMore',
@@ -149,6 +150,12 @@ export interface HistoryEntry {
 
 export type ShellKind = 'powershell' | 'bash';
 
+/** SQL 자동완성용 DB 목록 (접속한 DB 에서 읽음) */
+export interface SqlCatalog {
+  tables: { name: string; schema: string; kind: 'table' | 'view'; comment: string; columns: { name: string; type: string; comment: string }[] }[];
+  functions: { name: string; args: string; returns: string }[];
+}
+
 export interface ErdApi {
   pickFolder(defaultPath?: string): Promise<string | null>;
   settings: {
@@ -174,6 +181,8 @@ export interface ErdApi {
   };
   db: {
     reverse(ref: ConnRef, modelDir: string): Promise<ReverseResult>;
+    /** SQL 자동완성용 테이블, 컬럼, 함수 목록 */
+    catalog(ref: ConnRef): Promise<SqlCatalog>;
   };
   sql: {
     open(tabId: string, ref: ConnRef, label: string): Promise<SqlState>;

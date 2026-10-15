@@ -10,6 +10,8 @@ export interface GroupPlacement {
 }
 
 export interface Diagram {
+  /** 배치 방식: grid 는 그룹별 격자, tree 는 FK 트리 (없으면 grid) */
+  mode?: 'grid' | 'tree';
   groups: Record<string, GroupPlacement>;
   /** 테이블 ID → 직접 지정한 좌표 */
   pinned: Record<string, [number, number]>;

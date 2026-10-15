@@ -4,15 +4,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { AgGridVue } from 'ag-grid-vue3';
 import { AllCommunityModule, ModuleRegistry, colorSchemeDark, themeQuartz, type ColDef, type GridApi } from 'ag-grid-community';
-import { bindContext, monaco, registerSqlProviders, unbindContext } from '../sql/monaco';
+import { bindContext, catalogCache, catalogFromModel, monaco, registerSqlProviders, unbindContext } from '../sql/monaco';
 import SplitPane from './SplitPane.vue';
 import { statementAt } from '../../../shared/sql/text';
-import type { ConnRef, HistoryEntry, SqlResult, SqlState } from '../../../shared/ipc';
+import type { ConnRef, HistoryEntry, SqlCatalog, SqlResult, SqlState } from '../../../shared/ipc';
 import type { SchemaModel } from '../../../shared/model/types';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-const theme = dark ? themeQuartz.withPart(colorSchemeDark) : themeQuartz;
+// 결과를 많이 보이게 촘촘하게 (사용자 요청): 글자 12px, 행 22px, 머리글 26px
+const compact = { fontSize: 12, dataFontSize: 12, headerFontSize: 12, spacing: 4, rowHeight: 22, headerHeight: 26, cellHorizontalPadding: 6 };
+const theme = (dark ? themeQuartz.withPart(colorSchemeDark) : themeQuartz).withParams(compact);
 
 const props = defineProps<{ tabId: string; schema: SchemaModel | null; initialSql?: string; active: boolean }>();
 const emit = defineEmits<{ state: [s: SqlState | null] }>();
@@ -26,6 +28,9 @@ const result = shallowRef<SqlResult | null>(null);
 const busy = ref(false);
 const message = ref('');
 const history = shallowRef<HistoryEntry[]>([]);
+// 자동완성용 DB 목록. 접속할 때 그 DB 에서 읽는다 (같은 접속은 다시 읽지 않음, 「목록 새로 읽기」로 갱신)
+const catalog = shallowRef<SqlCatalog | null>(null);
+const catalogMessage = ref('');
 const editorEl = ref<HTMLDivElement>();
 let editor: monaco.editor.IStandaloneCodeEditor | undefined;
 const grid = shallowRef<GridApi | null>(null);
@@ -55,9 +60,25 @@ async function connect(key = chosen.value) {
     state.value = await window.erd.sql.open(props.tabId, o.ref, o.label);
     chosen.value = key;
     history.value = await window.erd.history.list(state.value.connKey);
+    void loadCatalog(o.ref, state.value.connKey);
     message.value = `${o.label} 접속${state.value.readOnly ? ' (읽기 전용)' : ''}`;
   } catch (e) { message.value = clean(e); state.value = null; }
   finally { busy.value = false; emit('state', state.value); }
+}
+
+async function loadCatalog(ref: ConnRef, key: string, refresh = false) {
+  const cached = catalogCache.get(key);
+  if (cached && !refresh) { catalog.value = cached; return; }
+  try {
+    catalog.value = await window.erd.db.catalog(ref);
+    catalogCache.set(key, catalog.value);
+    catalogMessage.value = `자동완성: 테이블 ${catalog.value.tables.length}, 함수 ${catalog.value.functions.length}`;
+  } catch (e) { catalogMessage.value = '자동완성 목록을 못 읽음: ' + clean(e); }
+}
+
+function reloadCatalog() {
+  const o = options.value.find(x => x.key === chosen.value);
+  if (o && state.value) void loadCatalog(o.ref, state.value.connKey, true);
 }
 
 const columnDefs = computed<ColDef[]>(() => (result.value?.columns ?? []).map((c, i) => ({
@@ -139,9 +160,16 @@ onMounted(async () => {
   registerSqlProviders();
   editor = monaco.editor.create(editorEl.value!, {
     value: props.initialSql ?? '', language: 'sql', automaticLayout: true, minimap: { enabled: false }, fontSize: 13,
-    inlineSuggest: { enabled: true }, theme: dark ? 'vs-dark' : 'vs', scrollBeyondLastLine: false,
+    inlineSuggest: { enabled: true },
+    // 글자를 치는 대로 목록을 연다 (DBeaver 처럼). 편집기 안 단어로 만든 추천은 끈다
+    quickSuggestions: { other: true, comments: false, strings: false }, quickSuggestionsDelay: 50,
+    wordBasedSuggestions: 'off', suggestOnTriggerCharacters: true, suggest: { showWords: false, preview: true },
+    theme: dark ? 'vs-dark' : 'vs', scrollBeyondLastLine: false,
   });
-  bindContext(editor.getModel()!, { schema: () => props.schema, history: () => history.value });
+  bindContext(editor.getModel()!, {
+    catalog: () => catalog.value ?? (props.schema ? catalogFromModel(props.schema) : null),
+    history: () => history.value,
+  });
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => void run());
   await loadOptions();
 });
@@ -161,6 +189,7 @@ defineExpose({
   options: () => options.value.map(o => o.key),
   /** 시험용 */
   editor: () => editor,
+  catalogSize: () => catalog.value?.tables.length ?? 0,
   grid: () => ({ rows: grid.value?.getDisplayedRowCount() ?? 0, cols: columnDefs.value.length }),
 });
 </script>
@@ -177,11 +206,13 @@ defineExpose({
       <button :disabled="busy || !state?.inTx" @click="tx('rollback')">롤백</button>
       <button v-if="state?.readOnly" :disabled="busy" @click="allowWrite">쓰기 허용</button>
       <button v-if="state?.more" :disabled="busy" @click="more">1,000행 더</button>
+      <button :disabled="busy || !state" title="테이블을 새로 만들었으면 눌러 자동완성 목록을 다시 읽는다" @click="reloadCatalog">목록 새로 읽기</button>
       <span class="status">
         <b v-if="state?.dirty" class="warn">커밋 안 함</b>
         <span v-else-if="state?.inTx">트랜잭션 진행 중</span>
         <span v-if="state?.readOnly" class="ro">읽기 전용</span>
         {{ message }}
+        <span class="muted">{{ catalogMessage }}</span>
       </span>
     </div>
     <!-- 편집기와 결과 사이 경계선을 끌어 높이를 바꾼다 -->
@@ -192,7 +223,7 @@ defineExpose({
       <template #second>
         <div class="result">
           <AgGridVue v-if="result?.columns.length" class="grid" :theme="theme" :column-defs="columnDefs" :row-data="result.rows"
-                     :default-col-def="{ width: 140 }" :enable-cell-text-selection="true" @grid-ready="(e: { api: GridApi }) => (grid = e.api)" />
+                     :default-col-def="{ width: 120 }" :enable-cell-text-selection="true" @grid-ready="(e: { api: GridApi }) => (grid = e.api)" />
           <p v-else class="muted empty">Ctrl+Enter 로 커서가 있는 문장을 실행한다. 선택한 부분이 있으면 그것만 실행한다.</p>
         </div>
       </template>
