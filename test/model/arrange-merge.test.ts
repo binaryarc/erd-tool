@@ -24,6 +24,18 @@ describe('배치', () => {
     expect(positions.get('t3')).toEqual({ x: 0, y: top + tableHeight(m.tables[1]) + 40 });
   });
 
+  it('테이블 폭이 다르면 그룹 칸 폭은 가장 넓은 테이블에 맞추고, 넓어진 그룹이 겹치면 뒤 그룹을 민다', () => {
+    const m = model([table('t1', 'whs_a'), table('t2', 'whs_b'), table('t3', 'mst_a')]);
+    const d = syncLayout(m, emptyLayout());
+    d.groups.wms.rule.cols = 2;
+    const wide = 500;
+    const { positions, groups } = arrange(m, d, t => (t.name === 'whs_a' ? wide : NODE.width));
+    expect(positions.get('t2')!.x).toBe(wide + 40); // 칸 폭 = 가장 넓은 테이블
+    const [wms, mdm] = groups;
+    expect(mdm.x).toBeGreaterThanOrEqual(wms.x + wms.width); // 겹치지 않음
+    expect(d.groups.mdm.rule.origin[0]).toBeLessThan(mdm.x); // 저장된 시작점은 그대로
+  });
+
   it('새 그룹은 앞 그룹 오른쪽에, 끌어 옮긴 테이블은 그 좌표에 놓는다', () => {
     const m = model([table('t1', 'mst_a'), table('t2', 'whs_a')]);
     const d = syncLayout(m, emptyLayout());

@@ -1,15 +1,21 @@
 <script setup lang="ts">
-// 접속 패널: BE 폴더 → 프로필(dev, test, prod) → 접속 시험, DB 에서 불러오기 → 차이 확인 → 적용
+// 접속 패널: 접속 정보 가져오는 방법(BE 폴더 자동 매핑, 직접 입력)을 고르고 → 접속 시험, DB 에서 불러오기 → 차이 확인 → 적용
 import { computed, onMounted, ref, shallowRef } from 'vue';
-import type { ConnTestResult, ProfileInfo, ReverseResult } from '../../../shared/ipc';
+import type { ConnRef, ConnSource, ConnTestResult, ManualConnInfo, ProfileInfo, ReverseResult } from '../../../shared/ipc';
 import { isEmptyDiff } from '../../../shared/model/merge';
+import ManualConnForm from './ManualConnForm.vue';
 
 const props = defineProps<{ modelDir: string }>();
 const emit = defineEmits<{ apply: [r: ReverseResult]; beDir: [dir: string] }>();
 
+const source = ref<ConnSource>('be');
 const beDir = ref('');
 const profiles = ref<ProfileInfo[]>([]);
+const manuals = ref<ManualConnInfo[]>([]);
+/** BE 프로필 이름 또는 직접 입력 접속 id */
 const selected = ref('dev');
+/** 편집 중인 직접 입력 접속 (null: 닫힘, 'new': 새로 추가) */
+const editing = ref<ManualConnInfo | 'new' | null>(null);
 const test = ref<ConnTestResult | null>(null);
 // 모델은 IPC 로 다시 보내므로 Vue 반응형으로 감싸지 않는다 (감싸면 복사 오류)
 const pending = shallowRef<ReverseResult | null>(null);
@@ -18,13 +24,22 @@ const error = ref('');
 
 onMounted(async () => {
   const s = await window.erd.settings.get();
+  manuals.value = await window.erd.manual.list();
+  if (s.connSource) source.value = s.connSource;
   if (s.beDir) await setBeDir(s.beDir);
+  if (source.value === 'manual' && manuals.value[0]) selected.value = manuals.value[0].id;
 });
+
+async function setSource(s: ConnSource) {
+  source.value = s; test.value = null; error.value = '';
+  selected.value = s === 'be' ? (profiles.value.find(p => p.name === 'dev') ?? profiles.value[0])?.name ?? '' : manuals.value[0]?.id ?? '';
+  await window.erd.settings.set({ connSource: s });
+}
 
 async function setBeDir(dir: string) {
   beDir.value = dir;
   profiles.value = await window.erd.conn.list(dir);
-  if (!profiles.value.some(p => p.name === selected.value)) selected.value = profiles.value[0]?.name ?? '';
+  if (source.value === 'be' && !profiles.value.some(p => p.name === selected.value)) selected.value = profiles.value[0]?.name ?? '';
   await window.erd.settings.set({ beDir: dir });
   emit('beDir', dir);
 }
@@ -34,16 +49,30 @@ async function pickBe() {
   if (d) await setBeDir(d);
 }
 
+async function onSaved(c: ManualConnInfo) {
+  manuals.value = await window.erd.manual.list();
+  selected.value = c.id;
+  editing.value = null;
+}
+
+async function removeManual(c: ManualConnInfo) {
+  if (!confirm(`「${c.name}」 접속을 지울까요?`)) return;
+  await window.erd.manual.remove(c.id);
+  manuals.value = await window.erd.manual.list();
+  if (selected.value === c.id) selected.value = manuals.value[0]?.id ?? '';
+}
+
+const ref_ = (): ConnRef => (source.value === 'be' ? { source: 'be', beDir: beDir.value, name: selected.value } : { source: 'manual', id: selected.value });
+const ready = computed(() => !!selected.value && (source.value === 'manual' || !!beDir.value));
+
 async function run<T>(label: string, f: () => Promise<T>): Promise<T | undefined> {
   busy.value = label; error.value = '';
   try { return await f(); } catch (e) { error.value = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
   finally { busy.value = ''; }
 }
 
-const doTest = () => run('접속 시험 중', async () => { test.value = await window.erd.conn.test(beDir.value, selected.value); });
-const doReverse = () => run('DB 구조 읽는 중', async () => {
-  pending.value = await window.erd.db.reverse(beDir.value, selected.value, props.modelDir);
-});
+const doTest = () => run('접속 시험 중', async () => { test.value = await window.erd.conn.test(ref_()); });
+const doReverse = () => run('DB 구조 읽는 중', async () => { pending.value = await window.erd.db.reverse(ref_(), props.modelDir); });
 function apply() {
   if (pending.value) emit('apply', pending.value);
   pending.value = null;
@@ -58,33 +87,57 @@ const diffRows = computed(() => {
   ].filter(([, v]) => (v as string[]).length) as [string, string[]][];
 });
 
-defineExpose({ setBeDir, selectProfile: (p: string) => (selected.value = p), doReverse, pending, apply });
+defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v), doReverse, pending, apply });
 </script>
 
 <template>
   <aside class="panel">
     <h3>DB 접속</h3>
-    <label>BE 폴더</label>
-    <div class="row"><input :value="beDir" readonly placeholder="BE 레포 폴더" /><button @click="pickBe">찾기</button></div>
+    <div class="tabs">
+      <button :class="{ on: source === 'be' }" @click="setSource('be')">BE 폴더에서</button>
+      <button :class="{ on: source === 'manual' }" @click="setSource('manual')">직접 입력</button>
+    </div>
 
-    <template v-if="beDir">
-      <p v-if="!profiles.length" class="warn">application-*.properties 를 찾지 못했다</p>
+    <template v-if="source === 'be'">
+      <label>BE 폴더 (application-*.properties 를 읽는다)</label>
+      <div class="row"><input :value="beDir" readonly placeholder="BE 레포 폴더" /><button @click="pickBe">찾기</button></div>
+      <p v-if="beDir && !profiles.length" class="warn">application-*.properties 를 찾지 못했다</p>
       <ul class="profiles">
         <li v-for="p in profiles" :key="p.name" :class="{ on: p.name === selected }" @click="selected = p.name; test = null">
           <b>{{ p.name }}</b> <span>{{ p.database }} @ {{ p.host }}:{{ p.port }}</span>
           <em v-if="p.readOnly">읽기 전용</em>
         </li>
       </ul>
-      <div class="row">
-        <button :disabled="!!busy || !selected" @click="doTest">접속 시험</button>
-        <button :disabled="!!busy || !selected || !modelDir" @click="doReverse">DB 에서 불러오기</button>
-      </div>
-      <p v-if="busy" class="muted">{{ busy }}</p>
-      <p v-if="error" class="warn">{{ error }}</p>
-      <p v-if="test" :class="test.ok ? 'ok' : 'warn'">
-        {{ test.message }}<template v-if="test.ok">: 테이블 {{ test.tables }}, FK {{ test.fks }}</template>
-      </p>
     </template>
+
+    <template v-else>
+      <ul class="profiles">
+        <li v-for="c in manuals" :key="c.id" :class="{ on: c.id === selected }" @click="selected = c.id; test = null">
+          <b>{{ c.name }}</b> <span>{{ c.database }} @ {{ c.host }}:{{ c.port }}</span>
+          <em v-if="c.readOnly">읽기 전용</em>
+          <em v-if="!c.hasPassword" class="warn">비밀번호 필요</em>
+          <span class="acts">
+            <a @click.stop="editing = c">편집</a>
+            <a @click.stop="removeManual(c)">삭제</a>
+          </span>
+        </li>
+      </ul>
+      <p v-if="!manuals.length && !editing" class="muted">저장한 접속이 없다</p>
+      <ManualConnForm v-if="editing" :key="editing === 'new' ? 'new' : editing.id" :conn="editing === 'new' ? undefined : editing"
+                      @saved="onSaved" @cancel="editing = null" />
+      <button v-else @click="editing = 'new'">+ 접속 추가</button>
+    </template>
+
+    <div class="row">
+      <button :disabled="!!busy || !ready" @click="doTest">접속 시험</button>
+      <button :disabled="!!busy || !ready || !modelDir" @click="doReverse">DB 에서 불러오기</button>
+    </div>
+    <p v-if="!modelDir" class="muted">불러오려면 먼저 위에서 모델 폴더를 정하세요.</p>
+    <p v-if="busy" class="muted">{{ busy }}</p>
+    <p v-if="error" class="warn">{{ error }}</p>
+    <p v-if="test" :class="test.ok ? 'ok' : 'warn'">
+      {{ test.message }}<template v-if="test.ok">: 테이블 {{ test.tables }}, FK {{ test.fks }}</template>
+    </p>
 
     <div v-if="pending" class="pending">
       <h4>불러온 결과</h4>
@@ -109,6 +162,9 @@ defineExpose({ setBeDir, selectProfile: (p: string) => (selected.value = p), doR
 .panel { width: 300px; flex: none; padding: 12px; border-right: 1px solid var(--line); overflow: auto; background: var(--panel-bg); }
 h3 { margin: 0 0 8px; } h4 { margin: 8px 0 4px; }
 label { font-size: 12px; color: var(--muted); }
+.tabs { display: flex; margin-bottom: 8px; }
+.tabs button { flex: 1; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 4px; cursor: pointer; }
+.tabs button.on { border-color: var(--accent); background: var(--sel-bg); font-weight: bold; }
 .row { display: flex; gap: 6px; margin: 6px 0; }
 .row input { flex: 1; min-width: 0; }
 .profiles { list-style: none; padding: 0; margin: 8px 0; }
@@ -116,6 +172,7 @@ label { font-size: 12px; color: var(--muted); }
 .profiles li.on { border-color: var(--accent); background: var(--sel-bg); }
 .profiles span { color: var(--muted); }
 .profiles em { color: var(--key); font-style: normal; margin-left: 4px; }
+.acts { float: right; } .acts a { margin-left: 6px; color: var(--accent); cursor: pointer; }
 .pending { border-top: 1px solid var(--line); margin-top: 8px; font-size: 12px; }
 .pending ul { margin: 2px 0; padding-left: 18px; max-height: 160px; overflow: auto; }
 .ok { color: var(--ok); } .warn { color: var(--warn); } .muted { color: var(--muted); }

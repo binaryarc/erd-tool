@@ -14,10 +14,16 @@ const api: ErdApi = {
   },
   conn: {
     list: beDir => ipcRenderer.invoke(IPC.connList, beDir),
-    test: (beDir, profile) => ipcRenderer.invoke(IPC.connTest, beDir, profile),
+    test: ref => ipcRenderer.invoke(IPC.connTest, ref),
+    testDraft: (conn, password) => ipcRenderer.invoke(IPC.connTestDraft, conn, password),
+  },
+  manual: {
+    list: () => ipcRenderer.invoke(IPC.manualList),
+    save: (conn, password) => ipcRenderer.invoke(IPC.manualSave, conn, password),
+    remove: id => ipcRenderer.invoke(IPC.manualRemove, id),
   },
   db: {
-    reverse: (beDir, profile, modelDir) => ipcRenderer.invoke(IPC.dbReverse, beDir, profile, modelDir),
+    reverse: (ref, modelDir) => ipcRenderer.invoke(IPC.dbReverse, ref, modelDir),
   },
 };
 
