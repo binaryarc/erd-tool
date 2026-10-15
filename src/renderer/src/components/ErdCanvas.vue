@@ -16,7 +16,7 @@ import { COMPACT_ZOOM, VIEW_KEY, type ViewState } from '../view';
 import { tableWidth } from '../text-width';
 
 const props = defineProps<{ model: SchemaModel; diagram: Diagram; version: number }>();
-const emit = defineEmits<{ pin: [id: string, x: number, y: number] }>();
+const emit = defineEmits<{ pin: [id: string, x: number, y: number]; select: [names: string[]] }>();
 const view = inject(VIEW_KEY) as ViewState;
 
 const nodes = computed<Node[]>(() => {
@@ -49,7 +49,12 @@ const edges = computed<Edge[]>(() => {
   })));
 });
 
-const { viewport, setViewport, fitView, findNode } = useVueFlow();
+const { viewport, setViewport, fitView, findNode, getSelectedNodes } = useVueFlow();
+// Ctrl+클릭으로 고른 테이블 → 「SELECT 만들기」 (설계 9장 4번)
+watch(() => getSelectedNodes.value.map(n => n.id).join(','), () => {
+  const names = new Map(props.model.tables.map(t => [t.id, t.name]));
+  emit('select', getSelectedNodes.value.filter(n => n.type === 'table').map(n => names.get(n.id)!).filter(Boolean));
+});
 watch([() => viewport.value.zoom, () => view.compactOnZoomOut], ([z, on]) => { view.compact = on && z < COMPACT_ZOOM; });
 
 function onDragStop(e: NodeDragEvent) {
@@ -84,7 +89,7 @@ defineExpose({ bench, fitView });
 </script>
 
 <template>
-  <VueFlow :nodes="nodes" :edges="edges" :min-zoom="0.05" :max-zoom="2"
+  <VueFlow :nodes="nodes" :edges="edges" :min-zoom="0.05" :max-zoom="2" multi-selection-key-code="Control"
            fit-view-on-init @node-drag-stop="onDragStop">
     <template #node-table="{ data }">
       <TableNode :data="data" />

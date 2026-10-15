@@ -3,10 +3,13 @@
 import { nextTick, provide, reactive, ref, shallowRef } from 'vue';
 import ConnPanel from './components/ConnPanel.vue';
 import ErdCanvas from './components/ErdCanvas.vue';
+import SqlTab from './components/SqlTab.vue';
+import TerminalTab from './components/TerminalTab.vue';
+import { buildJoinSelect } from '../../shared/sql/join';
 import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
 import { emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
 import type { ModelError, SchemaModel } from '../../shared/model/types';
-import type { ReverseResult } from '../../shared/ipc';
+import type { ReverseResult, ShellKind } from '../../shared/ipc';
 import { VIEW_KEY, type ViewState } from './view';
 
 const view = reactive<ViewState>({ nameMode: 'both', compactOnZoomOut: false, compact: false });
@@ -83,9 +86,124 @@ function autoArrange() {
   dirty.value = true;
 }
 
+// ---------- 탭: ERD, SQL, 터미널 ----------
+interface Tab { id: string; kind: 'erd' | 'sql' | 'term'; title: string; dirty: boolean; initialSql?: string; shell?: ShellKind }
+const tabs = ref<Tab[]>([{ id: 'erd', kind: 'erd', title: 'ERD', dirty: false }]);
+const activeTab = ref('erd');
+const selected = ref<string[]>([]);
+const tabRefs = new Map<string, unknown>();
+const setTabRef = (id: string, el: unknown) => { if (el) tabRefs.set(id, el); else tabRefs.delete(id); };
+let seq = 0;
+
+function addSql(initialSql = '') {
+  const id = `sql-${++seq}`;
+  tabs.value.push({ id, kind: 'sql', title: `SQL ${seq}`, dirty: false, initialSql });
+  activeTab.value = id;
+  return id;
+}
+
+function addTerm(shell: ShellKind) {
+  const id = `term-${++seq}`;
+  tabs.value.push({ id, kind: 'term', title: shell === 'pwsh' ? `PowerShell ${seq}` : `Git Bash ${seq}`, dirty: false, shell });
+  activeTab.value = id;
+  return id;
+}
+
+/** 커밋 안 한 변경 확인 (탭 닫기, 창 닫기 공통) */
+const closeAsk = ref<{ labels: string[]; resolve: (a: 'commit' | 'rollback' | 'cancel') => void } | null>(null);
+const ask = (labels: string[]) => new Promise<'commit' | 'rollback' | 'cancel'>(resolve => { closeAsk.value = { labels, resolve }; });
+function answerClose(a: 'commit' | 'rollback' | 'cancel') { closeAsk.value?.resolve(a); closeAsk.value = null; }
+
+async function closeTab(t: Tab) {
+  if (t.kind === 'sql') {
+    if (t.dirty) {
+      const a = await ask([t.title]);
+      if (a === 'cancel') return;
+      await window.erd.sql[a](t.id);
+    }
+    await window.erd.sql.close(t.id);
+  }
+  tabs.value = tabs.value.filter(x => x.id !== t.id);
+  if (activeTab.value === t.id) activeTab.value = tabs.value[tabs.value.length - 1].id;
+}
+
+window.erd.onCloseRequest(async dirty => {
+  const a = await ask(dirty.map(d => tabs.value.find(t => t.id === d.tabId)?.title ?? d.label));
+  if (a !== 'cancel') for (const d of dirty) await window.erd.sql[a](d.tabId);
+  window.erd.confirmClose(a !== 'cancel');
+});
+
 // 시험 모드 (메인의 ERD_AUTO 가 부른다)
 const frames = (n: number) => new Promise<void>(r => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
-window.__erdAuto = async ({ beDir, profile, modelDir: dir }) => {
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+window.__erdActivate = async (id: string) => { activeTab.value = id; await nextTick(); await frames(5); await sleep(400); };
+
+/** SQL 탭, 터미널 탭 시험 (완료 기준 3 과 힌트 동작) */
+async function sqlScenario(beDir: string, dir: string) {
+  await panel.value!.setSource('be');
+  await panel.value!.setBeDir(beDir);
+  await openModel(dir);
+  const out: Record<string, unknown> = {};
+
+  const id = addSql();
+  await nextTick(); await frames(5);
+  type SqlTabApi = InstanceType<typeof SqlTab>;
+  const tab = tabRefs.get(id) as SqlTabApi;
+  await tab.loadOptions();
+  await tab.connect('be:dev');
+  out.connect = { options: tab.options(), message: tab.message(), state: tab.state() };
+  const ed = tab.editor()!;
+  ed.setValue('select g as n, md5(g::text) as h from generate_series(1, 2500) g');
+  await tab.run();
+  await frames(5); await sleep(300);
+  out.grid = { ...tab.grid(), state: tab.state() };
+
+  // 자동완성: 별칭 b. 뒤 컬럼
+  ed.setValue('select * from mst_biz b where b.');
+  ed.setPosition({ lineNumber: 1, column: 33 });
+  ed.focus();
+  ed.trigger('auto', 'editor.action.triggerSuggest', {});
+  await sleep(800);
+  out.suggest = Array.from(document.querySelectorAll('.suggest-widget .monaco-list-row')).slice(0, 4).map(r => r.getAttribute('aria-label'));
+  ed.trigger('auto', 'hideSuggestWidget', {});
+
+  // 회색 미리보기: 방금 실행한 문장이 이력에 (리터럴은 ?) 있다
+  ed.setValue('select g as');
+  ed.setPosition({ lineNumber: 1, column: 12 });
+  ed.trigger('auto', 'editor.action.inlineSuggest.trigger', {});
+  await sleep(1000);
+  out.ghost = Array.from(document.querySelectorAll('[class*=ghost-text]')).map(e => e.textContent).join('');
+
+  // ERD 에서 고른 테이블로 SELECT 만들어 실행
+  const join = buildJoinSelect(model.value!, ['mst_biz_wh', 'mst_biz', 'mst_wh']);
+  ed.setValue(join);
+  ed.setSelection(ed.getModel()!.getFullModelRange());
+  const jr = await tab.run();
+  out.join = { sql: join, columns: jr?.columns.length, error: tab.state() ? undefined : 'no state' };
+  ed.setPosition({ lineNumber: 1, column: 1 });
+
+  // 터미널: PowerShell 7 에서 claude --version, 한글 폭
+  const tid = addTerm('pwsh');
+  await nextTick(); await sleep(3000);
+  const term = tabRefs.get(tid) as InstanceType<typeof TerminalTab>;
+  term.write('claude --version\r');
+  await sleep(8000);
+  term.write('echo 가나다ABC\r');
+  await sleep(1500);
+  const buf = term.bufferText();
+  out.terminal = { claude: /\(Claude Code\)/.test(buf), korean: buf.includes('가나다ABC'), tail: buf.split('\n').slice(-6) };
+  // 실행 중에 터미널 탭 하나를 닫아도 오류가 없어야 한다
+  const t2 = addTerm('bash');
+  await nextTick(); await sleep(2500);
+  await closeTab(tabs.value.find(t => t.id === t2)!);
+  await sleep(1500);
+  out.tabs = { sql: id, term: tid };
+  activeTab.value = id;
+  return JSON.parse(JSON.stringify(out)); // 반응형 값이 섞여 있어 평범한 값으로 바꿔 돌려준다
+}
+
+window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir }) => {
+  if (scenario === 'sql') return sqlScenario(beDir, dir);
   await panel.value!.setSource('be');
   await panel.value!.setBeDir(beDir);
   await setModelDir(dir);
@@ -137,10 +255,37 @@ window.__erdBench = async () => {
     </header>
     <div class="body">
       <ConnPanel ref="panel" :model-dir="modelDir" @apply="applyReverse" @be-dir="onBeDir" />
-      <main class="canvas">
-        <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" @pin="onPin" />
-        <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
+      <main class="main">
+        <nav class="tabs">
+          <button v-for="t in tabs" :key="t.id" :class="{ on: t.id === activeTab }" @click="activeTab = t.id">
+            {{ t.title }}<b v-if="t.dirty" class="warn"> *</b>
+            <span v-if="t.kind !== 'erd'" class="x" title="닫기" @click.stop="closeTab(t)">×</span>
+          </button>
+          <button class="add" @click="addSql()">+ SQL</button>
+          <button class="add" @click="addTerm('pwsh')">+ PowerShell</button>
+          <button class="add" @click="addTerm('bash')">+ Git Bash</button>
+          <button v-if="selected.length" class="add" @click="addSql(buildJoinSelect(model!, selected))">SELECT 만들기 ({{ selected.length }})</button>
+        </nav>
+        <div v-show="activeTab === 'erd'" class="pane canvas">
+          <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" @pin="onPin" @select="n => (selected = n)" />
+          <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
+        </div>
+        <div v-for="t in tabs.filter(x => x.kind !== 'erd')" v-show="activeTab === t.id" :key="t.id" class="pane">
+          <SqlTab v-if="t.kind === 'sql'" :ref="el => setTabRef(t.id, el)" :tab-id="t.id" :schema="model" :initial-sql="t.initialSql"
+                  :active="activeTab === t.id" @state="s => (t.dirty = !!s?.dirty)" />
+          <TerminalTab v-else :ref="el => setTabRef(t.id, el)" :term-id="t.id" :shell="t.shell!" :active="activeTab === t.id" />
+        </div>
       </main>
+    </div>
+    <div v-if="closeAsk" class="modal">
+      <div class="dialog">
+        <p>커밋하지 않은 변경이 있다: <b>{{ closeAsk.labels.join(', ') }}</b></p>
+        <div class="row">
+          <button @click="answerClose('commit')">커밋하고 닫기</button>
+          <button @click="answerClose('rollback')">롤백하고 닫기</button>
+          <button @click="answerClose('cancel')">취소</button>
+        </div>
+      </div>
     </div>
     <footer>
       <span>{{ message }}</span>
@@ -171,7 +316,17 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .spacer { flex: 1; }
 .dir { color: var(--muted); max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .body { flex: 1; display: flex; min-height: 0; }
-.canvas { flex: 1; position: relative; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.tabs { display: flex; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tabs button { border: 1px solid var(--line); border-bottom: none; background: var(--panel-bg); color: var(--fg); padding: 4px 10px; cursor: pointer; }
+.tabs button.on { background: var(--bg); font-weight: bold; border-color: var(--accent); }
+.tabs .add { background: transparent; border-style: dashed; }
+.tabs .x { margin-left: 6px; color: var(--muted); }
+.pane { flex: 1; min-height: 0; position: relative; }
+.canvas { position: relative; }
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.dialog { background: var(--bg); border: 1px solid var(--line); padding: 16px; max-width: 480px; }
+.dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
 .empty { padding: 24px; color: var(--muted); }
 .warn { color: var(--warn); }
 </style>

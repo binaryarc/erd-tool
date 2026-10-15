@@ -18,6 +18,22 @@ export const IPC = {
   manualSave: 'manual:save',
   manualRemove: 'manual:remove',
   dbReverse: 'db:reverse',
+  sqlOpen: 'sql:open',
+  sqlRun: 'sql:run',
+  sqlFetchMore: 'sql:fetchMore',
+  sqlCommit: 'sql:commit',
+  sqlRollback: 'sql:rollback',
+  sqlAllowWrite: 'sql:allowWrite',
+  sqlClose: 'sql:close',
+  historyList: 'history:list',
+  termSpawn: 'term:spawn',
+  termInput: 'term:input',
+  termResize: 'term:resize',
+  termKill: 'term:kill',
+  termData: 'term:data',
+  termExit: 'term:exit',
+  closeRequest: 'app:closeRequest',
+  closeConfirm: 'app:closeConfirm',
 } as const;
 
 /** 접속 정보를 어디서 가져올지: BE 폴더 properties 자동 매핑, 또는 직접 입력 */
@@ -98,6 +114,41 @@ export interface ReverseResult {
   layout: Layout;
 }
 
+/** SQL 탭 세션 상태 */
+export interface SqlState {
+  label: string;
+  /** 쿼리 이력 구분 값 */
+  connKey: string;
+  /** 트랜잭션이 열려 있다 */
+  inTx: boolean;
+  /** 커밋 안 한 변경이 있다 */
+  dirty: boolean;
+  readOnly: boolean;
+  /** 더 가져올 행이 있다 */
+  more: boolean;
+}
+
+export interface SqlResult {
+  command: string;
+  columns: { name: string }[];
+  /** 행마다 컬럼 순서대로 값. 숫자, 참거짓 외에는 DB 가 준 글자 그대로 */
+  rows: unknown[][];
+  /** 결과 행 수, 또는 바뀐 행 수 */
+  rowCount: number | null;
+  ms: number;
+  state: SqlState;
+  error?: { message: string; code?: string; position?: number };
+}
+
+export interface HistoryEntry {
+  /** 리터럴을 ? 로 바꾼 문장 */
+  sql: string;
+  count: number;
+  last: string;
+}
+
+export type ShellKind = 'pwsh' | 'bash';
+
 export interface ErdApi {
   pickFolder(defaultPath?: string): Promise<string | null>;
   settings: {
@@ -124,4 +175,27 @@ export interface ErdApi {
   db: {
     reverse(ref: ConnRef, modelDir: string): Promise<ReverseResult>;
   };
+  sql: {
+    open(tabId: string, ref: ConnRef, label: string): Promise<SqlState>;
+    run(tabId: string, sql: string): Promise<SqlResult>;
+    fetchMore(tabId: string): Promise<SqlResult>;
+    commit(tabId: string): Promise<SqlResult>;
+    rollback(tabId: string): Promise<SqlResult>;
+    allowWrite(tabId: string): Promise<SqlState>;
+    close(tabId: string): Promise<void>;
+  };
+  history: {
+    list(connKey: string): Promise<HistoryEntry[]>;
+  };
+  term: {
+    spawn(termId: string, shell: ShellKind, cols: number, rows: number): Promise<{ shell: string; cwd: string }>;
+    input(termId: string, data: string): void;
+    resize(termId: string, cols: number, rows: number): void;
+    kill(termId: string): void;
+    onData(cb: (termId: string, data: string) => void): void;
+    onExit(cb: (termId: string, code: number) => void): void;
+  };
+  /** 창을 닫을 때 커밋 안 한 탭이 있으면 메인이 묻는다. 화면은 확인 결과를 돌려준다 */
+  onCloseRequest(cb: (dirty: { tabId: string; label: string }[]) => void): void;
+  confirmClose(ok: boolean): void;
 }
