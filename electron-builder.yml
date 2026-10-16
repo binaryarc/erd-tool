@@ -1,0 +1,44 @@
+# Windows 설치 파일 빌드 설정 (STEP 11). npm run dist → dist/ERD Tool Setup {버전}.exe
+# 설정 키는 electron-builder 26.15.3 의 설정 스키마(app-builder-lib/scheme.json)로 확인했다.
+appId: kr.co.shop.erdtool
+productName: ERD Tool
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  # node-pty 의 다른 OS, CPU 용 미리 빌드한 파일과 C++ 원본은 빼고 Windows x64 것만 넣는다
+  - '!node_modules/node-pty/prebuilds/{darwin-arm64,darwin-x64,win32-arm64}/**'
+  - '!node_modules/node-pty/{deps,third_party,src,scripts,build}/**'
+  - '!node_modules/node-pty/**/*.pdb'
+  # oracledb 는 Thin 모드(순수 JS)라 macOS 용 네이티브 파일이 필요 없다
+  - '!node_modules/oracledb/build/Release/*darwin*'
+# Chromium 화면 글자 묶음(locales)은 한국어, 영어만 넣는다 (전체 약 49MB)
+electronLanguages:
+  - ko
+  - en-US
+# 내장 터미널: node-pty 는 conpty.dll, OpenConsole.exe 를 실제 파일로 띄우므로 압축 밖에 둔다
+asarUnpack:
+  - node_modules/node-pty/**
+# node-pty 는 미리 빌드한 파일(N-API)을 쓴다. 다시 빌드하면 C++ 빌드 도구가 필요해진다 (위험 요소 1번)
+npmRebuild: false
+# Electron 퓨즈 (STEP 11): 떠 있는 앱에 디버거를 붙이거나 앱을 Node 로 실행하는 길을 막는다.
+# 2026-10-16 시험에서 node -e "process._debugProcess(PID)" 로 메인 프로세스에 디버거 포트 9229 가 열렸다
+electronFuses:
+  runAsNode: false
+  enableNodeCliInspectArguments: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableCookieEncryption: true
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  artifactName: ERD-Tool-Setup-${version}.${ext}
