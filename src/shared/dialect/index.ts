@@ -4,6 +4,7 @@
 import type { TextRules } from '../sql/text';
 import type { Check, Column, ForeignKey, FunctionDef, Index, Sequence, Table, Unique } from '../model/types';
 import { postgresql } from './postgresql';
+import { sqlserver } from './sqlserver';
 import { DIALECT_LABEL, type Dialect } from './names';
 
 export * from './names';
@@ -11,6 +12,8 @@ export * from './names';
 export interface DdlOptions {
   /** Flyway 파일용: 스키마 접두어와 여러 번 실행해도 안전한 문장 (PostgreSQL 만) */
   flyway?: boolean;
+  /** 모델의 스키마 (SQL Server 확장 속성처럼 스키마 이름이 꼭 필요한 문장에 쓴다) */
+  schema?: string;
 }
 
 /** 차이 하나를 문장으로 바꾸는 함수들. 순서와 묶음은 sql/alter.ts 가 정한다 */
@@ -36,8 +39,8 @@ export interface DdlWriter {
   dropTable(t: string): string;
   addColumn(t: string, c: Column): string[];
   dropColumn(t: string, c: string): string;
-  /** 있는 컬럼 a 를 b 로 바꾸는 문장들 */
-  alterColumn(t: string, a: Column, b: Column): string[];
+  /** 있는 컬럼 a 를 b 로 바꾸는 문장들. from, to 는 바꾸기 전과 뒤의 테이블 (컬럼이 든 인덱스를 다시 만들어야 하는 DB 용) */
+  alterColumn(t: string, a: Column, b: Column, tables?: { from?: Table; to?: Table }): string[];
   createSeq(s: Sequence): string;
   alterSeq(s: Sequence): string;
   dropSeq(s: string): string;
@@ -65,7 +68,7 @@ export interface DialectRules {
 }
 
 // 부를 때 만든다: 모델 모듈과 서로 불러오는 고리 때문에 모듈을 읽는 순간에는 규칙 객체가 아직 없을 수 있다
-const registry = (): Partial<Record<Dialect, DialectRules>> => ({ postgresql });
+const registry = (): Partial<Record<Dialect, DialectRules>> => ({ postgresql, sqlserver });
 
 export function rulesFor(d: Dialect = 'postgresql'): DialectRules {
   const r = registry()[d];

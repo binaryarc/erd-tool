@@ -53,6 +53,8 @@ export interface DbConn {
   release(name: string): Promise<void>;
   /** 이 연결의 다음 트랜잭션부터 읽기 전용 켜고 끄기 (서버가 못 막는 DB 는 아무것도 안 한다) */
   setReadOnly(on: boolean): Promise<void>;
+  /** 트랜잭션이 아직 열려 있는가. 한 문장 실패로 트랜잭션 전체가 끝날 수 있는 DB(SQL Server)만 둔다 */
+  inTx?(): Promise<boolean>;
   close(): Promise<void>;
 }
 

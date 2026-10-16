@@ -81,6 +81,7 @@ class Session {
       };
     } catch (e) {
       await this.conn.rollbackTo(SP).catch(() => {});
+      await this.syncTx();
       return this.fail(e, t0);
     }
   }
@@ -98,6 +99,7 @@ class Session {
       this.cursor = null;
       await c.close();
       await this.conn.rollbackTo(SP).catch(() => {});
+      await this.syncTx();
       return this.fail(e, t0);
     }
     const more = rows.length === FETCH_SIZE;
@@ -134,6 +136,11 @@ class Session {
     await this.closeCursor();
     if (this.inTx) await this.conn.rollback().catch(() => {});
     await this.conn.close();
+  }
+
+  /** 실패한 문장이 트랜잭션 전체를 끝냈으면(SQL Server) 화면 상태도 맞춘다 */
+  private async syncTx() {
+    if (this.inTx && this.conn.inTx && !(await this.conn.inTx().catch(() => true))) { this.inTx = false; this.dirty = false; }
   }
 
   private done(command: string, rowCount: number | null, t0: number): SqlResult {
