@@ -6,6 +6,7 @@ import type { Check, Column, ForeignKey, FunctionDef, Index, Sequence, Table, Un
 import { postgresql } from './postgresql';
 import { sqlserver } from './sqlserver';
 import { mysql } from './mysql';
+import { oracle } from './oracle';
 import { DIALECT_LABEL, type Dialect } from './names';
 
 export * from './names';
@@ -69,7 +70,7 @@ export interface DialectRules {
 }
 
 // 부를 때 만든다: 모델 모듈과 서로 불러오는 고리 때문에 모듈을 읽는 순간에는 규칙 객체가 아직 없을 수 있다
-const registry = (): Partial<Record<Dialect, DialectRules>> => ({ postgresql, sqlserver, mysql });
+const registry = (): Record<Dialect, DialectRules> => ({ postgresql, sqlserver, mysql, oracle });
 
 export function rulesFor(d: Dialect = 'postgresql'): DialectRules {
   const r = registry()[d];

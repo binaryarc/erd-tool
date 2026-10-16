@@ -54,3 +54,23 @@ describe('MySQL', () => {
     expect(['INTEGER', 'bool'].map(t => normalizeTypeFor('mysql', t))).toEqual(['int', 'tinyint(1)']);
   });
 });
+
+describe('Oracle', () => {
+  const text = rulesFor('oracle').text;
+  it('PL/SQL 블록은 / 줄까지 한 문장이고, 일반 문장은 ; 와 / 줄로 나눈다', () => {
+    const sql = "select 1 from dual;\nBEGIN\n  update t set a = 1;\n  commit;\nEND;\n/\ncreate or replace procedure p as begin null; end;\n/\nselect 2 from dual\n/";
+    expect(splitStatements(sql, text).map(s => s.text)).toEqual([
+      'select 1 from dual',
+      'BEGIN\n  update t set a = 1;\n  commit;\nEND;',
+      'create or replace procedure p as begin null; end;',
+      'select 2 from dual',
+    ]);
+  });
+  it('대문자가 아닌 이름만 따옴표, VARCHAR 는 VARCHAR2, 행 수 제한은 FETCH FIRST', () => {
+    const m = model('oracle', [table('ERD_A', { columns: [{ name: 'ID', type: 'integer', notNull: true }, { name: 'mixed', type: 'varchar2(10)', notNull: false }], pk: ['ID'] })]);
+    const sql = buildAlter({ ...m, tables: [] }, m).sql;
+    expect(sql).toContain('CREATE TABLE ERD_A (\n  ID integer NOT NULL,\n  "mixed" varchar2(10),\n  PRIMARY KEY (ID)\n);');
+    expect(['VARCHAR(20)', 'int'].map(t => normalizeTypeFor('oracle', t))).toEqual(['varchar2(20)', 'integer']);
+    expect(buildJoinSelect(m, ['ERD_A'])).toBe('SELECT A.*\n  FROM ERD_A A\nFETCH FIRST 100 ROWS ONLY;');
+  });
+});
