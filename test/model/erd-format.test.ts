@@ -83,11 +83,28 @@ describe('.erd 형식', () => {
     const m = { ...model([table('t1', 'mst_biz')]), sequences: [{ name: 'z_seq', start: 1, inc: 1 }, { name: 'a_seq', start: 100, inc: -1 }] };
     const { first, parsed } = roundTrip(m);
     expect(first['_index.erd']).toBe([
-      'erd-model 1', 'group wms prefix=whs_', 'group mdm prefix=mst_', 'group sm prefix=sm_ default', 'group sif prefix=sif_', 'group wes prefix=wes_',
+      'erd-model 2', 'db postgresql public', 'group wms prefix=whs_', 'group mdm prefix=mst_', 'group sm prefix=sm_ default', 'group sif prefix=sif_', 'group wes prefix=wes_',
       'common reg_id varchar(50) NN #등록자_ID', 'common reg_dt timestamp NN =now() #등록_일시',
       'seq a_seq start=100 inc=-1', 'seq z_seq start=1 inc=1', '',
     ].join('\n'));
     expect(parsed.model.groups).toEqual(SHOP_GROUPS);
+  });
+
+  it('형식 버전 1 파일은 PostgreSQL, public 으로 읽고, 저장하면 버전 2 와 db 줄을 쓴다 (STEP 9)', () => {
+    const v1 = { '_index.erd': 'erd-model 1\ngroup mdm prefix=mst_ default\n', 'mdm.erd': 'mst_a @t1\n  seq integer PK\n' };
+    const p = parseModel(v1);
+    expect(p.errors).toEqual([]);
+    expect([p.model.dialect, p.model.schema]).toEqual([undefined, undefined]);
+    const out = serializeModel(p.model);
+    expect(out['_index.erd']).toBe('erd-model 2\ndb postgresql public\ngroup mdm prefix=mst_ default\n');
+    expect(out['mdm.erd']).toBe(v1['mdm.erd']); // 그룹 파일은 그대로
+  });
+
+  it('DB 종류와 스키마를 보존하고, 모르는 DB 종류와 버전은 오류다', () => {
+    const { parsed } = roundTrip({ ...model([table('t1', 'mst_biz')]), dialect: 'sqlserver', schema: 'dbo' });
+    expect([parsed.model.dialect, parsed.model.schema]).toEqual(['sqlserver', 'dbo']);
+    expect(parseModel({ '_index.erd': 'erd-model 2\ndb db2 x\n' }).errors.map(e => e.message)).toEqual(['db 줄 형식이 아니다: db db2 x']);
+    expect(parseModel({ '_index.erd': 'erd-model 3\n' }).errors.map(e => e.message)).toEqual(['지원하지 않는 형식 버전: 3']);
   });
 });
 

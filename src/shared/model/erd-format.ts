@@ -1,6 +1,7 @@
 // .erd 한 줄 표기 읽기, 쓰기 (설계 문서 4장)
 // 같은 모델은 항상 같은 바이트로 저장한다: 테이블 이름순, 키 줄은 종류 후 이름순, 컬럼은 정의 순서, LF, 끝 줄바꿈 1개.
 
+import { DIALECTS, dialectOf, schemaOf, type Dialect } from '../dialect/names';
 import { MODEL_VERSION, type Column, type FkAction, type ForeignKey, type FunctionDef, type GroupRule, type ModelError, type SchemaModel, type Table } from './types';
 
 export const INDEX_FILE = '_index.erd';
@@ -33,7 +34,7 @@ export function serializeModel(model: SchemaModel): Record<string, string> {
 }
 
 function serializeIndex(model: SchemaModel): string {
-  const lines = [`erd-model ${model.version}`];
+  const lines = [`erd-model ${MODEL_VERSION}`, `db ${dialectOf(model)} ${schemaOf(model)}`];
   for (const g of model.groups) {
     lines.push(['group', g.name, g.prefix ? `prefix=${g.prefix}` : '', g.isDefault ? 'default' : ''].filter(Boolean).join(' '));
   }
@@ -235,8 +236,12 @@ function parseIndex(text: string, model: SchemaModel, errors: ModelError[]) {
     if (!raw.trim()) return;
     const [kw, ...rest] = raw.split(' ');
     if (kw === 'erd-model') {
-      model.version = Number(rest[0]);
-      if (model.version !== MODEL_VERSION) err(`지원하지 않는 형식 버전: ${rest[0]}`);
+      // 버전 1 은 db 줄이 없다: DB 종류를 비워 두면 PostgreSQL, public 으로 본다. 다음 저장 때 버전 2 로 쓴다
+      if (rest[0] !== '1' && Number(rest[0]) !== MODEL_VERSION) err(`지원하지 않는 형식 버전: ${rest[0]}`);
+    } else if (kw === 'db') {
+      if (!DIALECTS.includes(rest[0] as Dialect) || !rest[1]) return err(`db 줄 형식이 아니다: ${raw}`);
+      model.dialect = rest[0] as Dialect;
+      model.schema = rest[1];
     } else if (kw === 'group') {
       const g: GroupRule = { name: rest[0] };
       for (const opt of rest.slice(1)) {

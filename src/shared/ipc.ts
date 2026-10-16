@@ -1,6 +1,7 @@
 // 메인과 렌더러 사이 IPC 함수 목록. 렌더러는 preload 가 연 이 함수들만 쓴다 (DB, 파일, 셸은 메인만).
 // 단계별 전체 목록은 설계 문서 3-1. 구현한 함수만 여기에 둔다.
 
+import type { Dialect } from './dialect/names';
 import type { Layout } from './model/layout';
 import type { ModelDiff } from './model/merge';
 import type { ModelError, SchemaModel } from './model/types';
@@ -81,12 +82,16 @@ export type ConnRef = { source: 'be'; beDir: string; name: string } | { source: 
 export interface ManualConn {
   id: string;
   name: string;
-  driver: 'postgresql';
+  driver: Dialect;
   host: string;
   port: number;
   database: string;
   user: string;
   readOnly: boolean;
+  /** 비우면 DB 종류 기본 스키마 (PostgreSQL public, SQL Server dbo, MySQL 접속 DB, Oracle 계정 이름) */
+  schema?: string;
+  /** SQL Server 자체 서명 인증서를 믿는다 */
+  trustCert?: boolean;
   /** true 면 비밀번호를 Windows 계정 암호화(safeStorage)로 저장, false 면 앱을 끌 때까지만 기억 */
   savePassword: boolean;
 }
@@ -115,7 +120,10 @@ export interface SaveResult {
 /** 접속 프로필 (비밀번호 없음) */
 export interface ProfileInfo {
   name: string;
+  /** jdbc URL 의 드라이버 이름 */
   driver: string;
+  /** 지원하는 DB 면 그 종류 */
+  dialect?: Dialect;
   host: string;
   port: number;
   database: string;
@@ -160,6 +168,10 @@ export interface SqlState {
   /** 커밋 안 한 변경이 있다 */
   dirty: boolean;
   readOnly: boolean;
+  /** 접속한 DB 종류 (문장 나누기 규칙) */
+  dialect: Dialect;
+  /** 서버가 읽기 전용을 막지 못하는 DB (SQL Server, Oracle). 읽기 전용이면 DB 계정 권한으로 막아야 한다 */
+  readOnlyByAccount?: boolean;
   /** 더 가져올 행이 있다 */
   more: boolean;
 }
@@ -187,6 +199,8 @@ export type ShellKind = 'powershell' | 'bash';
 
 /** SQL 자동완성용 DB 목록 (접속한 DB 에서 읽음) */
 export interface SqlCatalog {
+  /** 접속한 DB 종류 (자동완성 키워드, 글자 규칙). 없으면 PostgreSQL */
+  dialect?: Dialect;
   tables: { name: string; schema: string; kind: 'table' | 'view'; comment: string; columns: { name: string; type: string; comment: string }[] }[];
   functions: { name: string; args: string; returns: string }[];
 }

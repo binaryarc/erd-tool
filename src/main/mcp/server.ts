@@ -85,7 +85,7 @@ function build(deps: McpDeps): McpServer {
       '두 쪽 구조를 비교한다(읽기만 한다). from 은 지금 모습, to 는 바꿀 모습이고 각각 접속 이름(예: dev, test) 또는 erd(지금 열린 ERD).',
       '결과는 from 을 to 처럼 바꾸는 데 필요한 차이: 요약, 차이 목록(종류, 추가/삭제/변경, 대상, 내용, 위험).',
       '「추가」 는 to 에만 있고, 「삭제」 는 from 에만 있다는 뜻. 테이블, 컬럼, PK, FK, UNIQUE, 인덱스, 시퀀스, 함수를 이름으로 맞춘다.',
-      'alter 를 켜면 from 을 to 처럼 바꾸는 PostgreSQL ALTER 문도 준다(실행하지 않는다).',
+      'alter 를 켜면 from 을 to 처럼 바꾸는 ALTER 문도 준다(from 의 DB 종류 문법, 실행하지 않는다).',
     ].join('\n'),
     inputSchema: z.object({
       from: z.string().describe('지금 모습: 접속 이름 또는 erd'),

@@ -2,6 +2,7 @@
 // 첫 테이블에서 시작해 FK(양방향)를 너비 우선으로 따라가며, 고른 테이블에 닿는 가장 짧은 경로를 붙인다.
 // 경로 중간 테이블도 JOIN 에 들어간다. 이어지지 않는 테이블은 주석으로 알린다.
 
+import { dialectOf, rulesFor } from '../dialect';
 import type { SchemaModel } from '../model/types';
 
 interface Edge { from: string; to: string; on: [string, string][] }

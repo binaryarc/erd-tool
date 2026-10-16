@@ -1,10 +1,10 @@
 // 통합 시험 (STEP 6): 모델 전체 CREATE 와 화면 수정 명령으로 만든 ALTER 를 dev 에 실제로 적용해 본다.
 // 한 트랜잭션 안에서 시험 스키마 erd_tmp 를 만들고 끝에 롤백하므로 dev 에는 아무것도 남지 않는다.
 import { describe, expect, it } from 'vitest';
-import pg from 'pg';
 import { connect, resolve } from '../../src/main/db/connect';
 import { getProfile, passwordOf } from '../../src/main/db/profiles';
-import { reversePg } from '../../src/main/db/pg-reverse';
+import { postgresAdapter } from '../../src/main/db/adapters/postgres';
+import type { DbConn } from '../../src/main/db/adapters/types';
 import { loadModel } from '../../src/main/model-store';
 import { diffModels } from '../../src/shared/model/diff';
 import { addColumn, addFk, addTable, updateColumn } from '../../src/shared/model/edit';
@@ -18,16 +18,16 @@ const MODEL_DIR = `${BE}/docs/erd/model`;
 let skip = '';
 try { passwordOf(getProfile(BE, 'dev'), BE); } catch (e) { skip = (e as Error).message; }
 
-async function run(client: pg.Client, sql: string) {
+async function run(client: DbConn, sql: string) {
   for (const s of splitStatements(sql)) {
     const body = s.text.replace(/^(--[^\n]*\n)+/, '').trim();
-    if (body) await client.query(body);
+    if (body) await client.exec(body);
   }
 }
 
 /** 함수는 정의에 public 스키마가 박혀 있어(pg_get_functiondef) 시험 스키마에 만들 수 없다. 테이블과 시퀀스만 비교한다 */
-async function read(client: pg.Client, like: SchemaModel): Promise<SchemaModel> {
-  const r = await reversePg(client, { schema: 'erd_tmp' });
+async function read(client: DbConn, like: SchemaModel): Promise<SchemaModel> {
+  const r = await postgresAdapter.reverse(client, 'erd_tmp');
   return { ...like, tables: r.tables, sequences: r.sequences, functions: [] };
 }
 const differences = (a: SchemaModel, b: SchemaModel) => diffModels(a, b).map(d => `${d.kind} ${d.change} ${d.table ?? ''}.${d.name}: ${d.detail}`);
@@ -39,9 +39,9 @@ describe.skipIf(!!skip)('STEP 6 dev 실제 적용', () => {
     const model: SchemaModel = { ...loaded.model, functions: [] };
     const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
     try {
-      await client.query('BEGIN');
-      await client.query('CREATE SCHEMA erd_tmp');
-      await client.query('SET LOCAL search_path TO erd_tmp');
+      await client.exec('BEGIN');
+      await client.exec('CREATE SCHEMA erd_tmp');
+      await client.exec('SET LOCAL search_path TO erd_tmp');
 
       const create = buildCreateAll(model, { functions: false });
       await run(client, create.sql);
@@ -61,10 +61,10 @@ describe.skipIf(!!skip)('STEP 6 dev 실제 적용', () => {
       expect(differences(await read(client, model), edited)).toEqual([]);
       console.log(JSON.stringify({ createStatements: create.statements, tables: model.tables.length, alterStatements: alter.statements }));
     } finally {
-      await client.query('ROLLBACK').catch(() => {});
+      await client.exec('ROLLBACK').catch(() => {});
       const left = await client.query("select count(*)::int n from pg_namespace where nspname = 'erd_tmp'");
-      expect(left.rows[0].n).toBe(0); // dev 에 남은 것 없음
-      await client.end();
+      expect(left[0].n).toBe(0); // dev 에 남은 것 없음
+      await client.close();
     }
   }, 120_000);
 });

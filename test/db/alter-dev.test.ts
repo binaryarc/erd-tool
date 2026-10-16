@@ -1,10 +1,10 @@
 // 통합 시험: 만든 ALTER 를 dev 에 실제로 적용해 본다 (STEP 5 완료 기준 2).
 // 한 트랜잭션 안에서 시험 스키마 erd_tmp 를 만들고 끝에 롤백하므로 dev 에는 아무것도 남지 않는다.
 import { describe, expect, it } from 'vitest';
-import pg from 'pg';
 import { connect, resolve } from '../../src/main/db/connect';
 import { getProfile, passwordOf } from '../../src/main/db/profiles';
-import { reversePg } from '../../src/main/db/pg-reverse';
+import { postgresAdapter } from '../../src/main/db/adapters/postgres';
+import type { DbConn } from '../../src/main/db/adapters/types';
 import { diffModels } from '../../src/shared/model/diff';
 import { buildAlter } from '../../src/shared/sql/alter';
 import { updateColumn, updateTable } from '../../src/shared/model/edit';
@@ -48,15 +48,15 @@ const B = model([
   functions: [{ name: 'erd_fn', args: 'a integer', definition: 'CREATE OR REPLACE FUNCTION erd_fn(a integer)\n RETURNS integer\n LANGUAGE sql\nAS $function$ select a + 1 $function$' }],
 });
 
-async function run(client: pg.Client, sql: string) {
+async function run(client: DbConn, sql: string) {
   for (const s of splitStatements(sql)) {
     const body = s.text.replace(/^(--[^\n]*\n)+/, '').trim();
-    if (body) await client.query(body);
+    if (body) await client.exec(body);
   }
 }
 
-async function read(client: pg.Client): Promise<SchemaModel> {
-  const r = await reversePg(client, { schema: 'erd_tmp' });
+async function read(client: DbConn): Promise<SchemaModel> {
+  const r = await postgresAdapter.reverse(client, 'erd_tmp');
   return model(r.tables, { sequences: r.sequences, functions: r.functions });
 }
 
@@ -68,9 +68,9 @@ describe.skipIf(!!skip)('ALTER 를 dev 에 실제로 적용', () => {
   it('A 를 만들고 A→B, B→A 를 적용한 뒤 다시 읽으면 각각 목표와 차이가 0 (끝에 롤백)', async () => {
     const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
     try {
-      await client.query('BEGIN');
-      await client.query('CREATE SCHEMA erd_tmp');
-      await client.query('SET LOCAL search_path TO erd_tmp');
+      await client.exec('BEGIN');
+      await client.exec('CREATE SCHEMA erd_tmp');
+      await client.exec('SET LOCAL search_path TO erd_tmp');
 
       await run(client, buildAlter(empty, A).sql);
       expect(meaningful(await read(client), A)).toEqual([]);
@@ -85,22 +85,22 @@ describe.skipIf(!!skip)('ALTER 를 dev 에 실제로 적용', () => {
       expect(meaningful(await read(client), A)).toEqual([]);
       console.log(JSON.stringify({ abStatements: ab.statements, abDangers: ab.dangers, baStatements: ba.statements, baDangers: ba.dangers }));
     } finally {
-      await client.query('ROLLBACK').catch(() => {});
+      await client.exec('ROLLBACK').catch(() => {});
       const left = await client.query("select count(*)::int n from pg_namespace where nspname = 'erd_tmp'");
-      expect(left.rows[0].n).toBe(0); // dev 에 남은 것 없음
-      await client.end();
+      expect(left[0].n).toBe(0); // dev 에 남은 것 없음
+      await client.close();
     }
   }, 60_000);
 
   it('identity, 생성 컬럼, CHECK 를 읽고 그대로 다시 만들며, 화면에서 바꾼 이름은 데이터를 지키는 RENAME 이다 (끝에 롤백)', async () => {
     const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
     try {
-      await client.query('BEGIN');
-      await client.query('CREATE SCHEMA erd_tmp');
-      await client.query('SET LOCAL search_path TO erd_tmp');
+      await client.exec('BEGIN');
+      await client.exec('CREATE SCHEMA erd_tmp');
+      await client.exec('SET LOCAL search_path TO erd_tmp');
       // 2026-10-16 화면 재현에 쓴 테이블과 같은 모양
-      await client.query('create table erd_probe_chk (id integer generated always as identity primary key, qty integer check (qty >= 0), qty2 integer generated always as (qty * 2) stored)');
-      const r = await reversePg(client, { schema: 'erd_tmp' });
+      await client.exec('create table erd_probe_chk (id integer generated always as identity primary key, qty integer check (qty >= 0), qty2 integer generated always as (qty * 2) stored)');
+      const r = await postgresAdapter.reverse(client, 'erd_tmp');
       const t = r.tables[0];
       expect(t.columns).toEqual([
         { name: 'id', type: 'integer', notNull: true, identity: 'always' },
@@ -112,37 +112,37 @@ describe.skipIf(!!skip)('ALTER 를 dev 에 실제로 적용', () => {
       const m = model(r.tables);
 
       // 전체 CREATE 를 빈 스키마에 실행하고 다시 읽으면 차이 0 (전에는 생성식이 DEFAULT 로 나와 실행이 실패했다)
-      await client.query('DROP TABLE erd_probe_chk');
+      await client.exec('DROP TABLE erd_probe_chk');
       await run(client, buildAlter(empty, m).sql);
       expect(meaningful(await read(client), m)).toEqual([]);
 
       // 이름 바꾸기: 행을 넣고 테이블, 컬럼 이름을 바꿔 적용하면 행이 남는다 (전에는 DROP 뒤 ADD 라 값이 사라졌다)
-      await client.query('insert into erd_probe_chk (qty) values (5)');
+      await client.exec('insert into erd_probe_chk (qty) values (5)');
       let renamed = updateTable(m, 'erd_probe_chk', { name: 'erd_probe_renamed' });
       renamed = updateColumn(renamed, 'erd_probe_renamed', 'qty', { name: 'amount' });
       await run(client, buildAlter(m, renamed).sql);
       expect(meaningful(await read(client), renamed)).toEqual([]);
-      expect((await client.query('select amount, qty2 from erd_probe_renamed')).rows).toEqual([{ amount: 5, qty2: 10 }]);
+      expect((await client.query('select amount, qty2 from erd_probe_renamed'))).toEqual([{ amount: 5, qty2: 10 }]);
       // CHECK 는 새 이름으로 계속 막는다
-      await client.query('SAVEPOINT ck');
-      await expect(client.query('insert into erd_probe_renamed (amount) values (-1)')).rejects.toThrow(/check constraint/);
-      await client.query('ROLLBACK TO SAVEPOINT ck');
+      await client.exec('SAVEPOINT ck');
+      await expect(client.exec('insert into erd_probe_renamed (amount) values (-1)')).rejects.toThrow(/check constraint/);
+      await client.exec('ROLLBACK TO SAVEPOINT ck');
     } finally {
-      await client.query('ROLLBACK').catch(() => {});
+      await client.exec('ROLLBACK').catch(() => {});
       const left = await client.query("select count(*)::int n from pg_namespace where nspname = 'erd_tmp'");
-      expect(left.rows[0].n).toBe(0);
-      await client.end();
+      expect(left[0].n).toBe(0);
+      await client.close();
     }
   }, 60_000);
 
   it('FK 참조 동작과 DEFERRABLE 을 읽고, 바꾼 ALTER 를 적용하면 다시 읽은 결과가 목표와 같다 (끝에 롤백)', async () => {
     const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
     try {
-      await client.query('BEGIN');
-      await client.query('CREATE SCHEMA erd_tmp');
-      await client.query('SET LOCAL search_path TO erd_tmp');
-      await client.query('create table erd_p (id integer primary key)');
-      await client.query('create table erd_c (id integer primary key, p_id integer, constraint fk_c_p foreign key (p_id) references erd_p (id) on delete cascade deferrable initially deferred)');
+      await client.exec('BEGIN');
+      await client.exec('CREATE SCHEMA erd_tmp');
+      await client.exec('SET LOCAL search_path TO erd_tmp');
+      await client.exec('create table erd_p (id integer primary key)');
+      await client.exec('create table erd_c (id integer primary key, p_id integer, constraint fk_c_p foreign key (p_id) references erd_p (id) on delete cascade deferrable initially deferred)');
       const m = await read(client);
       expect(m.tables.find(t => t.name === 'erd_c')!.fks).toEqual([
         { name: 'fk_c_p', columns: ['p_id'], refTable: 'erd_p', refColumns: ['id'], onDelete: 'cascade', deferrable: 'deferred' },
@@ -155,10 +155,10 @@ describe.skipIf(!!skip)('ALTER 를 dev 에 실제로 적용', () => {
       await run(client, buildAlter(target, m).sql);
       expect(meaningful(await read(client), m)).toEqual([]);
     } finally {
-      await client.query('ROLLBACK').catch(() => {});
+      await client.exec('ROLLBACK').catch(() => {});
       const left = await client.query("select count(*)::int n from pg_namespace where nspname = 'erd_tmp'");
-      expect(left.rows[0].n).toBe(0);
-      await client.end();
+      expect(left[0].n).toBe(0);
+      await client.close();
     }
   }, 60_000);
 });

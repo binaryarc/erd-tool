@@ -2,7 +2,7 @@
 // 이름 바꾸기와 삭제는 그 이름을 가리키는 곳(PK, FK, UNIQUE, 인덱스, 다른 테이블의 FK)을 함께 고친다.
 // 잘못된 명령은 EditError 를 던지고 모델은 그대로다.
 
-import { shortType } from './pg-types';
+import { dialectOf, normalizeTypeFor } from '../dialect';
 import { scan } from '../sql/text';
 import type { Column, ForeignKey, SchemaModel, Table } from './types';
 
@@ -10,15 +10,8 @@ export class EditError extends Error {}
 
 const fail = (msg: string): never => { throw new EditError(msg); };
 
-/** 사람이 친 타입을 리버스가 돌려주는 모양으로 맞춘다. 다르면 DB 에 적용하고 다시 읽을 때 차이로 나온다 */
-const TYPE_INPUT: Record<string, string> = {
-  int: 'integer', int4: 'integer', int8: 'bigint', int2: 'smallint', bool: 'boolean',
-  float8: 'double precision', float4: 'real', serial: 'integer', bigserial: 'bigint',
-};
-export function normalizeType(input: string): string {
-  const t = shortType(input.trim().replace(/\s+/g, ' ').toLowerCase()).replace(/\s*\(\s*/, '(').replace(/\s*,\s*/g, ',').replace(/\s*\)/, ')');
-  return TYPE_INPUT[t] ?? t;
-}
+/** 사람이 친 타입을 리버스가 돌려주는 모양으로 맞춘다 (PostgreSQL). 다른 DB 는 normalizeTypeFor */
+export const normalizeType = (input: string): string => normalizeTypeFor('postgresql', input);
 
 function table(m: SchemaModel, name: string): Table {
   return m.tables.find(t => t.name === name) ?? fail(`테이블 ${name} 이 없다`);
@@ -120,7 +113,7 @@ export function addColumn(m: SchemaModel, tableName: string, input: ColumnInput,
   checkName('컬럼', input.name);
   if (t.columns.some(c => c.name === input.name)) fail(`${tableName} 에 컬럼 ${input.name} 이 이미 있다`);
   const { pk, ...rest } = input;
-  const col: Column = clean({ ...rest, type: normalizeType(rest.type), notNull: rest.notNull || !!pk });
+  const col: Column = clean({ ...rest, type: normalizeTypeFor(dialectOf(m), rest.type), notNull: rest.notNull || !!pk });
   if (!col.type) fail('타입이 비었다');
   let at = t.columns.length;
   if (after !== undefined) at = t.columns.findIndex(c => c.name === after) + 1 || fail(`${tableName} 에 컬럼 ${after} 이 없다`);
@@ -162,7 +155,7 @@ export function updateColumn(m: SchemaModel, tableName: string, colName: string,
   const isPk = patch.pk ?? t.pk.includes(colName);
   const { pk: _pk, ...rest } = patch;
   const merged: Column = { ...old, ...rest, name: to };
-  if (rest.type !== undefined) merged.type = normalizeType(rest.type) || fail('타입이 비었다');
+  if (rest.type !== undefined) merged.type = normalizeTypeFor(dialectOf(m), rest.type) || fail('타입이 비었다');
   if (isPk) merged.notNull = true;
   const col = clean(to === colName ? merged : withRenamed(merged, old.renamedFrom ?? colName));
   const ren = (xs: string[]) => xs.map(x => (x === colName ? to : x));

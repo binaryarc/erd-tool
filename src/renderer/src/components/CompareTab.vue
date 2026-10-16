@@ -5,6 +5,7 @@
 import { computed, onMounted, ref, shallowRef } from 'vue';
 import { DIFF_CHANGE_LABEL, DIFF_KIND_LABEL, diffModels, summarize, type DiffItem, type DiffKind } from '../../../shared/model/diff';
 import { buildAlter } from '../../../shared/sql/alter';
+import { dialectOf } from '../../../shared/dialect/names';
 import { buildFlyway, suggestDescription, validDescription } from '../../../shared/export/flyway';
 import type { SchemaModel } from '../../../shared/model/types';
 import { loadConnOptions, type ConnOption } from '../conn-options';
@@ -26,6 +27,8 @@ const dangerOnly = ref(false);
 /** 마지막으로 비교한 두 쪽 모델 (Flyway 파일을 만들 때 쓴다) */
 let lastFrom: SchemaModel | null = null;
 let lastTo: SchemaModel | null = null;
+/** Flyway 파일은 PostgreSQL 만 (STEP 9 범위). 다른 DB 비교면 버튼을 끈다 */
+const flywayOk = ref(true);
 
 const KIND_LABEL = DIFF_KIND_LABEL;
 const CHANGE_LABEL = DIFF_CHANGE_LABEL;
@@ -70,6 +73,7 @@ async function compare() {
     items.value = diffModels(a, b);
     alterSql.value = buildAlter(a, b, items.value).sql;
     lastFrom = a; lastTo = b;
+    flywayOk.value = dialectOf(a.dialect ? a : b) === 'postgresql';
     fw.value.description = suggestDescription(items.value);
     fw.value.result = '';
     done.value = true;
@@ -186,7 +190,7 @@ defineExpose({ ready, compare, writeFlyway, setFlyway: (p: Partial<typeof fw.val
           <label>설명 <input v-model="fw.description" spellcheck="false" placeholder="add_mst_biz_columns" /></label>
           <label>메뉴코드 <input v-model="fw.menuCode" spellcheck="false" placeholder="없으면 비움" class="short" /></label>
           <label class="check"><input v-model="fw.history" type="checkbox" /> 99-migration-history.md 에 한 줄 추가</label>
-          <button title="폴더를 고르면 V{다음 번호}__{설명}_{시각}.sql 을 만든다. DB 에는 실행하지 않는다" @click="makeFlyway">Flyway 파일 만들기</button>
+          <button :disabled="!flywayOk" :title="flywayOk ? '폴더를 고르면 V{다음 번호}__{설명}_{시각}.sql 을 만든다. DB 에는 실행하지 않는다' : 'Flyway 파일은 PostgreSQL 모델에서만 만든다'" @click="makeFlyway">Flyway 파일 만들기</button>
         </div>
         <p v-if="fw.result" class="ok">{{ fw.result }}</p>
         <p v-if="fw.error" class="warn">{{ fw.error }}</p>
