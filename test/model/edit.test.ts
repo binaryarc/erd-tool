@@ -60,7 +60,7 @@ describe('ERD 수정 명령', () => {
     const m2 = updateColumn(base, 'mst_biz', 'biz_seq', { name: 'biz_id', comment: '사업장 ID' });
     expect(T(m2, 'mst_biz').pk).toEqual(['biz_id']);
     expect(T(m2, 'mst_wh').fks[0].refColumns).toEqual(['biz_id']);
-    expect(T(m2, 'mst_biz').columns[0]).toEqual({ name: 'biz_id', type: 'integer', notNull: true, comment: '사업장 ID' });
+    expect(T(m2, 'mst_biz').columns[0]).toEqual({ name: 'biz_id', type: 'integer', notNull: true, comment: '사업장 ID', renamedFrom: 'biz_seq' });
     expect(valid(m2)).toEqual([]);
   });
 

@@ -3,7 +3,7 @@
 // 맨 아래에 반대 방향 ALTER 를 한 줄마다 "-- " 를 붙인 ROLLBACK 주석 블록으로 둔다(Flyway 커뮤니티는 undo 없음).
 // 파일을 만들 뿐 DB 에 실행하지 않는다.
 
-import { diffModels, summarize, type DiffItem, type DiffKind } from '../model/diff';
+import { DIFF_CHANGE_LABEL, DIFF_KIND_LABEL, diffModels, summarize, type DiffItem, type DiffKind } from '../model/diff';
 import { buildAlter } from '../sql/alter';
 import type { SchemaModel } from '../model/types';
 
@@ -35,14 +35,14 @@ export function suggestDescription(items: DiffItem[]): string {
 
 export const flywayFileName = (version: number, description: string, now: Date) => `V${version}__${description}_${stamp(now)}.sql`;
 
-const KIND: Record<DiffKind, string> = { table: '테이블', column: '컬럼', pk: 'PK', fk: 'FK', unique: 'UNIQUE', index: '인덱스', sequence: '시퀀스', function: '함수' };
-const CHANGE = { add: '추가', drop: '삭제', alter: '변경' } as const;
+const KIND = DIFF_KIND_LABEL;
+const CHANGE = DIFF_CHANGE_LABEL;
 
 /** 「테이블 추가 1, 컬럼 추가 2」 */
 export function summaryText(items: DiffItem[]): string {
   const s = summarize(items);
   const parts: string[] = [];
-  for (const [k, v] of Object.entries(s)) for (const c of ['add', 'drop', 'alter'] as const) if (v[c]) parts.push(`${KIND[k as DiffKind]} ${CHANGE[c]} ${v[c]}`);
+  for (const [k, v] of Object.entries(s)) for (const c of ['rename', 'add', 'drop', 'alter'] as const) if (v[c]) parts.push(`${KIND[k as DiffKind]} ${CHANGE[c]} ${v[c]}`);
   return parts.join(', ');
 }
 

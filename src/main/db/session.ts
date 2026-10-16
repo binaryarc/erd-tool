@@ -17,6 +17,9 @@ const rawTypes = {
     KEEP_PARSED.has(oid) ? pg.types.getTypeParser(oid, format as 'text') : (v: string) => v,
 };
 
+/** 문장 앞 공백, 한 줄 주석(--), 구간 주석 */
+const LEADING_COMMENTS = /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/;
+
 const WRITE_FREE = new Set(['SELECT', 'SHOW', 'EXPLAIN', 'FETCH', 'SAVEPOINT', 'RELEASE', 'SET']);
 
 class Session {
@@ -44,10 +47,12 @@ class Session {
     await this.closeCursor();
     const t0 = Date.now();
     const s = sql.trim().replace(/;\s*$/, '');
-    // 편집기에 직접 쓴 트랜잭션 명령은 버튼과 같게 처리한다
-    if (/^(commit|end)\b/i.test(s)) return { ...(await this.commit()), ms: Date.now() - t0 };
-    if (/^(rollback|abort)\b(?!\s+to\b)/i.test(s)) return { ...(await this.rollback()), ms: Date.now() - t0 };
-    if (/^(begin|start\s+transaction)\b/i.test(s)) {
+    // 편집기에 직접 쓴 트랜잭션 명령은 버튼과 같게 처리한다. 앞 주석은 떼고 본다
+    // (떼지 않으면 「-- 메모\ncommit」 이 DB 에서 커밋된 뒤 savepoint 정리가 실패해 오류로 보였다, 2026-10-16 화면 재현)
+    const head = s.replace(LEADING_COMMENTS, '');
+    if (/^(commit|end)\b/i.test(head)) return { ...(await this.commit()), ms: Date.now() - t0 };
+    if (/^(rollback|abort)\b(?!\s+to\b)/i.test(head)) return { ...(await this.rollback()), ms: Date.now() - t0 };
+    if (/^(begin|start\s+transaction)\b/i.test(head)) {
       if (!this.inTx) { await this.client.query('BEGIN'); this.inTx = true; }
       return this.done('BEGIN', null, t0);
     }

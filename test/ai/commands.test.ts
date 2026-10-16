@@ -90,7 +90,8 @@ describe('변경 명령', () => {
     expect(wh.columns.map(c => c.name)).toEqual(['wh_seq', 'reg_id', 'reg_dt']);
     const bw = r.model.tables.find(t => t.name === 'mst_biz_wh')!;
     expect(bw.fks.map(f => f.name)).toEqual(['fk_bw_biz', 'fk_mst_biz_wh_mst_wh']);
-    expect(bw.columns[2]).toEqual({ name: 'del_yn', type: 'char(1)', notNull: true });
+    // renamedFrom: 이름을 바꾼 기록 (차이 계산이 RENAME 을 만든다)
+    expect(bw.columns[2]).toEqual({ name: 'del_yn', type: 'char(1)', notNull: true, renamedFrom: 'use_yn' });
     expect(r.model.tables.find(t => t.name === 'mst_biz_center')!.comment).toBe('사업장별 센터');
     expect(r.model.tables[0].columns[0].comment).toBe('사업장 순번');
   });

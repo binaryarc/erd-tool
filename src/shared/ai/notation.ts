@@ -2,7 +2,7 @@
 // 좌표 숫자 대신 그룹 규칙과 행, 열 위치로 화면 배치를 알린다(AI 가 좌표를 계산하면 격자가 어긋난다).
 
 import { columnText, endsWithCommon, groupOf } from '../model/erd-format';
-import type { DiffItem, DiffKind } from '../model/diff';
+import { DIFF_CHANGE_LABEL, DIFF_KIND_LABEL, type DiffItem } from '../model/diff';
 import { summaryText } from '../export/flyway';
 import { arrangeMode, type Diagram } from '../model/layout';
 import type { SchemaModel, Table } from '../model/types';
@@ -42,6 +42,7 @@ export function tableText(model: SchemaModel, t: Table): string {
     ...t.fks.filter(f => f.columns.length > 1).map(f => `  FK ${f.name} (${f.columns.join(', ')}) > ${f.refTable}(${f.refColumns.join(', ')})`),
     ...t.uniques.map(u => `  UQ ${u.name} (${u.columns.join(', ')})`),
     ...t.indexes.map(i => `  IX ${i.name} (${i.columns.join(', ')})${i.unique ? ' UNIQUE' : ''}`),
+    ...(t.checks ?? []).map(k => `  CK ${k.name} ${k.definition}`),
   ].join('\n');
 }
 
@@ -56,8 +57,8 @@ export function tablesText(model: SchemaModel, names: string[]): string {
   return out.join('\n');
 }
 
-const KIND: Record<DiffKind, string> = { table: '테이블', column: '컬럼', pk: 'PK', fk: 'FK', unique: 'UNIQUE', index: '인덱스', sequence: '시퀀스', function: '함수' };
-const CHANGE = { add: '추가', drop: '삭제', alter: '변경' } as const;
+const KIND = DIFF_KIND_LABEL;
+const CHANGE = DIFF_CHANGE_LABEL;
 
 /** 두 구조 비교 결과 (MCP db_compare). from 을 to 처럼 바꾸려면 필요한 차이다. 목록은 limit 개까지 */
 export function diffText(items: DiffItem[], fromLabel: string, toLabel: string, limit = 200): string {

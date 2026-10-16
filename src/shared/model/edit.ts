@@ -59,11 +59,23 @@ export function updateTable(m: SchemaModel, name: string, patch: { name?: string
   return {
     ...m,
     tables: m.tables.map(t => ({
-      ...(t.name === name ? { ...t, name: to, comment: patch.comment ?? t.comment } : t),
+      ...(t.name === name ? withRenamed({ ...t, name: to, comment: patch.comment ?? t.comment }, t.renamedFrom ?? name) : t),
       fks: t.fks.map(f => (f.refTable === name ? { ...f, refTable: to } : f)),
     })),
   };
 }
+
+/** 바꾸기 전 이름을 기억한다(차이 계산이 RENAME 을 만든다). 원래 이름으로 되돌아오면 기록을 지운다 */
+function withRenamed<T extends { name: string; renamedFrom?: string }>(x: T, original: string): T {
+  const { renamedFrom: _old, ...rest } = x;
+  return (original === x.name ? rest : { ...rest, renamedFrom: original }) as T;
+}
+
+/** 식(CHECK, 생성식) 안에 컬럼 이름이 낱말로 들어 있는가 */
+const mentions = (expr: string, col: string) => new RegExp(`(^|[^\\w"])"?${col.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"?($|[^\\w"])`).test(expr);
+/** 식 안의 컬럼 이름을 바꾼다 (PostgreSQL 은 이름을 바꾸면 CHECK, 생성식도 따라 바꾼다) */
+const renameIn = (expr: string, from: string, to: string) =>
+  expr.replace(new RegExp(`(^|[^\\w"])("?)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\2(?=$|[^\\w"])`, 'g'), (_m, pre, qt) => `${pre}${qt}${to}${qt}`);
 
 /** 테이블을 지우면 그 테이블을 가리키는 다른 테이블의 FK 도 지운다 */
 export function dropTable(m: SchemaModel, name: string): SchemaModel {
@@ -109,6 +121,9 @@ function clean(c: Column): Column {
   const out: Column = { name: c.name, type: c.type, notNull: c.notNull };
   if (c.default !== undefined && c.default.trim() !== '') out.default = c.default.trim();
   if (c.comment !== undefined && c.comment !== '') out.comment = c.comment;
+  if (c.identity) out.identity = c.identity;
+  if (c.generated !== undefined) out.generated = c.generated;
+  if (c.renamedFrom !== undefined) out.renamedFrom = c.renamedFrom;
   return out;
 }
 
@@ -127,8 +142,9 @@ export function updateColumn(m: SchemaModel, tableName: string, colName: string,
   const merged: Column = { ...old, ...rest, name: to };
   if (rest.type !== undefined) merged.type = normalizeType(rest.type) || fail('타입이 비었다');
   if (isPk) merged.notNull = true;
-  const col = clean(merged);
+  const col = clean(to === colName ? merged : withRenamed(merged, old.renamedFrom ?? colName));
   const ren = (xs: string[]) => xs.map(x => (x === colName ? to : x));
+  const renExpr = (s: string) => (to === colName ? s : renameIn(s, colName, to));
   let pk = ren(t.pk);
   if (isPk && !pk.includes(to)) pk = [...pk, to];
   if (!isPk) pk = pk.filter(x => x !== to);
@@ -139,10 +155,11 @@ export function updateColumn(m: SchemaModel, tableName: string, colName: string,
       if (x.name !== tableName) return to === colName ? x : { ...x, fks: x.fks.map(refFix) };
       return {
         ...x, pk,
-        columns: x.columns.map(c => (c.name === colName ? col : c)),
+        columns: x.columns.map(c => (c.name === colName ? col : c.generated !== undefined ? { ...c, generated: renExpr(c.generated) } : c)),
         fks: x.fks.map(f => refFix({ ...f, columns: ren(f.columns) })),
         uniques: x.uniques.map(u => ({ ...u, columns: ren(u.columns) })),
         indexes: x.indexes.map(i => ({ ...i, columns: ren(i.columns) })),
+        ...(x.checks ? { checks: x.checks.map(k => ({ ...k, definition: renExpr(k.definition) })) } : {}),
       };
     }),
   };
@@ -164,6 +181,8 @@ export function dropColumn(m: SchemaModel, tableName: string, colName: string): 
         fks: x.fks.filter(f => keep(f) && !f.columns.includes(colName)),
         uniques: x.uniques.filter(u => !u.columns.includes(colName)),
         indexes: x.indexes.filter(i => !i.columns.includes(colName)),
+        // 그 컬럼을 쓰는 CHECK 도 PostgreSQL 이 함께 지운다
+        ...(x.checks ? { checks: x.checks.filter(k => !mentions(k.definition, colName)) } : {}),
       };
     }),
   };
