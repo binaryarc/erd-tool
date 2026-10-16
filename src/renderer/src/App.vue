@@ -11,7 +11,9 @@ import TableEditor from './components/TableEditor.vue';
 import ExportTab from './components/ExportTab.vue';
 import DiagramTabs from './components/DiagramTabs.vue';
 import TablePickDialog from './components/TablePickDialog.vue';
-import { addColumn, addFk, addTable, dropTable, updateTable } from '../../shared/model/edit';
+import { addColumn, addFk, addTable, dropFk, dropTable, updateTable } from '../../shared/model/edit';
+import { applyConnect, planConnect, type ConnectPlan, type End } from '../../shared/model/connect';
+import type { FkAction } from '../../shared/model/types';
 import { TabError, addMembers, createTab, deleteTab, forgetIds, groupTabs, groupView, newTabName, prefixTabs, pruneMembers, removeMembers, renameTab } from '../../shared/model/group-tabs';
 import { buildCreateAll } from '../../shared/sql/create';
 import { diffModels } from '../../shared/model/diff';
@@ -554,6 +556,40 @@ const menuGroups = computed(() => {
 function runMenu(f: (names: string[]) => void) { const names = menu.value?.names ?? []; menu.value = null; f(names); }
 window.addEventListener('mousedown', e => { if (menu.value && !(e.target as HTMLElement).closest('.ctx')) menu.value = null; }, true);
 
+// ---------- 선 끌어 FK 만들기 (STEP 10) ----------
+// 놓으면 확인 창에서 FK 이름, 자식 컬럼(기존 또는 새 컬럼), ON DELETE 를 고른다. 새 컬럼과 FK 는 되돌리기 한 번이다.
+// 그룹 탭에는 소속 테이블만 그려지므로 같은 그룹끼리만 이어진다 (결정 의 선 연결 마지막 줄)
+const canConnect = (a: End, b: End) => !!model.value && planConnect(model.value, a, b).ok;
+const connectAsk = ref<{ plan: Extract<ConnectPlan, { ok: true }>; fkName: string; childColumn: string; onDelete: FkAction | '' } | null>(null);
+const NEW_COL = ' new'; // 「새 컬럼」 고르기 값. 컬럼 이름에는 공백이 들어갈 수 없어 겹치지 않는다
+function onConnectTables(a: End, b: End) {
+  if (!model.value) return;
+  const plan = planConnect(model.value, a, b);
+  if (!plan.ok) {
+    message.value = `선 연결 안 됨: ${plan.error}`;
+    // 복합 PK 부모는 자식 쪽 편집 패널로 안내한다 (결정 9)
+    if (plan.composite) {
+      const ta = model.value.tables.find(t => t.name === a.table);
+      const aIsParent = !!ta && ta.pk.length > 1 && (!a.column || ta.pk.includes(a.column));
+      openEditor(aIsParent ? b.table : a.table);
+    }
+    return;
+  }
+  connectAsk.value = { plan, fkName: plan.fkName, childColumn: plan.childColumn ?? NEW_COL, onDelete: '' };
+}
+function answerConnect(ok: boolean) {
+  const c = connectAsk.value;
+  connectAsk.value = null;
+  if (!ok || !c) return;
+  const choice = { fkName: c.fkName.trim(), childColumn: c.childColumn === NEW_COL ? null : c.childColumn, ...(c.onDelete ? { onDelete: c.onDelete } : {}) };
+  if (edit(m => applyConnect(m, c.plan, choice))) message.value = `FK ${choice.fkName} 를 만듦: ${c.plan.child} → ${c.plan.parent} (저장 전, 되돌리기 가능)`;
+}
+/** 고른 FK 선 (Delete 로 지운다) */
+const selectedFks = ref<{ table: string; fk: string }[]>([]);
+function deleteFks(fks: { table: string; fk: string }[]) {
+  if (edit(m => fks.reduce((acc, f) => dropFk(acc, f.table, f.fk), m))) message.value = `FK ${fks.map(f => f.fk).join(', ')} 를 지움 (저장 전, 되돌리기 가능)`;
+}
+
 // 그룹 탭에 기존 테이블 가져오기
 const pickOpen = ref(false);
 const pickTables = computed(() => {
@@ -643,10 +679,11 @@ window.addEventListener('keydown', e => {
   const el = e.target as HTMLElement;
   if (e.key === 'Escape' && menu.value) { menu.value = null; return; }
   if (e.key === 'Escape' && dlg.value) { answerDlg(''); return; }
-  if (!isErd(activeTab.value) || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value) return;
+  if (!isErd(activeTab.value) || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value || connectAsk.value) return;
   // Delete: 고른 테이블을 모델에서 지운다 (확인 창). 입력 칸 안의 Delete 는 그대로 둔다 (STEP 10)
   if (e.key === 'Delete' && !el.closest('input, textarea, select, [contenteditable]')) {
     if (selected.value.length) { e.preventDefault(); void deleteTables([...selected.value]); }
+    else if (selectedFks.value.length) { e.preventDefault(); deleteFks([...selectedFks.value]); }
     return;
   }
   // Enter: 고른 테이블(없으면 편집 중인 테이블)에 컬럼을 더한다 (STEP 10). 입력 칸, 버튼 위의 Enter 는 그대로 둔다
@@ -1326,7 +1363,7 @@ function sessionState() {
   const erd = (id: string) => {
     const d = docs.get(id)!;
     const t = d.model.value?.tables.find(x => x.name === 'mst_biz_wh');
-    return { dir: d.modelDir.value.split(/[\/]/).pop(), title: titleOf(id), dirty: d.dirty.value, tables: d.model.value?.tables.length, whColumns: t?.columns.map(c => c.name),
+    return { dir: d.modelDir.value.split(/[\\/]/).pop(), title: titleOf(id), dirty: d.dirty.value, tables: d.model.value?.tables.length, whColumns: t?.columns.map(c => c.name),
       diagram: d.tab.value, groupTabs: groupTabs(d.layout.value), viewport: d === cur.value && canvas.value ? canvas.value.viewportNow() : d.viewport };
   };
   return JSON.parse(JSON.stringify({
@@ -1350,6 +1387,97 @@ window.__erdSession = async (step: string, arg?: string) => {
   if (step === 'pan') { await canvas.value!.fitView({ nodes: [model.value!.tables.find(t => t.name === arg)!.id], maxZoom: 0.8 }); await sleep(600); }
   if (step === 'flush') { lastSession = ''; await saveSession(); }
   return sessionState();
+};
+
+/**
+ * 선 연결 시험 (STEP 10 완료 기준): dev 를 불러온 ERD 에 시험 테이블 mst_erd_probe 를 만들고, 메인이 실제 마우스로 선을 끌어 FK 를 만든다.
+ * 그 ERD 를 dev 에 적용(커밋)하고 다시 읽어 차이 0 을 본 뒤, 되돌리기로 처음 모델로 돌아가 같은 길로 dev 에서 시험 테이블을 지운다.
+ */
+const PROBE = 'mst_erd_probe';
+const mainSel = '.pane.canvas .split > .pane:first-child';
+const devRef = (beDir: string) => ({ source: 'be' as const, beDir, name: 'dev' });
+let connectBase: SchemaModel | null = null;
+window.__erdConnect = async (step: string, a?: string, b?: string) => {
+  const center = (el: Element | null | undefined) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; };
+  const nodeEl = (name: string) => document.querySelector(`${mainSel} .vue-flow__node-table[data-id="${model.value!.tables.find(t => t.name === name)?.id}"]`);
+  const diffDev = async () => diffModels((await window.erd.db.read(devRef(a!))).model, model.value!).map(d => `${d.kind} ${d.change} ${d.table ?? ''}.${d.name}`);
+  /** 지금 ERD 를 dev 에 적용: 「DB 에 적용」 → 비교 탭 「왼쪽 DB 에 적용」 → 새 SQL 탭 「전체 실행」 → 커밋 (step6 과 같은 길) */
+  const applyAndCommit = async () => {
+    activeTab.value = 'erd';
+    await applyToDb();
+    const items = compare.value!.items().map(i => `${i.kind} ${i.change} ${i.table ?? ''}.${i.name}`);
+    const before = tabs.value.length;
+    compare.value!.apply();
+    await nextTick(); await frames(5); await sleep(2500);
+    const t = tabs.value[before];
+    const tab = tabRefs.get(t.id) as InstanceType<typeof SqlTab>;
+    const run = await tab.runAll();
+    await tab.tx('commit');
+    activeTab.value = 'erd';
+    await nextTick(); await frames(10); await sleep(600);
+    return { items, run };
+  };
+  if (step === 'prep') { // a: BE 폴더. dev 를 불러와 ERD 를 dev 와 같게 한 뒤 시험 테이블을 만든다
+    await panel.value!.setSource('be'); await panel.value!.setBeDir(a!);
+    panel.value!.select('dev');
+    await panel.value!.doReverse();
+    panel.value!.apply();
+    connectBase = model.value;
+    edit(m => addTable(m, PROBE, { comment: 'ERD 도구 선 연결 시험' }));
+    edit(m => addColumn(m, PROBE, { name: 'probe_seq', type: 'integer', notNull: true, pk: true }));
+    edit(m => addColumn(m, PROBE, { name: 'wh_seq', type: 'integer', notNull: false }));
+    edit(m => addTable(m, PROBE + '_nopk', { comment: 'PK 없는 시험 테이블' }));
+    edit(m => addColumn(m, PROBE + '_nopk', { name: 'memo_txt', type: 'text', notNull: false }));
+    edit(m => addTable(m, PROBE + '_cpk', { comment: '복합 PK 시험 테이블' }));
+    edit(m => addColumn(m, PROBE + '_cpk', { name: 'a_seq', type: 'integer', notNull: true, pk: true }));
+    edit(m => addColumn(m, PROBE + '_cpk', { name: 'b_seq', type: 'integer', notNull: true, pk: true }));
+    // 시험 테이블을 mst_biz 오른쪽, mst_wh 를 그 아래에 고정해 셋이 한 화면에 보이게
+    await nextTick(); await frames(10);
+    const boxes = canvas.value!.boxes();
+    const id = (n: string) => model.value!.tables.find(t => t.name === n)!.id;
+    const biz = boxes.get(id('mst_biz'))!;
+    diagram.value!.pinned[id(PROBE)] = [biz.x + biz.w + 160, biz.y];
+    diagram.value!.pinned[id('mst_wh')] = [biz.x + biz.w + 160, biz.y + 200];
+    diagram.value!.pinned[id(PROBE + '_nopk')] = [biz.x + biz.w + 560, biz.y];
+    diagram.value!.pinned[id(PROBE + '_cpk')] = [biz.x + biz.w + 560, biz.y + 200];
+    version.value++;
+    await nextTick(); await frames(10);
+    await canvas.value!.fitView({ nodes: [id('mst_biz'), id(PROBE), id('mst_wh'), id(PROBE + '_cpk'), id(PROBE + '_nopk')], padding: 0.1 });
+    await sleep(400); // 화면 맞추기가 끝난 뒤 위치를 읽게
+    await sleep(800);
+    return { before: await diffDev() };
+  }
+  if (step === 'handle') { // a 테이블, b 연결점 ID
+    const h = nodeEl(a!)?.querySelector(`.vue-flow__handle[data-handleid="${b}"]`);
+    const p = center(h);
+    return p;
+  }
+  if (step === 'body') { const r = nodeEl(a!)?.getBoundingClientRect(); return r ? { x: r.x + r.width * 0.45, y: r.y + r.height - 8 } : null; } // 연결점이 아닌 몸통
+  if (step === 'edge') { // a 테이블의 FK b 선 가운데
+    const t = model.value!.tables.find(x => x.name === a)!;
+    const path = document.querySelector<SVGPathElement>(`${mainSel} .vue-flow__edge[data-id="${t.id}:${b}"] path.vue-flow__edge-path`);
+    if (!path) return null;
+    const p = path.getPointAtLength(path.getTotalLength() / 2);
+    const m = path.getScreenCTM()!;
+    return { x: p.x * m.a + m.e, y: p.y * m.d + m.f };
+  }
+  if (step === 'answer') { // 확인 창 값 고르기 (메인이 「만들기」 를 누른다)
+    if (a === 'onDelete' && connectAsk.value) connectAsk.value.onDelete = b as FkAction;
+    return null;
+  }
+  if (step === 'apply') { const r = await applyAndCommit(); return { ...r, after: await diffDev() }; }
+  if (step === 'cleanup') {
+    let undos = 0;
+    while (canUndo.value) { undo(); undos++; }
+    const r = await applyAndCommit();
+    return { undos, sameAsBase: model.value === connectBase, ...r, after: await diffDev() };
+  }
+  const t = model.value?.tables.find(x => x.name === PROBE);
+  return JSON.parse(JSON.stringify({
+    columns: t?.columns.map(c => `${c.name} ${c.type}${c.notNull ? ' NN' : ''}`), fks: t?.fks, message: message.value, editor: editName.value,
+    ask: connectAsk.value && { child: connectAsk.value.plan.child, parent: connectAsk.value.plan.parent, childColumn: connectAsk.value.childColumn, fkName: connectAsk.value.fkName },
+    edges: document.querySelectorAll(`${mainSel} .vue-flow__edge`).length, selectedFks: selectedFks.value, canUndo: canUndo.value,
+  }));
 };
 
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure, dbms, part }) => {
@@ -1471,7 +1599,8 @@ window.__erdBench = async () => {
                   <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName">
                     <template #first>
                       <ErdCanvas v-if="model && diagram && shown" :key="cur.id" ref="canvas" :initial-viewport="cur.viewport" :model="shown.model" :external="shown.external" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
-                                 @pin="onPin" @select="onSelect" @open="n => { editId = ''; miniName = n; }" @menu="onMenu" />
+                                 @pin="onPin" @select="onSelect" @open="n => { editId = ''; miniName = n; }" @menu="onMenu"
+                                 connectable :can-connect="canConnect" @connect="onConnectTables" @select-fks="f => (selectedFks = f)" />
                       <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 ERD 폴더를 여세요.</p>
                     </template>
                     <template #second>
@@ -1541,6 +1670,31 @@ window.__erdBench = async () => {
       </template>
     </div>
     <TablePickDialog v-if="pickOpen" ref="picker" :group="tab" :tables="pickTables" @pick="onPick" @close="pickOpen = false" />
+    <div v-if="connectAsk" class="modal" @keydown.esc="answerConnect(false)">
+      <form class="dialog conn" @submit.prevent="answerConnect(true)">
+        <p><b>FK 만들기</b>: {{ connectAsk.plan.child }} → {{ connectAsk.plan.parent }}({{ connectAsk.plan.parentColumn }} {{ connectAsk.plan.parentType }})</p>
+        <label>FK 이름 <input v-model="connectAsk.fkName" spellcheck="false" /></label>
+        <label>{{ connectAsk.plan.child }} 컬럼
+          <select v-model="connectAsk.childColumn">
+            <option :value="NEW_COL">새 컬럼 {{ connectAsk.plan.newColumn }} ({{ connectAsk.plan.parentType }}, NULL 허용)</option>
+            <option v-for="c in connectAsk.plan.childOptions" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }}){{ c.type !== connectAsk.plan.parentType ? ' 타입 다름' : '' }}</option>
+          </select>
+        </label>
+        <label>ON DELETE
+          <select v-model="connectAsk.onDelete">
+            <option value="">NO ACTION (기본)</option>
+            <option value="restrict">RESTRICT</option>
+            <option value="cascade">CASCADE</option>
+            <option value="set null">SET NULL</option>
+            <option value="set default">SET DEFAULT</option>
+          </select>
+        </label>
+        <div class="row">
+          <button type="submit" :disabled="!connectAsk.fkName.trim()">만들기</button>
+          <button type="button" @click="answerConnect(false)">취소</button>
+        </div>
+      </form>
+    </div>
     <div v-if="dlg" class="modal">
       <div class="dialog ask">
         <p>{{ dlg.text }}</p>
@@ -1618,6 +1772,10 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .pane.canvas { display: flex; flex-direction: column; }
 .erd-area { flex: 1; min-height: 0; position: relative; }
 .dialog.ask p { white-space: pre-line; margin-top: 0; }
+.dialog.conn { display: flex; flex-direction: column; gap: 8px; min-width: 420px; }
+.dialog.conn p { margin: 0; }
+.dialog.conn label { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 8px; font-size: 12px; }
+.dialog.conn input, .dialog.conn select { color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 2px 4px; font: 12px Consolas, 'Malgun Gothic', monospace; }
 .ctx { position: fixed; z-index: 60; min-width: 200px; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); padding: 3px 0; font-size: 12px; }
 .ctx button { text-align: left; border: none; background: transparent; color: var(--fg); padding: 3px 12px; cursor: pointer; }
 .ctx button:hover { background: var(--sel-bg); }

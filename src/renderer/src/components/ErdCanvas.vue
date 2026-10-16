@@ -3,7 +3,7 @@
 // 좌표는 배치 방식(diagram.mode)에 따라 그룹 격자(arrange.ts) 또는 FK 트리(tree.ts)로 계산하고, 끌어 옮긴 테이블만 pin 이벤트로 알린다.
 // 한 화면에 캔버스가 둘(본 ERD, 미니 ERD) 뜨므로 flowId 로 Vue Flow 상태를 나눈다.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { VueFlow, useVueFlow, type Edge, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core';
+import { VueFlow, useVueFlow, type Connection, type Edge, type Node, type NodeDragEvent, type NodeMouseEvent } from '@vue-flow/core';
 import { MiniMap } from '@vue-flow/minimap';
 import { Controls } from '@vue-flow/controls';
 import '@vue-flow/core/dist/style.css';
@@ -33,12 +33,20 @@ const props = withDefaults(defineProps<{
   external?: Map<string, string[]>;
   /** 처음 화면 위치. 있으면 전체 보기 대신 이 자리로 연다 (ERD 탭을 오가거나 다시 켤 때, STEP 10) */
   initialViewport?: { x: number; y: number; zoom: number };
+  /** 선을 끌어 FK 를 만들 수 있다 (본 ERD 만, STEP 10). canConnect 는 놓기 전 가능 여부 (연결점이 초록으로 붙는다) */
+  connectable?: boolean;
+  canConnect?: (a: ConnEnd, b: ConnEnd) => boolean;
 }>(), { flowId: 'main', showMiniMap: true, fitOnResize: false });
 const emit = defineEmits<{
   pin: [id: string, x: number, y: number]; select: [names: string[]]; open: [name: string];
   /** 우클릭 (STEP 10): 테이블 위면 name 이 있고, 빈 곳이면 없다. x, y 는 화면 좌표 */
   menu: [e: { x: number; y: number; name?: string }];
+  /** 선을 끌어 놓음 (STEP 10): a 는 끌기 시작한 쪽, b 는 놓은 쪽. 컬럼이 없으면 테이블 머리나 몸통에 놓은 것 */
+  connect: [a: ConnEnd, b: ConnEnd];
+  /** 고른 FK 선 (테이블 이름, FK 이름) */
+  selectFks: [fks: { table: string; fk: string }[]];
 }>();
+export interface ConnEnd { table: string; column?: string }
 const view = inject(VIEW_KEY) as ViewState;
 
 const nodes = computed<Node[]>(() => {
@@ -80,7 +88,45 @@ const edges = computed<Edge[]>(() => {
   })));
 });
 
-const { viewport, setViewport, fitView, findNode, getSelectedNodes } = useVueFlow(props.flowId);
+const { viewport, setViewport, fitView, findNode, getSelectedNodes, getSelectedEdges } = useVueFlow(props.flowId);
+watch(() => getSelectedEdges.value.map(e => e.id).join(','), () => {
+  const names = new Map(props.model.tables.map(t => [t.id, t.name]));
+  emit('selectFks', getSelectedEdges.value.map(e => { const i = e.id.indexOf(':'); return { table: names.get(e.id.slice(0, i))!, fk: e.id.slice(i + 1) }; }).filter(x => x.table));
+});
+
+// ---------- 선 끌어 FK 만들기 (STEP 10) ----------
+// 연결점 ID: s-컬럼, t-컬럼 (컬럼 행), s-*, t-* (테이블 머리). 연결점에 놓으면 connect, 테이블 몸통에 놓으면 connect-end 에서 그 테이블을 찾는다
+const endOf = (nodeId: string, handle?: string | null): ConnEnd | null => {
+  const t = props.model.tables.find(x => x.id === nodeId);
+  if (!t) return null;
+  const col = handle?.slice(2);
+  return col && col !== '*' ? { table: t.name, column: col } : { table: t.name };
+};
+const validConn = (c: Connection) => {
+  const a = endOf(c.source, c.sourceHandle), b = endOf(c.target, c.targetHandle);
+  return !!a && !!b && (props.canConnect?.(a, b) ?? false);
+};
+let start: ConnEnd | null = null;
+let connected = false;
+function onConnectStart(p: { nodeId?: string; handleId: string | null }) {
+  start = p.nodeId ? endOf(p.nodeId, p.handleId) : null;
+  connected = false;
+}
+function onConnect(c: Connection) {
+  const a = endOf(c.source, c.sourceHandle), b = endOf(c.target, c.targetHandle);
+  if (!a || !b) return;
+  connected = true;
+  emit('connect', a, b);
+}
+function onConnectEnd(e?: MouseEvent | TouchEvent) {
+  const s = start;
+  start = null;
+  if (connected || !s || !e || !('clientX' in e)) return;
+  // 연결점이 아닌 곳에 놓았다: 그 자리의 테이블 (자기 자신이면 아무것도 하지 않는다)
+  const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('.vue-flow__node-table');
+  const t = el && props.model.tables.find(x => x.id === el.dataset.id);
+  if (t && t.name !== s.table) emit('connect', s, { table: t.name });
+}
 // Ctrl+클릭으로 고른 테이블 → 「SELECT 만들기」 (설계 9장 4번)
 watch(() => getSelectedNodes.value.map(n => n.id).join(','), () => {
   const names = new Map(props.model.tables.map(t => [t.id, t.name]));
@@ -181,7 +227,8 @@ defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoo
 <template>
   <div ref="box" class="erd-box">
   <VueFlow :id="flowId" :nodes="nodes" :edges="edges" :min-zoom="0.05" :max-zoom="2" multi-selection-key-code="Control"
-           :zoom-on-double-click="false" :delete-key-code="null" :fit-view-on-init="!initialViewport" :default-viewport="initialViewport" @node-drag-stop="onDragStop" @node-double-click="onDoubleClick"
+           :zoom-on-double-click="false" :delete-key-code="null" :fit-view-on-init="!initialViewport" :default-viewport="initialViewport" :nodes-connectable="connectable" :is-valid-connection="validConn" :connection-radius="24"
+           @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @node-drag-stop="onDragStop" @node-double-click="onDoubleClick"
            @node-context-menu="onNodeMenu" @pane-context-menu="onPaneMenu">
     <template #node-table="{ data }">
       <TableNode :data="data" />

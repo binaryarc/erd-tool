@@ -36,6 +36,9 @@ const colName = (c: TableNodeData['columns'][number]) =>
       <span v-if="view.nameMode === 'both' && data.comment" class="logical">{{ data.comment }}</span>
       <i v-if="data.external?.length" class="ext" :title="extTitle(data.external)">외부 FK {{ data.external.length }}개</i>
     </div>
+    <!-- 테이블 머리 연결점: 축소 보기의 선, 테이블 단위로 끌어 FK 만들기 (STEP 10) -->
+    <Handle id="t-*" type="target" :position="Position.Left" class="h head-h" />
+    <Handle id="s-*" type="source" :position="Position.Right" class="h head-h" />
     <template v-if="!view.compact">
       <div v-for="c in data.columns" :key="c.name" class="row" :class="{ pk: c.pk }" :title="c.comment">
         <Handle :id="'t-' + c.name" type="target" :position="Position.Left" class="h" />
@@ -47,11 +50,6 @@ const colName = (c: TableNodeData['columns'][number]) =>
         <Handle :id="'s-' + c.name" type="source" :position="Position.Right" class="h" />
       </div>
     </template>
-    <template v-else>
-      <!-- 축소 보기: 컬럼 행을 숨겨도 선이 이어지도록 연결점을 머리에 하나씩 둔다 -->
-      <Handle id="t-*" type="target" :position="Position.Left" class="h" />
-      <Handle id="s-*" type="source" :position="Position.Right" class="h" />
-    </template>
   </div>
 </template>
 
@@ -60,7 +58,8 @@ const colName = (c: TableNodeData['columns'][number]) =>
 .head { height: 24px; box-sizing: border-box; background: var(--node-head); border-bottom: 1px solid var(--node-border); padding: 0 6px; display: flex; gap: 6px; align-items: center; overflow: hidden; white-space: nowrap; }
 .compact .head { border-bottom: none; height: 22px; }
 .logical { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-.row { position: relative; height: 18px; display: flex; gap: 6px; padding: 0 6px; white-space: nowrap; overflow: hidden; }
+/* 행은 넘침을 숨기지 않는다. 숨기면 테이블 밖으로 반쯤 나간 연결점이 잘려 절반만 눌린다 (STEP 10). 긴 글자는 논리명이 줄어든다 */
+.row { position: relative; height: 18px; display: flex; gap: 6px; padding: 0 6px; white-space: nowrap; }
 .row.pk { background: var(--pk-bg); }
 /* 배지 칸 폭은 text-width.ts 의 KEY 와 같아야 한다 (배지 둘: PK+FK 또는 FK+NN) */
 .key { width: 38px; flex: none; display: flex; gap: 2px; align-items: center; }
@@ -77,5 +76,10 @@ const colName = (c: TableNodeData['columns'][number]) =>
 .row .name + .type { margin-left: auto; }
 .name.nn { font-weight: bold; }
 .type { color: var(--muted); flex: none; }
-.h { width: 6px; height: 6px; min-width: 0; min-height: 0; opacity: 0; }
+/* 연결점: 평소에는 숨기고, 테이블에 마우스를 올리면 보인다. 연결점 위에서는 커져 끌기 쉽다 (STEP 10) */
+.h { width: 8px; height: 8px; min-width: 0; min-height: 0; opacity: 0; background: var(--accent); border: 1px solid var(--bg); transition: opacity 0.1s; }
+.head-h { top: 12px; }
+.tbl:hover .h { opacity: 0.55; }
+.tbl .h:hover, .h.connecting, .h.valid { opacity: 1; width: 12px; height: 12px; }
+.h.valid { background: var(--ok); }
 </style>
