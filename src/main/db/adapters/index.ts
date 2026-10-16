@@ -7,6 +7,7 @@ import type { DbAdapter } from './types';
 const LOADERS: Partial<Record<Dialect, () => Promise<DbAdapter>>> = {
   postgresql: async () => postgresAdapter,
   sqlserver: async () => (await import('./mssql')).mssqlAdapter,
+  mysql: async () => (await import('./mysql')).mysqlAdapter,
 };
 
 export async function adapterFor(d: Dialect): Promise<DbAdapter> {

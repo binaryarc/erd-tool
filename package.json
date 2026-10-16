@@ -25,6 +25,7 @@
     "crypto-js": "4.2.0",
     "monaco-editor": "0.57.0",
     "mssql": "12.7.2",
+    "mysql2": "3.24.5",
     "node-pty": "1.1.0",
     "pg": "8.23.1",
     "pg-cursor": "2.22.1",

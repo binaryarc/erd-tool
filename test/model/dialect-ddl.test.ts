@@ -38,3 +38,19 @@ describe('SQL Server', () => {
     expect(sql).toContain('ALTER TABLE erd_c ADD CONSTRAINT fk_c FOREIGN KEY (id) REFERENCES erd_p (id);');
   });
 });
+
+describe('MySQL', () => {
+  const text = rulesFor('mysql').text;
+  it('백틱 식별자, 큰따옴표 문자열, # 주석, 역슬래시 안의 ; 는 나누지 않는다', () => {
+    const sql = "select `a;b` from t; # 주석 ;\nselect \"x;y\", 'it\\'s;' from u";
+    expect(splitStatements(sql, text).map(s => s.text)).toEqual(['select `a;b` from t', "# 주석 ;\nselect \"x;y\", 'it\\'s;' from u"]);
+  });
+  it('컬럼 변경은 MODIFY COLUMN 으로 정의 전체를 다시 쓰고, 코멘트는 정의 안에 둔다', () => {
+    const a = model('mysql', [table('erd_a', { columns: [{ name: 'id', type: 'int', notNull: true }, { name: 'nm', type: 'varchar(10)', notNull: false }] })]);
+    const b = model('mysql', [table('erd_a', { comment: '가', columns: [{ name: 'id', type: 'int', notNull: true }, { name: 'nm', type: 'varchar(20)', notNull: true, default: "'x'", comment: '이름' }] })]);
+    const sql = buildAlter(a, b).sql;
+    expect(sql).toContain("ALTER TABLE erd_a MODIFY COLUMN nm varchar(20) NOT NULL DEFAULT 'x' COMMENT '이름';");
+    expect(sql).toContain("ALTER TABLE erd_a COMMENT = '가';");
+    expect(['INTEGER', 'bool'].map(t => normalizeTypeFor('mysql', t))).toEqual(['int', 'tinyint(1)']);
+  });
+});
