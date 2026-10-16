@@ -38,7 +38,8 @@ const props = withDefaults(defineProps<{
   canConnect?: (a: ConnEnd, b: ConnEnd) => boolean;
 }>(), { flowId: 'main', showMiniMap: true, fitOnResize: false });
 const emit = defineEmits<{
-  pin: [id: string, x: number, y: number]; select: [names: string[]]; open: [name: string];
+  /** 끌어 옮긴 테이블들 (한 번 끌기에 함께 옮긴 것 모두) */
+  pin: [pins: { id: string; x: number; y: number }[]]; select: [names: string[]]; open: [name: string];
   /** 우클릭 (STEP 10): 테이블 위면 name 이 있고, 빈 곳이면 없다. x, y 는 화면 좌표 */
   menu: [e: { x: number; y: number; name?: string }];
   /** 선을 끌어 놓음 (STEP 10): a 는 끌기 시작한 쪽, b 는 놓은 쪽. 컬럼이 없으면 테이블 머리나 몸통에 놓은 것 */
@@ -161,7 +162,8 @@ watch(() => props.version, () => {
 });
 
 function onDragStop(e: NodeDragEvent) {
-  for (const n of e.nodes) if (n.type === 'table') emit('pin', n.id, Math.round(n.position.x), Math.round(n.position.y));
+  const pins = e.nodes.filter(n => n.type === 'table').map(n => ({ id: n.id, x: Math.round(n.position.x), y: Math.round(n.position.y) }));
+  if (pins.length) emit('pin', pins);
 }
 
 function onNodeMenu(e: NodeMouseEvent) {
