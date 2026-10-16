@@ -1,7 +1,7 @@
 // 두 모델의 차이 (설계 6-2). from = 지금 모습, to = 바꿀 모습. 이름으로 맞춘다(테이블 ID 는 쓰지 않는다: 두 DB 의 ID 는 서로 다르다).
 
 import { updateColumn, updateTable } from './edit';
-import { fkOptions } from './erd-format';
+import { fkOptions, identityArgs } from './erd-format';
 import type { Check, Column, ForeignKey, FunctionDef, Index, SchemaModel, Sequence, Table, Unique } from './types';
 
 export type DiffKind = 'table' | 'column' | 'pk' | 'fk' | 'unique' | 'check' | 'index' | 'sequence' | 'function';
@@ -65,6 +65,7 @@ function columnChanges(t: string, a: Column, b: Column): DiffItem | null {
   }
   if ((a.default ?? null) !== (b.default ?? null)) parts.push(`기본값 ${a.default ?? '없음'} → ${b.default ?? '없음'}`);
   if (a.identity !== b.identity) parts.push(`IDENTITY ${a.identity ?? '없음'} → ${b.identity ?? '없음'}`);
+  else if (a.identity && identityArgs(a) !== identityArgs(b)) parts.push(`IDENTITY 시작값, 증가값 ${identityArgs(a) || '(1,1)'} → ${identityArgs(b) || '(1,1)'}`);
   if (a.generated !== b.generated) {
     parts.push(`생성식 ${a.generated ?? '없음'} → ${b.generated ?? '없음'}`);
     // 생성식을 새로 두거나 바꾸려면 컬럼을 지우고 다시 만든다 (생성식을 없애는 것은 값을 남기는 DROP EXPRESSION)

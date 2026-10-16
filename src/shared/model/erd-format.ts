@@ -87,6 +87,10 @@ function parseFkOptions(s: string): Pick<ForeignKey, 'onDelete' | 'onUpdate' | '
 
 const IDENTITY_WORD = { always: 'IDENTITY', default: 'IDENTITY_BD' } as const;
 const GENERATED_RE = /^GENERATED ALWAYS AS \((.*)\) STORED$/;
+/** IDENTITY, IDENTITY_BD 뒤 (시작값,증가값). 둘 다 1 이면 적지 않는다 */
+const IDENTITY_RE = /^(IDENTITY|IDENTITY_BD)(?:\((-?\d+),(-?\d+)\))?$/;
+export const identityArgs = (c: Column) =>
+  (c.identityStart ?? 1) !== 1 || (c.identityStep ?? 1) !== 1 ? `(${c.identityStart ?? 1},${c.identityStep ?? 1})` : '';
 
 /** 기본값 자리: 생성 컬럼은 생성식을 DDL 모양 그대로 둔다 */
 const defaultText = (c: Column) => (c.generated !== undefined ? `GENERATED ALWAYS AS (${c.generated}) STORED` : c.default);
@@ -97,7 +101,7 @@ export function columnText(c: Column, pk: boolean): string {
     c.name, c.type,
     pk ? 'PK' : '',
     c.notNull && !pk ? 'NN' : '',
-    c.identity ? IDENTITY_WORD[c.identity] : '',
+    c.identity ? IDENTITY_WORD[c.identity] + identityArgs(c) : '',
     d !== undefined ? '=' + d : '',
     c.comment ? '#' + esc(c.comment) : '',
   ].filter(Boolean).join(' ');
@@ -113,7 +117,7 @@ export function endsWithCommon(cols: Column[], common: Column[]): boolean {
 export function sameColumn(a: Column, b: Column): boolean {
   return a.name === b.name && a.type === b.type && a.notNull === b.notNull
     && a.default === b.default && (a.comment ?? '') === (b.comment ?? '')
-    && a.identity === b.identity && a.generated === b.generated;
+    && a.identity === b.identity && a.generated === b.generated && identityArgs(a) === identityArgs(b);
 }
 
 export function groupOf(table: string, groups: GroupRule[]): string {
@@ -272,17 +276,17 @@ export function parseColumn(body: string, err: (m: string) => void): { column: C
   if (words.length < 2) { err(`컬럼 줄 형식이 아니다: ${body}`); return undefined; }
   const name = words[0];
   let pk = false, notNull = false, k = words.length;
-  let identity: Column['identity'];
-  const MARKS = new Set(['PK', 'NN', IDENTITY_WORD.always, IDENTITY_WORD.default]);
-  while (k > 2 && MARKS.has(words[k - 1])) {
+  let identity: Column['identity'], idArgs: RegExpMatchArray | null = null;
+  while (k > 2 && (words[k - 1] === 'PK' || words[k - 1] === 'NN' || IDENTITY_RE.test(words[k - 1]))) {
     const w = words[k - 1];
     if (w === 'PK') pk = true;
     else if (w === 'NN') notNull = true;
-    else identity = w === IDENTITY_WORD.always ? 'always' : 'default';
+    else { idArgs = w.match(IDENTITY_RE); identity = idArgs![1] === IDENTITY_WORD.always ? 'always' : 'default'; }
     k--;
   }
   const column: Column = { name, type: words.slice(1, k).join(' '), notNull: notNull || pk || !!identity };
   if (identity) column.identity = identity;
+  if (idArgs?.[2] !== undefined) { column.identityStart = Number(idArgs[2]); column.identityStep = Number(idArgs[3]); }
   const gen = dflt?.match(GENERATED_RE);
   if (gen) column.generated = gen[1];
   else if (dflt !== undefined) column.default = dflt;

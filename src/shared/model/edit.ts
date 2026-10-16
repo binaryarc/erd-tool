@@ -137,6 +137,7 @@ function clean(c: Column): Column {
   if (c.default !== undefined && c.default.trim() !== '') out.default = c.default.trim();
   if (c.comment !== undefined && c.comment !== '') out.comment = c.comment;
   if (c.identity) out.identity = c.identity;
+  if (c.identity && c.identityStart !== undefined) { out.identityStart = c.identityStart; out.identityStep = c.identityStep ?? 1; }
   if (c.generated !== undefined) out.generated = c.generated;
   if (c.renamedFrom !== undefined) out.renamedFrom = c.renamedFrom;
   return out;

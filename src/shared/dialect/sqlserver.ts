@@ -2,6 +2,7 @@
 // 기본값과 계산식은 sys.default_constraints, sys.computed_columns 의 글자 그대로(('A'), ((0)), [qty]*(2)).
 // 코멘트는 확장 속성 MS_Description. 기본값 제약 이름은 모델에 없어 DB 에서 찾아 지운다.
 
+import { identityArgs } from '../model/erd-format';
 import type { Column, Table } from '../model/types';
 import type { DdlOptions, DdlWriter, DialectRules } from './index';
 
@@ -16,7 +17,7 @@ const NOT_SUPPORTED = (what: string) => `-- [지원 안 함] ${what}`;
 function colDef(c: Column): string {
   // 계산 컬럼은 타입 없이 식만 쓴다. 저장 계산 컬럼(PERSISTED)으로 만든다
   if (c.generated !== undefined) return `${q(c.name)} AS (${c.generated}) PERSISTED${c.notNull ? ' NOT NULL' : ''}`;
-  return [q(c.name), c.type, c.identity ? 'IDENTITY(1,1)' : '', c.notNull ? 'NOT NULL' : 'NULL', c.default !== undefined ? `DEFAULT ${c.default}` : '']
+  return [q(c.name), c.type, c.identity ? `IDENTITY(${c.identityStart ?? 1},${c.identityStep ?? 1})` : '', c.notNull ? 'NOT NULL' : 'NULL', c.default !== undefined ? `DEFAULT ${c.default}` : '']
     .filter(Boolean).join(' ');
 }
 
@@ -86,6 +87,7 @@ function ddl(o: DdlOptions = {}): DdlWriter {
         return [...out, dropColumn(t, b.name), ...addColumn(t, b)];
       }
       if (!!a.identity !== !!b.identity) out.push(NOT_SUPPORTED(`${t}.${b.name}: IDENTITY 를 두거나 없애려면 테이블을 다시 만들어야 한다`));
+      else if (a.identity && identityArgs(a) !== identityArgs(b)) out.push(NOT_SUPPORTED(`${t}.${b.name}: IDENTITY 시작값, 증가값은 테이블을 다시 만들어야 바뀐다`));
       const typeChange = a.type !== b.type || a.notNull !== b.notNull;
       const defChange = (a.default ?? null) !== (b.default ?? null);
       // 기본값 제약이 걸린 컬럼은 타입을 바꿀 수 없어 기본값을 먼저 지우고 다시 둔다

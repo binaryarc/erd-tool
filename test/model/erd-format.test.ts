@@ -225,3 +225,17 @@ describe('UNIQUE 제약과 함수', () => {
       .toEqual(['FK 줄 형식이 아니다: FK f (seq) > mst_a(seq) ON DELETE BOOM']);
   });
 });
+
+describe('IDENTITY 시작값, 증가값 (STEP 9)', () => {
+  it('(1,1) 이면 적지 않고, 아니면 IDENTITY(시작,증가) 로 적고 다시 읽는다', () => {
+    const t = (c: Partial<Table['columns'][number]>): Table => ({ id: 't1', name: 'mst_a', comment: '', pk: ['seq'], fks: [], uniques: [], indexes: [],
+      columns: [{ name: 'seq', type: 'int', notNull: true, identity: 'always', ...c }] });
+    const plain = serializeModel(model([t({})]))['mdm.erd'];
+    expect(plain).toBe('mst_a @t1\n  seq int PK IDENTITY\n');
+    const { first, parsed } = roundTrip(model([t({ identityStart: 1000, identityStep: 10 })]));
+    expect(first['mdm.erd']).toBe('mst_a @t1\n  seq int PK IDENTITY(1000,10)\n');
+    expect(parsed.model.tables[0].columns[0]).toMatchObject({ identity: 'always', identityStart: 1000, identityStep: 10 });
+    expect(parseModel({ '_index.erd': 'erd-model 2\n', 'm.erd': 'mst_a @t1\n  seq int PK IDENTITY_BD(5,-1)\n' }).model.tables[0].columns[0])
+      .toMatchObject({ identity: 'default', identityStart: 5, identityStep: -1 });
+  });
+});

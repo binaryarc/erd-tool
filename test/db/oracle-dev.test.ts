@@ -68,6 +68,7 @@ describe.skipIf(!!skip)('Oracle 어댑터 (도커 FREEPDB1)', () => {
       ['GRADE', 'char(1)', true, "'A'", '', ''],
       ['REG_DT', 'timestamp(3)', true, 'SYSTIMESTAMP', '', ''],
     ]);
+    expect([cust.columns[0].identityStart, cust.columns[0].identityStep]).toEqual([1000, 10]);
     expect(cust.uniques).toEqual([{ name: 'UQ_ERD_CUSTOMER_CD', columns: ['CUST_CD'] }]);
     expect(cust.checks).toEqual([{ name: 'CK_ERD_CUSTOMER_GRADE', definition: "CHECK (grade IN ('A', 'B', 'C'))" }]);
     const item = r.tables.find(t => t.name === 'ERD_ORDER_ITEM')!;

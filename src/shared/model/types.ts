@@ -13,6 +13,9 @@ export interface Column {
   comment?: string;
   /** GENERATED ALWAYS(always) 또는 BY DEFAULT(default) AS IDENTITY. 시퀀스는 DB 가 따로 만든다 */
   identity?: 'always' | 'default';
+  /** IDENTITY 시작값, 증가값. (1, 1) 이 아닐 때만 둔다 (SQL Server 리버스, 2026-10-16) */
+  identityStart?: number;
+  identityStep?: number;
   /** GENERATED ALWAYS AS (식) STORED 의 식. 있으면 default 는 없다 */
   generated?: string;
   /** 화면에서 이름을 바꾸기 전 이름. 파일에는 저장하지 않는다(메모리 전용). 차이 계산이 DROP, ADD 대신 RENAME 을 만들 때 쓴다 */

@@ -70,6 +70,8 @@ describe.skipIf(!!skip)('SQL Server 어댑터 (도커 erdtest)', () => {
       ['grade', 'char(1)', true, "('A')", '', ''],
       ['reg_dt', 'datetime2(3)', true, '(sysdatetime())', '', ''],
     ]);
+    expect([cust.columns[0].identityStart, cust.columns[0].identityStep]).toEqual([1000, 10]); // IDENTITY(1000,10)
+    expect(r.warnings.filter(w => w.includes('IDENTITY'))).toEqual([]);
     expect(cust.uniques).toEqual([{ name: 'uq_erd_customer_cd', columns: ['cust_cd'] }]);
     expect(cust.checks).toEqual([{ name: 'ck_erd_customer_grade', definition: "CHECK ([grade]='C' OR [grade]='B' OR [grade]='A')" }]);
     const item = r.tables.find(t => t.name === 'erd_order_item')!;

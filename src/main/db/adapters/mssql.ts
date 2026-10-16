@@ -163,7 +163,7 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
     const col: Column = { name: c.col, type: typeText(c), notNull: !c.nullable };
     if (c.ident) {
       col.identity = 'always';
-      if (Number(c.seed) !== 1 || Number(c.inc) !== 1) warnings.push(`컬럼 ${c.t}.${c.col}: IDENTITY(${c.seed},${c.inc}) 의 시작값과 증가값은 모델에 담지 않았다 (1,1 로 만든다)`);
+      if (Number(c.seed) !== 1 || Number(c.inc) !== 1) { col.identityStart = Number(c.seed); col.identityStep = Number(c.inc); }
     }
     if (c.gen !== null) {
       col.generated = stripParens(c.gen);

@@ -6,7 +6,7 @@ import groupTpl from './templates/group-tables.md?raw';
 import overviewTpl from './templates/tables-overview.md?raw';
 import menuTpl from './templates/menu-tables.md?raw';
 import { cell, fillTemplate } from './template';
-import { groupOf } from '../model/erd-format';
+import { groupOf, identityArgs } from '../model/erd-format';
 import type { SchemaModel, Table } from '../model/types';
 
 export interface MdFile { name: string; content: string }
@@ -21,7 +21,7 @@ function tableValues(t: Table) {
   return {
     name: t.name, comment: cell(t.comment),
     columns: numbered(t.columns.map(c => ({
-      name: c.name, type: cell(c.type), nullable: c.notNull ? 'N' : 'Y', default: cell(c.generated !== undefined ? `생성: ${c.generated}` : c.identity ? `IDENTITY${c.identity === 'default' ? ' (BY DEFAULT)' : ''}` : c.default), pk: t.pk.includes(c.name) ? 'PK' : '', comment: cell(c.comment),
+      name: c.name, type: cell(c.type), nullable: c.notNull ? 'N' : 'Y', default: cell(c.generated !== undefined ? `생성: ${c.generated}` : c.identity ? `IDENTITY${identityArgs(c)}${c.identity === 'default' ? ' (BY DEFAULT)' : ''}` : c.default), pk: t.pk.includes(c.name) ? 'PK' : '', comment: cell(c.comment),
     }))),
     fks: numbered(t.fks.map(f => ({ name: f.name, columns: f.columns.join(', '), ref: `${f.refTable}(${f.refColumns.join(', ')})` }))),
     uniques: numbered(t.uniques.map(u => ({ name: u.name, columns: u.columns.join(', ') }))),

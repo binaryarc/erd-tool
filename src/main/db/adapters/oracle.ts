@@ -87,10 +87,10 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
     LEFT JOIN all_tab_comments m ON m.owner = t.owner AND m.table_name = t.table_name
     WHERE t.owner = :1 AND ${LIVE} ORDER BY t.table_name`);
   const cols = await q<{ t: string; col: string; typ: string; clen: number; cused: string | null; prec: number | null; scale: number | null;
-    nullable: string; def: string | null; virt: string; ident: string; gen: string | null; cmt: string | null }>(`
+    nullable: string; def: string | null; virt: string; ident: string; gen: string | null; idopt: string | null; cmt: string | null }>(`
     SELECT c.table_name AS "t", c.column_name AS "col", c.data_type AS "typ", c.char_length AS "clen", c.char_used AS "cused",
       c.data_precision AS "prec", c.data_scale AS "scale", c.nullable AS "nullable", c.data_default AS "def",
-      c.virtual_column AS "virt", c.identity_column AS "ident", i.generation_type AS "gen", m.comments AS "cmt"
+      c.virtual_column AS "virt", c.identity_column AS "ident", i.generation_type AS "gen", i.identity_options AS "idopt", m.comments AS "cmt"
     FROM all_tab_cols c
     LEFT JOIN all_tab_identity_cols i ON i.owner = c.owner AND i.table_name = c.table_name AND i.column_name = c.column_name
     LEFT JOIN all_col_comments m ON m.owner = c.owner AND m.table_name = c.table_name AND m.column_name = c.column_name
@@ -129,7 +129,12 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
     if (!t) continue; // 뷰 컬럼
     const col: Column = { name: c.col, type: typeText(c), notNull: c.nullable === 'N' };
     const def = c.def?.trim();
-    if (c.ident === 'YES') col.identity = c.gen === 'ALWAYS' ? 'always' : 'default';
+    if (c.ident === 'YES') {
+      col.identity = c.gen === 'ALWAYS' ? 'always' : 'default';
+      // identity_options: 'START WITH: 1, INCREMENT BY: 1, ...'
+      const m = c.idopt?.match(/START WITH: (-?\d+), INCREMENT BY: (-?\d+)/);
+      if (m && (m[1] !== '1' || m[2] !== '1')) { col.identityStart = Number(m[1]); col.identityStep = Number(m[2]); }
+    }
     else if (c.virt === 'YES' && def) col.generated = def;
     else if (def && def.toUpperCase() !== 'NULL') col.default = def; // DEFAULT NULL 로 지운 기본값은 글자 NULL 로 남는다
     if (c.cmt) col.comment = c.cmt;
