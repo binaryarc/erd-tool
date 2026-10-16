@@ -4,7 +4,7 @@
 
 import { dialectOf, normalizeTypeFor } from '../dialect';
 import { scan } from '../sql/text';
-import type { Column, ForeignKey, SchemaModel, Table } from './types';
+import type { Column, Domain, ForeignKey, SchemaModel, Table } from './types';
 
 export class EditError extends Error {}
 
@@ -127,6 +127,8 @@ export function addColumn(m: SchemaModel, tableName: string, input: ColumnInput,
   checkName('컬럼', input.name);
   if (t.columns.some(c => c.name === input.name)) fail(`${tableName} 에 컬럼 ${input.name} 이 이미 있다`);
   const { pk, ...rest } = input;
+  // 도메인을 주면 타입은 그 도메인 타입이다 (AI 가 %도메인 으로 줄 때도 같다)
+  if (rest.domain !== undefined) rest.type = domainOf(m, rest.domain).type;
   const col: Column = clean({ ...rest, type: normalizeTypeFor(dialectOf(m), rest.type), notNull: rest.notNull || !!pk });
   if (!col.type) fail('타입이 비었다');
   let at = t.columns.length;
@@ -166,6 +168,7 @@ function clean(c: Column): Column {
   if (c.identity && c.identityStart !== undefined) { out.identityStart = c.identityStart; out.identityStep = c.identityStep ?? 1; }
   if (c.generated !== undefined) out.generated = c.generated;
   if (c.renamedFrom !== undefined) out.renamedFrom = c.renamedFrom;
+  if (c.domain !== undefined) out.domain = c.domain;
   return out;
 }
 
@@ -181,6 +184,14 @@ export function updateColumn(m: SchemaModel, tableName: string, colName: string,
     checkName('컬럼', to);
     if (t.columns.some(c => c.name === to)) fail(`${tableName} 에 컬럼 ${to} 이 이미 있다`);
   }
+  // 도메인을 쓰는 컬럼의 타입을 고치면 그 도메인을 고친다: 같은 도메인을 쓰는 모든 컬럼이 같은 타입이 된다 (결정 3)
+  if (patch.type !== undefined && old.domain !== undefined) {
+    const { type, ...others } = patch;
+    const nextType = normalizeTypeFor(dialectOf(m), type) || fail('타입이 비었다');
+    const after = Object.keys(others).length ? updateColumn(m, tableName, colName, others) : m;
+    return nextType === domainOf(after, old.domain).type ? after : updateDomain(after, old.domain, { type: nextType });
+  }
+  if (patch.domain !== undefined) fail('컬럼의 도메인은 setColumnDomain 으로 바꾼다');
   const isPk = patch.pk ?? t.pk.includes(colName);
   const { pk: _pk, ...rest } = patch;
   const merged: Column = { ...old, ...rest, name: to };
@@ -288,6 +299,69 @@ export function dropFk(m: SchemaModel, tableName: string, fkName: string): Schem
   const t = table(m, tableName);
   if (!t.fks.some(f => f.name === fkName)) fail(`${tableName} 에 FK ${fkName} 이 없다`);
   return withTable(m, tableName, x => ({ ...x, fks: x.fks.filter(f => f.name !== fkName) }));
+}
+
+// ---------- 도메인 (STEP 10) ----------
+// 도메인은 타입만 정한다(결정 2). 연결한 컬럼의 타입은 늘 도메인 타입과 같게 둔다. 그래서 DDL, 차이 계산, MD 는 지금처럼 컬럼 타입만 본다.
+
+function domainOf(m: SchemaModel, name: string): Domain {
+  return (m.domains ?? []).find(d => d.name === name) ?? fail(`도메인 ${name} 이 없다`);
+}
+
+/** 테이블 컬럼과 공통 컬럼 정의 모두에 f 를 적용한 새 모델 (바뀐 것이 없으면 같은 객체를 둔다) */
+function mapColumns(m: SchemaModel, f: (c: Column) => Column): SchemaModel {
+  const cols = (cs: Column[]) => { const out = cs.map(f); return out.every((c, i) => c === cs[i]) ? cs : out; };
+  return {
+    ...m, common: cols(m.common),
+    tables: m.tables.map(t => { const c = cols(t.columns); return c === t.columns ? t : { ...t, columns: c }; }),
+  };
+}
+
+/** 도메인을 쓰는 컬럼 (공통 컬럼 정의는 빼고 테이블 컬럼만) */
+export function domainUsage(m: SchemaModel, name: string): { table: string; column: string }[] {
+  return m.tables.flatMap(t => t.columns.filter(c => c.domain === name).map(c => ({ table: t.name, column: c.name })));
+}
+
+const checkDomainName = (m: SchemaModel, name: string, except?: string) => {
+  checkName('도메인', name);
+  if (name.startsWith('%')) fail('도메인 이름은 % 로 시작할 수 없다');
+  if (name !== except && (m.domains ?? []).some(d => d.name === name)) fail(`도메인 ${name} 이 이미 있다`);
+};
+
+export function addDomain(m: SchemaModel, name: string, type: string): SchemaModel {
+  name = name.trim();
+  checkDomainName(m, name);
+  const t = normalizeTypeFor(dialectOf(m), type) || fail('타입이 비었다');
+  return { ...m, domains: [...(m.domains ?? []), { name, type: t }] };
+}
+
+/** 도메인 고치기. 타입을 바꾸면 쓰는 모든 컬럼의 타입을 함께 바꾸고(결정 3), 이름을 바꾸면 컬럼의 연결이 따라간다(결정 5). 되돌리기 한 번 */
+export function updateDomain(m: SchemaModel, name: string, patch: { name?: string; type?: string }): SchemaModel {
+  const d = domainOf(m, name);
+  const to = patch.name !== undefined ? patch.name.trim() : name;
+  if (to !== name) checkDomainName(m, to, name);
+  const type = patch.type !== undefined ? (normalizeTypeFor(dialectOf(m), patch.type) || fail('타입이 비었다')) : d.type;
+  if (to === name && type === d.type) return m;
+  const next = { ...m, domains: (m.domains ?? []).map(x => (x.name === name ? { name: to, type } : x)) };
+  return mapColumns(next, c => (c.domain === name ? { ...c, domain: to, type } : c));
+}
+
+/** 도메인 지우기: 쓰던 컬럼은 연결만 풀고 타입은 그대로 둔다 (결정 4) */
+export function dropDomain(m: SchemaModel, name: string): SchemaModel {
+  domainOf(m, name);
+  const next = { ...m, domains: (m.domains ?? []).filter(d => d.name !== name) };
+  return mapColumns(next, c => (c.domain === name ? clean({ ...c, domain: undefined }) : c));
+}
+
+/** 컬럼에 도메인 지정(타입이 그 도메인 타입이 된다), domain 이 null 이면 해제(타입은 그대로) */
+export function setColumnDomain(m: SchemaModel, tableName: string, colName: string, domain: string | null): SchemaModel {
+  tableName = tableRef(m, tableName);
+  colName = colRef(m, tableName, colName);
+  const t = table(m, tableName);
+  const c = t.columns.find(x => x.name === colName) ?? fail(`${tableName} 에 컬럼 ${colName} 이 없다`);
+  if ((c.domain ?? null) === domain) return m;
+  const col = domain === null ? clean({ ...c, domain: undefined }) : { ...c, domain, type: domainOf(m, domain).type };
+  return withTable(m, tableName, x => ({ ...x, columns: x.columns.map(y => (y.name === colName ? col : y)) }));
 }
 
 // ---------- 되돌리기 ----------

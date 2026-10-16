@@ -139,6 +139,48 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
   } finally {
     if (part === 'connect' && out.prep) out.cleanup = await js(`window.__erdConnect('cleanup', ${JSON.stringify(process.env.ERD_BE_DIR)})`);
   }
+  if (part === 'domain') try {
+    // 완료 기준: 도메인 타입을 바꾸면 쓰는 모든 컬럼이 바뀌고 dev 에 적용한 뒤 다시 읽으면 차이 0. 저장 → 읽기 → 저장 바이트 같음.
+    // 같은 모델 폴더로 DB 에서 다시 불러와도 연결이 남고, 타입이 바뀐 컬럼만 풀리며 경고가 나온다. 끝에 dev 의 시험 테이블을 지운다
+    const be = process.env.ERD_BE_DIR!, dir = process.env.ERD_SAVE_DIR!;
+    const d = (step: string, a?: string, b?: string) => js<Record<string, unknown>>(`window.__erdDomain(${JSON.stringify(step)}, ${JSON.stringify(a ?? null)}, ${JSON.stringify(b ?? null)})`);
+    const typeInto = async (selector: string, text: string) => {
+      await clickText(selector);
+      await key('A', ['control']);
+      await typeText(text);
+    };
+    out.prep = await d('prep', be, dir);
+    // 1. 도메인 패널에서 도메인 probe_cd (varchar(10)) 를 만든다 (실제 클릭, 글자 입력)
+    await clickText('header button', '도메인');
+    await typeInto('.domains tr.new td:nth-child(2) input', 'probe_cd');
+    await typeInto('.domains tr.new td:nth-child(3) input', 'varchar(10)');
+    await key('Enter');
+    out.made = await d('state');
+    // 2. 편집 패널에서 a_cd, b_cd 의 도메인 칸에서 probe_cd 를 고른다 (select 는 값을 바꾸고 change 를 보낸다)
+    await d('editor', 'mst_erd_probe');
+    for (const c of ['a_cd', 'b_cd']) await js(`(() => { const s = document.querySelector('select[data-domain-col="${c}"]'); s.value = 'probe_cd'; s.dispatchEvent(new Event('change')); })()`);
+    await sleep(300);
+    out.linked = await d('state');
+    // 3. a_cd 타입 칸을 varchar(20) 으로 고친다 → 도메인과 b_cd 도 함께 바뀐다
+    const typeCell = `.editor tbody tr:nth-child(2) input.type`;
+    await typeInto(typeCell, 'varchar(20)');
+    await key('Enter'); // 칸을 벗어나지 않으니 바깥을 눌러 change 를 낸다
+    await js(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
+    await sleep(300);
+    out.typeChanged = await d('state');
+    out.apply = await d('apply', be);
+    // 4. 저장 → 다시 저장(바뀐 파일 0) → 다시 열기
+    out.save = await d('saveTwice', be, dir);
+    // 5. 도구 밖에서 dev 의 b_cd 타입을 바꾸고, 같은 모델 폴더로 DB 에서 다시 불러온다
+    out.sql = await d('sql', be, 'alter table mst_erd_probe alter column b_cd type varchar(25)');
+    out.reverse = await d('reverse', be, dir);
+    out.afterReverse = await d('state');
+  } catch (e) {
+    out.error = (e as Error).message;
+    if (process.env.ERD_SHOT) fs.writeFileSync(`${process.env.ERD_SHOT}-fail.png`, (await wc.capturePage()).toPNG());
+  } finally {
+    if (part === 'domain' && out.prep) out.cleanup = await js(`window.__erdDomain('cleanup', ${JSON.stringify(process.env.ERD_BE_DIR)})`);
+  }
   if (part === 'undo') try {
     // 테이블 이동(여러 개 함께 포함), 자동 정렬, 정렬 방식, 그룹 탭, 선 연결 FK 를 각각 Ctrl+Z 로 되돌리고 Ctrl+Y 로 다시 한다
     const u = (step: string, a?: string, b?: string) => js<Record<string, unknown> | null>(`window.__erdUndo(${JSON.stringify(step)}, ${JSON.stringify(a ?? null)}, ${JSON.stringify(b ?? null)})`);

@@ -72,7 +72,7 @@ const nodes = computed<Node[]>(() => {
     const fkCols = new Set(t.fks.flatMap(f => f.columns));
     const data: TableNodeData = {
       name: t.name, comment: t.comment, width: widths.get(t.id)!, focus: t.name === props.focus, ai: props.highlight?.has(t.id), external: props.external?.get(t.id),
-      columns: t.columns.map(c => ({ name: c.name, type: c.type, comment: c.comment, notNull: c.notNull, pk: t.pk.includes(c.name), fk: fkCols.has(c.name) })),
+      columns: t.columns.map(c => ({ name: c.name, type: c.type, comment: c.comment, notNull: c.notNull, pk: t.pk.includes(c.name), fk: fkCols.has(c.name), domain: c.domain })),
     };
     return { id: t.id, type: 'table', position: positions.get(t.id) ?? { x: 0, y: 0 }, data };
   });

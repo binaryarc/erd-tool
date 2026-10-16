@@ -65,12 +65,13 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
       schema,
       groups: prev?.groups.length ? prev.groups : ((beDir && hubGroups(beDir)) || [{ name: 'main', isDefault: true }]),
       common: prev?.common.length ? prev.common : detectCommon(raw.tables),
+      ...(prev?.domains ? { domains: prev.domains } : {}),
       sequences: raw.sequences,
       tables: raw.tables,
       functions: raw.functions,
     };
-    const { model, diff } = mergeModel(prev, next);
-    return { model, diff, warnings: raw.warnings, counts, hadModel: !!prev, layout: loaded?.layout ?? emptyLayout(), prev };
+    const { model, diff, warnings } = mergeModel(prev, next);
+    return { model, diff, warnings: [...raw.warnings, ...warnings], counts, hadModel: !!prev, layout: loaded?.layout ?? emptyLayout(), prev };
   } finally {
     await conn.close();
   }

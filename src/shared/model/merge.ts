@@ -39,15 +39,30 @@ export function applySelected(prev: SchemaModel | null, next: SchemaModel, names
   };
 }
 
-/** next 의 테이블 ID 를 prev 기준으로 다시 매긴다. next 의 ID 는 무시한다 */
-export function mergeModel(prev: SchemaModel | null, next: SchemaModel): { model: SchemaModel; diff: ModelDiff } {
+/**
+ * next 의 테이블 ID 를 prev 기준으로 다시 매긴다. next 의 ID 는 무시한다.
+ * 도메인 (STEP 10): DB 는 컬럼이 어떤 도메인인지 모르므로 prev 의 「테이블.컬럼 → 도메인」 연결을 이어받는다.
+ * DB 타입이 도메인 타입과 다르면 그 컬럼만 연결을 풀고 warnings 에 적는다. 연결이 풀린 테이블은 diff.changed 에 잡힌다 (결정 6)
+ */
+export function mergeModel(prev: SchemaModel | null, next: SchemaModel): { model: SchemaModel; diff: ModelDiff; warnings: string[] } {
   const prevByName = new Map((prev?.tables ?? []).map(t => [t.name, t]));
   let maxId = Math.max(0, ...(prev?.tables ?? []).map(t => Number(t.id.slice(1)) || 0));
+  const domains = next.domains ?? prev?.domains;
+  const domainType = new Map((domains ?? []).map(d => [d.name, d.type]));
+  const warnings: string[] = [];
   const tables: Table[] = [...next.tables].sort((a, b) => (a.name < b.name ? -1 : 1)).map(t => {
     const old = prevByName.get(t.name);
-    return { ...t, id: old ? old.id : 't' + ++maxId };
+    const oldCols = new Map((old?.columns ?? []).map(c => [c.name, c]));
+    const columns = t.columns.map(c => {
+      const d = oldCols.get(c.name)?.domain;
+      if (d === undefined || c.domain !== undefined) return c;
+      if (domainType.get(d) === c.type) return { ...c, domain: d };
+      warnings.push(`${t.name}.${c.name}: DB 타입 ${c.type} 이 도메인 ${d} 의 타입 ${domainType.get(d) ?? '(도메인 없음)'} 과 달라 도메인 연결을 풀었다`);
+      return c;
+    });
+    return { ...t, id: old ? old.id : 't' + ++maxId, columns };
   });
-  const model: SchemaModel = { ...next, tables };
+  const model: SchemaModel = { ...next, tables, ...(domains ? { domains } : {}) };
 
   // 같은 공통 컬럼, 그룹 규칙으로 직렬화해 테이블 단위 글자 비교
   const text = (m: SchemaModel, t: Table) => serializeModel({ ...m, tables: [t], functions: [], sequences: [] });
@@ -68,5 +83,5 @@ export function mergeModel(prev: SchemaModel | null, next: SchemaModel): { model
     functionsChanged: [...nextFns.keys()].filter(k => prevFns.has(k) && prevFns.get(k) !== nextFns.get(k)).sort(),
     sequencesChanged: prev ? seqText(prev) !== seqText(model) : model.sequences.length > 0,
   };
-  return { model, diff };
+  return { model, diff, warnings };
 }

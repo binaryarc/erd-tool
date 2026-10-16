@@ -16,7 +16,8 @@ export interface TableNodeData {
   ai?: boolean;
   /** 그룹 탭에서 그리지 않은 FK 설명 (STEP 10) */
   external?: string[];
-  columns: { name: string; type: string; comment?: string; pk: boolean; fk: boolean; notNull: boolean }[];
+  /** domain: 연결한 도메인 이름 (STEP 10, 타입 뒤 배지) */
+  columns: { name: string; type: string; comment?: string; pk: boolean; fk: boolean; notNull: boolean; domain?: string }[];
 }
 
 defineProps<{ data: TableNodeData }>();
@@ -47,6 +48,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
         <span class="name" :class="{ nn: c.notNull }">{{ colName(c) }}</span>
         <span v-if="view.nameMode === 'both' && c.comment" class="logical">{{ c.comment }}</span>
         <span class="type">{{ c.type }}</span>
+        <i v-if="c.domain" class="dom" :title="`도메인 ${c.domain}`">{{ c.domain }}</i>
         <Handle :id="'s-' + c.name" type="source" :position="Position.Right" class="h" />
       </div>
     </template>
@@ -76,6 +78,8 @@ const colName = (c: TableNodeData['columns'][number]) =>
 .row .name + .type { margin-left: auto; }
 .name.nn { font-weight: bold; }
 .type { color: var(--muted); flex: none; }
+/* 도메인 배지: 폭은 text-width.ts 의 DOM 과 같아야 한다 */
+.dom { flex: none; font: 9px/12px Consolas, 'Malgun Gothic', monospace; font-style: normal; align-self: center; padding: 0 3px; border-radius: 2px; color: #4a2f8a; background: #e2d9fb; }
 /* 연결점: 평소에는 숨기고, 테이블에 마우스를 올리면 보인다. 연결점 위에서는 커져 끌기 쉽다 (STEP 10) */
 .h { width: 8px; height: 8px; min-width: 0; min-height: 0; opacity: 0; background: var(--accent); border: 1px solid var(--bg); transition: opacity 0.1s; }
 .head-h { top: 12px; }

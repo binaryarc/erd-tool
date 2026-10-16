@@ -3,27 +3,39 @@
 // 모델을 직접 고치지 않고 edit 이벤트로 수정 명령(shared/model/edit.ts)을 보낸다. App 이 되돌리기 기록을 남기고 적용한다.
 // 칸은 입력을 마칠 때(Enter, 칸 벗어남) 한 번 적용해 되돌리기 한 번이 칸 하나의 수정이 되게 한다.
 import { computed, nextTick, ref, watch } from 'vue';
-import { NEW_COLUMN_TYPE, addColumn as addCol, addFk as addFkCmd, defaultFkName, dropColumn, dropFk, dropTable as dropTableCmd, moveColumn, nextColumnName, updateColumn, updateTable, type ColumnInput } from '../../../shared/model/edit';
+import { NEW_COLUMN_TYPE, addColumn as addCol, addFk as addFkCmd, defaultFkName, domainUsage, dropColumn, dropFk, dropTable as dropTableCmd, moveColumn, nextColumnName, setColumnDomain, updateColumn, updateTable, type ColumnInput } from '../../../shared/model/edit';
 import type { Column, SchemaModel } from '../../../shared/model/types';
 
 const props = defineProps<{ model: SchemaModel; name: string }>();
 const emit = defineEmits<{
   /** 성공하면 true. 실패하면 App 이 오류를 보여준다 */
-  edit: [fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void];
+  /** note 를 주면 App 이 「수정함」 대신 그 글을 화면 아래에 보인다 */
+  edit: [fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void, note?: string];
   close: [];
 }>();
 
 const t = computed(() => props.model.tables.find(x => x.name === props.name));
 const refTables = computed(() => props.model.tables.map(x => x.name).sort());
 
-function apply(fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void) { emit('edit', fn, done); }
+function apply(fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void, note?: string) { emit('edit', fn, done, note); }
 
 /** 입력 칸 값이 바뀌었을 때만 명령을 보낸다. 실패하면 칸을 원래 값으로 되돌린다 */
-function onText(e: Event, old: string, fn: (v: string) => (m: SchemaModel) => SchemaModel) {
+function onText(e: Event, old: string, fn: (v: string) => (m: SchemaModel) => SchemaModel, note?: (v: string) => string) {
   const el = e.target as HTMLInputElement;
   if (el.value === old) return;
-  apply(fn(el.value), ok => { if (!ok) el.value = old; });
+  apply(fn(el.value), ok => { if (!ok) el.value = old; }, note?.(el.value.trim()));
 }
+
+// ---------- 도메인 (STEP 10) ----------
+const domains = computed(() => [...(props.model.domains ?? [])].sort((a, b) => (a.name < b.name ? -1 : 1)));
+const usedBy = (d: string) => domainUsage(props.model, d).length;
+function setDomain(c: Column, e: Event) {
+  const v = (e.target as HTMLSelectElement).value;
+  apply(m => setColumnDomain(m, props.name, c.name, v || null), ok => { if (!ok) (e.target as HTMLSelectElement).value = c.domain ?? ''; },
+    v ? `${c.name} 에 도메인 ${v} 를 지정함: 타입이 도메인 타입이 된다 (저장 전)` : `${c.name} 의 도메인 연결을 풂: 타입은 그대로 (저장 전)`);
+}
+/** 도메인 컬럼의 타입 칸을 고치면 도메인을 고친다는 것을 알린다 (결정 3) */
+const typeNote = (c: Column) => (c.domain ? (v: string) => `도메인 ${c.domain} 타입을 ${v} 로 바꿈: 이 도메인을 쓰는 컬럼 ${usedBy(c.domain!)}개가 함께 바뀜 (저장 전)` : undefined);
 
 function renameTable(e: Event) {
   const el = e.target as HTMLInputElement;
@@ -115,13 +127,19 @@ defineExpose({
 
       <h4>컬럼 {{ t.columns.length }}개</h4>
       <table class="cols">
-        <thead><tr><th>No.</th><th>이름</th><th>타입</th><th title="NOT NULL">NN</th><th>PK</th><th>기본값</th><th>코멘트</th><th></th></tr></thead>
+        <thead><tr><th>No.</th><th>이름</th><th>타입</th><th title="타입만 정하는 도메인. 고르면 타입이 도메인 타입이 된다">도메인</th><th title="NOT NULL">NN</th><th>PK</th><th>기본값</th><th>코멘트</th><th></th></tr></thead>
         <tbody>
           <tr v-for="(c, i) in t.columns" :key="c.name">
             <td class="no">{{ i + 1 }}</td>
             <td><input :value="c.name" :data-col="c.name" :data-orig="c.name" spellcheck="false" title="Enter 를 치면 이 컬럼 뒤에 새 컬럼을 더한다"
                        @change="e => onText(e, c.name, v => m => updateColumn(m, props.name, c.name, { name: v.trim() }))" @keydown.enter="e => nameEnter(e, c)" /></td>
-            <td><input :value="c.type" spellcheck="false" class="type" @change="e => onText(e, c.type, v => m => updateColumn(m, props.name, c.name, { type: v }))" /></td>
+            <td><input :value="c.type" spellcheck="false" class="type" :class="{ dom: c.domain }"
+                       :title="c.domain ? `도메인 ${c.domain}: 이 타입을 고치면 이 도메인을 쓰는 컬럼 ${usedBy(c.domain)}개가 함께 바뀐다` : ''"
+                       @change="e => onText(e, c.type, v => m => updateColumn(m, props.name, c.name, { type: v }), typeNote(c))" /></td>
+            <td><select class="domain" :value="c.domain ?? ''" :data-domain-col="c.name" @change="e => setDomain(c, e)">
+              <option value="">{{ domains.length ? '없음' : '(도메인 없음)' }}</option>
+              <option v-for="d in domains" :key="d.name" :value="d.name">{{ d.name }}</option>
+            </select></td>
             <td><input type="checkbox" :checked="c.notNull" :disabled="t.pk.includes(c.name)" :title="t.pk.includes(c.name) ? 'PK 는 NOT NULL 이다' : ''"
                        @change="e => setCol(c, { notNull: (e.target as HTMLInputElement).checked })" /></td>
             <td><input type="checkbox" :checked="t.pk.includes(c.name)" @change="e => setCol(c, { pk: (e.target as HTMLInputElement).checked })" /></td>
@@ -137,6 +155,7 @@ defineExpose({
             <td class="no">+</td>
             <td><input ref="nameBox" v-model="draft.name" placeholder="새 컬럼" spellcheck="false" /></td>
             <td><input v-model="draft.type" spellcheck="false" class="type" /></td>
+            <td />
             <td><input v-model="draft.notNull" type="checkbox" :disabled="draft.pk" /></td>
             <td><input v-model="draft.pk" type="checkbox" /></td>
             <td><input v-model="draft.default" spellcheck="false" /></td>
@@ -198,6 +217,8 @@ input, select { color: var(--fg); background: var(--bg); border: 1px solid var(-
 .act { width: 1%; }
 .act button { padding: 0 4px; }
 .new td { background: var(--panel-bg); }
+.domain { max-width: 110px; font-size: 11px; border-color: transparent; background: transparent; }
+input.dom { color: var(--accent); }
 .fk-new { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; align-items: flex-start; }
 .danger { color: var(--warn); }
 .warn { color: var(--warn); } .muted { color: var(--muted); margin: 2px 0; }

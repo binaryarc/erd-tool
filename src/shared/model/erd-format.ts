@@ -2,7 +2,7 @@
 // 같은 모델은 항상 같은 바이트로 저장한다: 테이블 이름순, 키 줄은 종류 후 이름순, 컬럼은 정의 순서, LF, 끝 줄바꿈 1개.
 
 import { DIALECTS, dialectOf, schemaOf, type Dialect } from '../dialect/names';
-import { MODEL_VERSION, type Column, type FkAction, type ForeignKey, type FunctionDef, type GroupRule, type ModelError, type SchemaModel, type Table } from './types';
+import { MODEL_VERSION, type Column, type Domain, type FkAction, type ForeignKey, type FunctionDef, type GroupRule, type ModelError, type SchemaModel, type Table } from './types';
 
 export const INDEX_FILE = '_index.erd';
 export const FUNCTIONS_DIR = 'functions/';
@@ -39,6 +39,7 @@ function serializeIndex(model: SchemaModel): string {
     lines.push(['group', g.name, g.prefix ? `prefix=${g.prefix}` : '', g.isDefault ? 'default' : ''].filter(Boolean).join(' '));
   }
   for (const c of model.common) lines.push('common ' + columnText(c, false));
+  for (const d of [...(model.domains ?? [])].sort((a, b) => cmp(a.name, b.name))) lines.push(`domain ${d.name} ${d.type}`);
   for (const s of [...model.sequences].sort((a, b) => cmp(a.name, b.name))) lines.push(`seq ${s.name} start=${s.start} inc=${s.inc}`);
   return lines.join('\n') + '\n';
 }
@@ -86,6 +87,8 @@ function parseFkOptions(s: string): Pick<ForeignKey, 'onDelete' | 'onUpdate' | '
 }
 
 const IDENTITY_WORD = { always: 'IDENTITY', default: 'IDENTITY_BD' } as const;
+/** 컬럼 줄에서 타입 뒤 도메인 표시: %도메인이름 (STEP 10) */
+const DOMAIN_MARK = '%';
 const GENERATED_RE = /^GENERATED ALWAYS AS \((.*)\) STORED$/;
 /** IDENTITY, IDENTITY_BD 뒤 (시작값,증가값). 둘 다 1 이면 적지 않는다 */
 const IDENTITY_RE = /^(IDENTITY|IDENTITY_BD)(?:\((-?\d+),(-?\d+)\))?$/;
@@ -99,6 +102,7 @@ export function columnText(c: Column, pk: boolean): string {
   const d = defaultText(c);
   return [
     c.name, c.type,
+    c.domain ? DOMAIN_MARK + c.domain : '',
     pk ? 'PK' : '',
     c.notNull && !pk ? 'NN' : '',
     c.identity ? IDENTITY_WORD[c.identity] + identityArgs(c) : '',
@@ -117,7 +121,7 @@ export function endsWithCommon(cols: Column[], common: Column[]): boolean {
 export function sameColumn(a: Column, b: Column): boolean {
   return a.name === b.name && a.type === b.type && a.notNull === b.notNull
     && a.default === b.default && (a.comment ?? '') === (b.comment ?? '')
-    && a.identity === b.identity && a.generated === b.generated && identityArgs(a) === identityArgs(b);
+    && a.identity === b.identity && a.generated === b.generated && identityArgs(a) === identityArgs(b) && a.domain === b.domain;
 }
 
 export function groupOf(table: string, groups: GroupRule[]): string {
@@ -240,8 +244,8 @@ function parseIndex(text: string, model: SchemaModel, errors: ModelError[]) {
     if (!raw.trim()) return;
     const [kw, ...rest] = raw.split(' ');
     if (kw === 'erd-model') {
-      // 버전 1 은 db 줄이 없다: DB 종류를 비워 두면 PostgreSQL, public 으로 본다. 다음 저장 때 버전 2 로 쓴다
-      if (rest[0] !== '1' && Number(rest[0]) !== MODEL_VERSION) err(`지원하지 않는 형식 버전: ${rest[0]}`);
+      // 버전 1 은 db 줄이 없다: DB 종류를 비워 두면 PostgreSQL, public 으로 본다. 버전 2 는 도메인이 없다. 다음 저장 때 지금 버전으로 쓴다
+      if (rest[0] !== '1' && rest[0] !== '2' && Number(rest[0]) !== MODEL_VERSION) err(`지원하지 않는 형식 버전: ${rest[0]}`);
     } else if (kw === 'db') {
       if (!DIALECTS.includes(rest[0] as Dialect) || !rest[1]) return err(`db 줄 형식이 아니다: ${raw}`);
       model.dialect = rest[0] as Dialect;
@@ -257,6 +261,10 @@ function parseIndex(text: string, model: SchemaModel, errors: ModelError[]) {
     } else if (kw === 'common') {
       const c = parseColumn(rest.join(' '), err);
       if (c) model.common.push(c.column);
+    } else if (kw === 'domain') {
+      if (rest.length < 2 || !rest[0]) return err(`domain 줄 형식이 아니다: ${raw}`);
+      const d: Domain = { name: rest[0], type: rest.slice(1).join(' ') };
+      (model.domains ??= []).push(d);
     } else if (kw === 'seq') {
       const m = raw.match(/^seq (\S+) start=(-?\d+) inc=(-?\d+)$/);
       if (!m) return err(`seq 줄 형식이 아니다: ${raw}`);
@@ -277,14 +285,17 @@ export function parseColumn(body: string, err: (m: string) => void): { column: C
   const name = words[0];
   let pk = false, notNull = false, k = words.length;
   let identity: Column['identity'], idArgs: RegExpMatchArray | null = null;
-  while (k > 2 && (words[k - 1] === 'PK' || words[k - 1] === 'NN' || IDENTITY_RE.test(words[k - 1]))) {
+  let domain: string | undefined;
+  while (k > 2 && (words[k - 1] === 'PK' || words[k - 1] === 'NN' || IDENTITY_RE.test(words[k - 1]) || (words[k - 1].startsWith(DOMAIN_MARK) && words[k - 1].length > 1))) {
     const w = words[k - 1];
     if (w === 'PK') pk = true;
     else if (w === 'NN') notNull = true;
+    else if (w.startsWith(DOMAIN_MARK)) domain = w.slice(DOMAIN_MARK.length);
     else { idArgs = w.match(IDENTITY_RE); identity = idArgs![1] === IDENTITY_WORD.always ? 'always' : 'default'; }
     k--;
   }
   const column: Column = { name, type: words.slice(1, k).join(' '), notNull: notNull || pk || !!identity };
+  if (domain) column.domain = domain;
   if (identity) column.identity = identity;
   if (idArgs?.[2] !== undefined) { column.identityStart = Number(idArgs[2]); column.identityStep = Number(idArgs[3]); }
   const gen = dflt?.match(GENERATED_RE);

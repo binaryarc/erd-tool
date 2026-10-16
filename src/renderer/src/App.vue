@@ -11,7 +11,8 @@ import TableEditor from './components/TableEditor.vue';
 import ExportTab from './components/ExportTab.vue';
 import DiagramTabs from './components/DiagramTabs.vue';
 import TablePickDialog from './components/TablePickDialog.vue';
-import { addColumn, addFk, addTable, dropFk, dropTable, updateTable } from '../../shared/model/edit';
+import DomainPanel from './components/DomainPanel.vue';
+import { addColumn, addFk, addTable, domainUsage, dropDomain, dropFk, dropTable, updateTable } from '../../shared/model/edit';
 import { applyConnect, planConnect, type ConnectPlan, type End } from '../../shared/model/connect';
 import type { FkAction } from '../../shared/model/types';
 import { TabError, addMembers, createTab, deleteTab, forgetIds, groupTabs, groupView, newTabName, prefixTabs, pruneMembers, removeMembers, renameTab } from '../../shared/model/group-tabs';
@@ -129,7 +130,7 @@ function setModel(m: SchemaModel) {
   if (miniName.value && !m.tables.some(t => t.name === miniName.value)) miniName.value = '';
 }
 
-function edit(fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void): boolean {
+function edit(fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void, note?: string): boolean {
   if (!model.value) { done?.(false); return false; }
   let next: SchemaModel;
   try { next = fn(model.value); }
@@ -137,7 +138,7 @@ function edit(fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void)
   if (next !== model.value) {
     history.push(model.value);
     setModel(next);
-    message.value = '수정함 (저장 전)';
+    message.value = note ?? '수정함 (저장 전)';
   }
   done?.(true);
   return true;
@@ -605,6 +606,19 @@ function answerConnect(ok: boolean) {
 const selectedFks = ref<{ table: string; fk: string }[]>([]);
 function deleteFks(fks: { table: string; fk: string }[]) {
   if (edit(m => fks.reduce((acc, f) => dropFk(acc, f.table, f.fk), m))) message.value = `FK ${fks.map(f => f.fk).join(', ')} 를 지움 (저장 전, 되돌리기 가능)`;
+}
+
+// ---------- 도메인 관리 패널 (STEP 10) ----------
+// 오른쪽 영역은 테이블 편집 패널 > 도메인 패널 > 미니 ERD 순서로 보인다
+const domainOpen = ref(false);
+const domainPanel = ref<InstanceType<typeof DomainPanel>>();
+function openDomains() { editId.value = ''; miniName.value = ''; domainOpen.value = true; }
+/** 도메인 삭제: 쓰는 컬럼 수를 보이고 먼저 묻는다. 지우면 연결만 풀고 타입은 남는다 (결정 4) */
+async function removeDomain(name: string) {
+  const n = model.value ? domainUsage(model.value, name).length : 0;
+  if (await askDlg(`도메인 ${name} 를 지울까요?` + NL + `이 도메인을 쓰는 컬럼 ${n}개는 연결만 풀리고 지금 타입은 그대로 남는다 (되돌리기 가능).`,
+    [{ label: '지우기', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
+  edit(m => dropDomain(m, name), undefined, `도메인 ${name} 를 지움: 컬럼 ${n}개는 연결만 풀림 (저장 전)`);
 }
 
 // 그룹 탭에 기존 테이블 가져오기
@@ -1497,6 +1511,87 @@ window.__erdConnect = async (step: string, a?: string, b?: string) => {
   }));
 };
 
+/**
+ * 도메인 시험 (STEP 10 완료 기준). dir 은 시험용 빈 모델 폴더. dev 를 그 폴더로 불러오고 시험 테이블을 dev 에 만든 뒤,
+ * 메인이 실제 입력으로 도메인을 만들고 연결하고 타입을 고친다. 여기서는 dev 적용, 저장, DB 직접 변경, 다시 불러오기, 정리를 한다.
+ */
+window.__erdDomain = async (step: string, a?: string, b?: string) => {
+  const probe = 'mst_erd_probe';
+  const t = () => model.value?.tables.find(x => x.name === probe);
+  const diffDev = async () => diffModels((await window.erd.db.read(devRef(a!))).model, model.value!).map(d => `${d.kind} ${d.change} ${d.table ?? ''}.${d.name}`);
+  const applyAndCommit = async () => {
+    activeTab.value = 'erd';
+    await applyToDb();
+    const items = compare.value!.items().map(i => `${i.kind} ${i.change} ${i.table ?? ''}.${i.name}`);
+    if (!items.length) return { items };
+    const before = tabs.value.length;
+    compare.value!.apply();
+    await nextTick(); await frames(5); await sleep(2500);
+    const tb = tabs.value[before];
+    const tab = tabRefs.get(tb.id) as InstanceType<typeof SqlTab>;
+    const run = await tab.runAll();
+    await tab.tx('commit');
+    activeTab.value = 'erd';
+    await nextTick(); await frames(10); await sleep(600);
+    return { items, run };
+  };
+  if (step === 'prep') { // a: BE 폴더, b: 시험용 빈 모델 폴더
+    await panel.value!.setSource('be'); await panel.value!.setBeDir(a!);
+    await setModelDir(b!);
+    panel.value!.select('dev');
+    await panel.value!.doReverse();
+    panel.value!.apply();
+    edit(m => addTable(m, probe, { comment: 'ERD 도구 도메인 시험' }));
+    edit(m => addColumn(m, probe, { name: 'probe_seq', type: 'integer', notNull: true, pk: true }));
+    edit(m => addColumn(m, probe, { name: 'a_cd', type: 'varchar(10)', notNull: false }));
+    edit(m => addColumn(m, probe, { name: 'b_cd', type: 'varchar(10)', notNull: false }));
+    const created = await applyAndCommit();
+    openEditor(probe);
+    await nextTick(); await frames(5); await sleep(400);
+    return { created, after: await diffDev() };
+  }
+  if (step === 'editor') { openEditor(a!); await nextTick(); await frames(5); await sleep(400); return null; }
+  if (step === 'apply') { const r = await applyAndCommit(); return { ...r, after: await diffDev() }; }
+  if (step === 'saveTwice') { // b 폴더에 두 번 저장: 두 번째는 다시 쓴 파일이 0 이어야 바이트가 같다. 다시 열어 도메인을 본다
+    const first = await saveTo(b!);
+    const second = await saveTo(b!);
+    await openModel(b!);
+    await nextTick(); await frames(5);
+    return { first: first?.written.length, second: second?.written, errors: errors.value.map(e => e.message), domains: model.value!.domains, columns: t()?.columns.map(c => `${c.name} ${c.type}${c.domain ? ' %' + c.domain : ''}`) };
+  }
+  if (step === 'sql') { // dev 에 SQL 한 문장을 실행하고 커밋 (도구 밖에서 DB 가 바뀐 상황 만들기)
+    const id = addSql(b!);
+    await nextTick(); await frames(5);
+    const tab = tabRefs.get(id) as InstanceType<typeof SqlTab>;
+    await tab.loadOptions();
+    await tab.connect('be:dev');
+    tab.editor()!.setValue(b!);
+    const r = await tab.runAll();
+    await tab.tx('commit');
+    await closeTab(tabs.value.find(x => x.id === id)!);
+    activeTab.value = 'erd';
+    return r;
+  }
+  if (step === 'reverse') { // 같은 모델 폴더(b)로 dev 를 다시 불러온다
+    panel.value!.select('dev');
+    await panel.value!.doReverse();
+    const p = panel.value!.pending!;
+    const out = { warnings: p.warnings.filter(w => w.includes('도메인')), changed: p.diff.changed, columns: p.model.tables.find(x => x.name === probe)?.columns.map(c => `${c.name} ${c.type}${c.domain ? ' %' + c.domain : ''}`) };
+    panel.value!.apply();
+    return out;
+  }
+  if (step === 'cleanup') { // 시험 테이블을 지우는 ALTER 를 dev 에 적용
+    if (t()) edit(m => dropTable(m, probe));
+    const r = await applyAndCommit();
+    return { ...r, after: await diffDev() };
+  }
+  return JSON.parse(JSON.stringify({
+    domains: model.value?.domains ?? [], columns: t()?.columns.map(c => `${c.name} ${c.type}${c.domain ? ' %' + c.domain : ''}`), message: message.value,
+    badges: Array.from(document.querySelectorAll(`.pane.canvas .split > .pane:first-child .vue-flow__node-table .dom`)).map(e => e.textContent),
+    editor: editName.value, domainPanel: domainOpen.value, dialog: dlg.value?.text ?? null,
+  }));
+};
+
 /** 배치 되돌리기 시험 (STEP 10): 메인이 실제 입력으로 옮기고 되돌린 뒤 여기서 위치, 탭, FK 를 읽는다 */
 window.__erdUndo = async (step: string, a?: string, b?: string) => {
   const id = (n: string) => model.value!.tables.find(t => t.name === n)?.id ?? '';
@@ -1576,6 +1671,7 @@ window.__erdBench = async () => {
       <button :disabled="!canRedo" title="Ctrl+Y" @click="redo">다시 하기</button>
       <button :disabled="!model" title="모델 전체 CREATE 문을 새 SQL 탭에 넣는다" @click="createAll">전체 CREATE</button>
       <button :disabled="!model" title="DB 비교 탭에서 지금 ERD 와 DB 를 비교한다. 적용은 그 탭의 「왼쪽 DB 에 적용」으로" @click="applyToDb">DB 에 적용</button>
+      <button :disabled="!model" title="타입만 정하는 도메인 목록. 도메인 타입을 고치면 쓰는 컬럼이 모두 바뀐다" @click="openDomains">도메인</button>
       <span class="dir" :title="modelDir">{{ modelDir || 'ERD 폴더 없음' }}</span>
       <span class="spacer" />
       <label>보기
@@ -1635,7 +1731,7 @@ window.__erdBench = async () => {
                   </div>
                   <!-- 테이블을 더블클릭하면 오른쪽에 미니 ERD 가 열린다 (그 테이블과 FK 로 바로 이어진 테이블만) -->
                   <div class="erd-area">
-                  <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName">
+                  <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName && !domainOpen">
                     <template #first>
                       <ErdCanvas v-if="model && diagram && shown" :key="cur.id" ref="canvas" :initial-viewport="cur.viewport" :model="shown.model" :external="shown.external" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
                                  @pin="onPin" @select="onSelect" @open="n => { editId = ''; miniName = n; }" @menu="onMenu"
@@ -1644,6 +1740,7 @@ window.__erdBench = async () => {
                     </template>
                     <template #second>
                       <TableEditor v-if="model && editName" ref="editor" :model="model" :name="editName" @edit="edit" @close="editId = ''" />
+                      <DomainPanel v-else-if="model && domainOpen" ref="domainPanel" :model="model" @edit="edit" @remove="removeDomain" @close="domainOpen = false" />
                       <section v-else-if="model && miniName" class="mini">
                         <header>
                           <b>{{ miniName }}</b>
