@@ -3,12 +3,12 @@
 
 import type { ConnRef, SqlCatalog } from '../../shared/ipc';
 import { shortType } from '../../shared/model/pg-types';
-import { connect, resolve } from './connect';
+import { connectRef } from './connect';
 
 const USER_SCHEMAS = `n.nspname not in ('pg_catalog', 'information_schema') and n.nspname not like 'pg_toast%' and n.nspname not like 'pg_temp%'`;
 
 export async function loadCatalog(ref: ConnRef): Promise<SqlCatalog> {
-  const client = await connect(await resolve(ref), true);
+  const { client } = await connectRef(ref, true);
   try {
     const rels = (await client.query(`
       select n.nspname sch, c.relname name, c.relkind kind, obj_description(c.oid, 'pg_class') cmt

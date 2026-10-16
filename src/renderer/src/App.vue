@@ -403,6 +403,23 @@ window.addEventListener('keydown', e => {
 });
 
 /** 커밋 안 한 변경 확인 (탭 닫기, 창 닫기 공통) */
+/** BE 프로필 비밀번호 입력 창 (자동으로 풀지 못했거나 DB 가 거부했을 때 메인이 묻는다) */
+const pwAsk = ref<{ id: number; label: string; reason: string } | null>(null);
+const pwInput = ref({ password: '', save: false });
+const pwQueue: { id: number; label: string; reason: string }[] = [];
+const pwBox = ref<HTMLInputElement>();
+function nextPw() {
+  pwAsk.value = pwQueue.shift() ?? null;
+  pwInput.value = { password: '', save: false };
+  if (pwAsk.value) void nextTick(() => pwBox.value?.focus());
+}
+window.erd.password.onAsk((id, req) => { pwQueue.push({ id, ...req }); if (!pwAsk.value) nextPw(); });
+function answerPw(ok: boolean) {
+  if (!pwAsk.value) return;
+  window.erd.password.reply(pwAsk.value.id, ok ? { password: pwInput.value.password, save: pwInput.value.save } : null);
+  nextPw();
+}
+
 const closeAsk = ref<{ labels: string[]; resolve: (a: 'commit' | 'rollback' | 'cancel') => void } | null>(null);
 const ask = (labels: string[]) => new Promise<'commit' | 'rollback' | 'cancel'>(resolve => { closeAsk.value = { labels, resolve }; });
 function answerClose(a: 'commit' | 'rollback' | 'cancel') { closeAsk.value?.resolve(a); closeAsk.value = null; }
@@ -792,7 +809,31 @@ async function step8Scenario(beDir: string, dir: string, exportDir: string, meas
 /** STEP 8 시험 끝: 확정 대기를 취소해 원래 모델로 (저장하지 않음) */
 window.__erdAiCancel = () => { aiCancel(); return { pending: !!aiBase.value, tables: model.value?.tables.length, sortNo: !!model.value?.tables.find(t => t.name === 'mst_biz_wh')?.columns.some(c => c.name === 'sort_no') }; };
 
+/**
+ * 비밀번호 창 시험: beDir 은 비밀번호를 자동으로 풀 수 없는 시험용 BE 폴더다.
+ * 접속 시험 → 「자동으로 풀지 못했다」 창 → 틀린 비밀번호 → DB 거부 → 「틀렸다」 창 → 취소 → 접속 시험 결과에 취소가 나온다.
+ */
+async function passwordScenario(beDir: string) {
+  await panel.value!.setSource('be');
+  await panel.value!.setBeDir(beDir);
+  const waitAsk = async () => { for (let i = 0; i < 100 && !pwAsk.value; i++) await sleep(100); return pwAsk.value ? { ...pwAsk.value } : null; };
+  const out: Record<string, unknown> = {};
+  const result = window.erd.conn.test({ source: 'be', beDir, name: 'dev' });
+  const first = await waitAsk();
+  out.first = first && { label: first.label, reason: first.reason, dialog: !!document.querySelector('.modal input[type=password]') };
+  pwInput.value = { password: 'erd-tool-wrong-password', save: false };
+  answerPw(true);
+  await sleep(300);
+  const second = await waitAsk();
+  out.second = second && { reason: second.reason };
+  answerPw(false);
+  out.result = await result;
+  out.dialogClosed = !pwAsk.value;
+  return JSON.parse(JSON.stringify(out));
+}
+
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure }) => {
+  if (scenario === 'password') return passwordScenario(beDir);
   if (scenario === 'step8') return step8Scenario(beDir, dir, exportDir!, !!measure);
   if (scenario === 'step7') return step7Scenario(beDir, dir, exportDir!);
   if (scenario === 'step6') return step6Scenario(beDir, dir);
@@ -937,6 +978,18 @@ window.__erdBench = async () => {
         </template>
       </SplitPane>
     </div>
+    <div v-if="pwAsk" class="modal">
+      <form class="dialog" @submit.prevent="answerPw(true)">
+        <p><b>{{ pwAsk.label }}</b> 비밀번호</p>
+        <p class="warn">{{ pwAsk.reason }}</p>
+        <input ref="pwBox" v-model="pwInput.password" type="password" autocomplete="off" class="pw" />
+        <label class="save"><input v-model="pwInput.save" type="checkbox" /> 이 PC 에 저장 (Windows 계정 암호화, 다음부터 묻지 않음)</label>
+        <div class="row">
+          <button type="submit" :disabled="!pwInput.password">접속</button>
+          <button type="button" @click="answerPw(false)">취소</button>
+        </div>
+      </form>
+    </div>
     <div v-if="closeAsk" class="modal">
       <div class="dialog">
         <p>커밋하지 않은 변경이 있다: <b>{{ closeAsk.labels.join(', ') }}</b></p>
@@ -988,6 +1041,8 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .dialog { background: var(--bg); border: 1px solid var(--line); padding: 16px; max-width: 480px; }
 .dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
+.dialog .pw { width: 100%; box-sizing: border-box; margin: 4px 0 8px; }
+.dialog .save { display: block; margin-bottom: 10px; font-size: 12px; }
 .mini { height: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); }
 .ai-bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; gap: 8px; align-items: center;
   background: var(--bg); border: 2px solid #f08c00; padding: 4px 10px; font-size: 12px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2); }

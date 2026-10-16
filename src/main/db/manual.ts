@@ -8,6 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { app, safeStorage } from 'electron';
 import type { ManualConn, ManualConnInfo } from '../../shared/ipc';
+import type { SecretStore } from './passwords';
 
 const file = (name: string) => path.join(app.getPath('userData'), name);
 const memory = new Map<string, string>();
@@ -52,6 +53,25 @@ export function removeManual(id: string) {
   writeJson('secrets.json', s);
   memory.delete(id);
 }
+
+/** BE 프로필 비밀번호 저장소 (passwords.ts). 직접 입력 접속과 같은 secrets.json 에 키 이름으로 나눠 둔다 */
+export const profileSecretStore: SecretStore = {
+  async load(key) {
+    const enc = secrets()[key];
+    return enc ? (await safeStorage.decryptStringAsync(Buffer.from(enc, 'base64'))).result : undefined;
+  },
+  async save(key, password) {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('이 PC 에서는 비밀번호 암호화를 쓸 수 없다. 저장하지 않고 쓰세요');
+    writeJson('secrets.json', { ...secrets(), [key]: (await safeStorage.encryptStringAsync(password)).toString('base64') });
+  },
+  async remove(key) {
+    const s = secrets();
+    if (!(key in s)) return;
+    delete s[key];
+    writeJson('secrets.json', s);
+  },
+  has: key => key in secrets(),
+};
 
 /** 이번 실행에서 기억한 비밀번호를 지운다 (앱을 다시 켠 것과 같은 상태, 시험용) */
 export const forgetSessionPasswords = () => memory.clear();

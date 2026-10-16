@@ -21,6 +21,7 @@ const api: ErdApi = {
     list: beDir => ipcRenderer.invoke(IPC.connList, beDir),
     test: ref => ipcRenderer.invoke(IPC.connTest, ref),
     testDraft: (conn, password) => ipcRenderer.invoke(IPC.connTestDraft, conn, password),
+    forgetPassword: (beDir, name) => ipcRenderer.invoke(IPC.connForgetPassword, beDir, name),
   },
   manual: {
     list: () => ipcRenderer.invoke(IPC.manualList),
@@ -54,6 +55,10 @@ const api: ErdApi = {
   },
   onCloseRequest: cb => { ipcRenderer.on(IPC.closeRequest, (_e, dirty) => cb(dirty)); },
   confirmClose: ok => ipcRenderer.send(IPC.closeConfirm, ok),
+  password: {
+    onAsk: cb => { ipcRenderer.on(IPC.pwAsk, (_e, id, req) => cb(id, req)); },
+    reply: (id, answer) => ipcRenderer.send(IPC.pwReply, id, answer),
+  },
   mcp: {
     info: () => ipcRenderer.invoke(IPC.mcpInfo),
     onCall: cb => { ipcRenderer.on(IPC.mcpCall, (_e, id, tool, args) => cb(id, tool, args)); },
