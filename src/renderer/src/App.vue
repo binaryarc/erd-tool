@@ -21,7 +21,8 @@ import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
 import { neighborhood } from '../../shared/model/tree';
 import { applyCommands } from '../../shared/ai/commands';
 import { findSpotNear } from '../../shared/ai/place';
-import { overview, tablesText, viewStateText } from '../../shared/ai/notation';
+import { diffText, overview, tablesText, viewStateText } from '../../shared/ai/notation';
+import { buildAlter } from '../../shared/sql/alter';
 import { buildSchemaDocs } from '../../shared/export/md';
 import { buildFlyway, suggestDescription } from '../../shared/export/flyway';
 import { loadConnOptions } from './conn-options';
@@ -263,6 +264,25 @@ async function aiExport(args: { kind?: string; conn?: string; description?: stri
   return `만듦: ${r.written[0]} (문장 ${f.statements}개, 위험 ${f.dangers}개). DB 에는 실행하지 않았다`;
 }
 
+/** MCP db_compare: 두 쪽(접속 또는 지금 ERD) 구조 차이. DB 는 읽기 전용 연결로 구조만 읽는다 */
+async function aiCompare(args: { from?: string; to?: string; kind?: string; alter?: boolean }): Promise<string> {
+  const opts = await loadConnOptions();
+  const side = async (name = '') => {
+    if (name.toLowerCase() === 'erd') {
+      const m = needModel();
+      return { model: m, label: aiBase.value ? '지금 ERD (확정 대기 중인 AI 변경 포함)' : '지금 ERD' };
+    }
+    const o = opts.find(x => x.profile === name || x.label.startsWith(`${name} (`));
+    if (!o) throw new Error(`접속 ${name} 이 없다. 쓸 수 있는 것: erd, ${opts.map(x => x.profile ?? x.label).join(', ')}`);
+    return { model: (await window.erd.db.read(o.ref)).model, label: o.label };
+  };
+  const [a, b] = await Promise.all([side(args.from), side(args.to)]);
+  const all = diffModels(a.model, b.model);
+  const items = args.kind ? all.filter(i => i.kind === args.kind) : all;
+  const text = diffText(items, a.label, b.label) + (args.kind ? `\n(${args.kind} 만 봄. 전체 차이 ${all.length}개)` : '');
+  return args.alter && items.length ? `${text}\n\n${buildAlter(a.model, b.model, items).sql}` : text;
+}
+
 const cleanError = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 let aiQueue: Promise<unknown> = Promise.resolve();
 // 도구 호출은 하나씩 처리한다 (AI 가 한꺼번에 불러도 모델이 섞이지 않게)
@@ -276,6 +296,7 @@ window.erd.mcp.onCall((id, tool, args) => {
       else if (tool === 'erd_apply') text = await aiApply((args.commands as string[]) ?? []);
       else if (tool === 'erd_undo') text = aiUndo();
       else if (tool === 'erd_export') text = await aiExport(args);
+      else if (tool === 'db_compare') text = await aiCompare(args);
       else throw new Error(`모르는 도구: ${tool}`);
       window.erd.mcp.reply(id, { text });
     } catch (e) { window.erd.mcp.reply(id, { error: cleanError(e) }); }
@@ -834,6 +855,11 @@ async function passwordScenario(beDir: string) {
 
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure }) => {
   if (scenario === 'password') return passwordScenario(beDir);
+  if (scenario === 'mcp') { // 시험용: 모델을 열고 기다린다. 그동안 밖에서 MCP 도구를 직접 부른다 (mcp-erd.json 의 주소와 토큰)
+    await panel.value!.setSource('be'); await panel.value!.setBeDir(beDir); await openModel(dir);
+    await sleep(Number(measure) || 60_000);
+    return { tables: model.value?.tables.length };
+  }
   if (scenario === 'step8') return step8Scenario(beDir, dir, exportDir!, !!measure);
   if (scenario === 'step7') return step7Scenario(beDir, dir, exportDir!);
   if (scenario === 'step6') return step6Scenario(beDir, dir);

@@ -80,6 +80,21 @@ function build(deps: McpDeps): McpServer {
     }),
   }, callWith('erd_export'));
 
+  s.registerTool('db_compare', {
+    description: [
+      '두 쪽 구조를 비교한다(읽기만 한다). from 은 지금 모습, to 는 바꿀 모습이고 각각 접속 이름(예: dev, test) 또는 erd(지금 열린 ERD).',
+      '결과는 from 을 to 처럼 바꾸는 데 필요한 차이: 요약, 차이 목록(종류, 추가/삭제/변경, 대상, 내용, 위험).',
+      '「추가」 는 to 에만 있고, 「삭제」 는 from 에만 있다는 뜻. 테이블, 컬럼, PK, FK, UNIQUE, 인덱스, 시퀀스, 함수를 이름으로 맞춘다.',
+      'alter 를 켜면 from 을 to 처럼 바꾸는 PostgreSQL ALTER 문도 준다(실행하지 않는다).',
+    ].join('\n'),
+    inputSchema: z.object({
+      from: z.string().describe('지금 모습: 접속 이름 또는 erd'),
+      to: z.string().describe('바꿀 모습: 접속 이름 또는 erd'),
+      kind: z.enum(['table', 'column', 'pk', 'fk', 'unique', 'index', 'sequence', 'function']).optional().describe('이 종류만 보기'),
+      alter: z.boolean().optional().describe('ALTER 문도 받기'),
+    }),
+  }, callWith('db_compare'));
+
   s.registerTool('db_query', {
     description: '접속 하나에서 SQL 한 문장을 읽기 전용으로 실행한다(쓰기는 DB 가 막는다). 결과는 앞 50행과 전체 행 수. 접속 이름은 오류 메시지나 erd_overview 로 알 수 있다',
     inputSchema: z.object({ conn: z.string().describe('접속 이름 (예: dev, test)'), sql: z.string().describe('SQL 한 문장') }),
