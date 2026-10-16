@@ -10,8 +10,57 @@ import { allowWrite, closeAll, closeSession, commitTx, dirtyTabs, fetchMore, ope
 import { addHistory, listHistory, setHistoryDir } from './history';
 import { loadModel, saveModel } from './model-store';
 import { getSettings, setSettings } from './settings';
-import { inputTerm, killTerm, resizeTerm, spawnTerm } from './terminal';
+import { inputTerm, killTerm, resizeTerm, setTermEnv, spawnTerm } from './terminal';
 import { nextFlywayVersion, writeExport } from './export';
+import { startMcp } from './mcp/server';
+import { dbQuery } from './mcp/db-query';
+import type { ConnRef as Ref, McpInfo, McpReply } from '../shared/ipc';
+
+// ---------- AI 연결 (STEP 8) ----------
+let mainWin: BrowserWindow | null = null;
+let mcpInfo: McpInfo | null = null;
+const mcpWaits = new Map<number, { ok: (t: string) => void; bad: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+let mcpSeq = 0;
+
+/** ERD 도구 호출을 화면에 맡기고 답을 기다린다 (15초) */
+function askRenderer(tool: string, args: Record<string, unknown>): Promise<string> {
+  return new Promise((ok, bad) => {
+    if (!mainWin || mainWin.isDestroyed()) { bad(new Error('ERD 도구 창이 없다')); return; }
+    const id = ++mcpSeq;
+    const timer = setTimeout(() => { mcpWaits.delete(id); bad(new Error('ERD 도구 화면이 15초 안에 답하지 않았다')); }, 15_000);
+    mcpWaits.set(id, { ok, bad, timer });
+    mainWin.webContents.send(IPC.mcpCall, id, tool, args);
+  });
+}
+ipcMain.on(IPC.mcpReply, (_e, id: number, r: McpReply) => {
+  const w = mcpWaits.get(id);
+  if (!w) return;
+  mcpWaits.delete(id);
+  clearTimeout(w.timer);
+  if (r.error !== undefined) w.bad(new Error(r.error)); else w.ok(r.text ?? '');
+});
+
+/** db_query 에 쓸 접속: BE 폴더 프로필 이름과 직접 입력 접속 이름 */
+function connRefs(): Map<string, Ref> {
+  const m = new Map<string, Ref>();
+  const be = getSettings().beDir;
+  if (be) { try { for (const p of listProfiles(be)) m.set(p.name, { source: 'be', beDir: be, name: p.name }); } catch { /* BE 폴더 없음 */ } }
+  for (const c of listManual()) if (!m.has(c.name)) m.set(c.name, { source: 'manual', id: c.id });
+  return m;
+}
+
+async function startAi() {
+  const h = await startMcp({
+    ask: askRenderer,
+    query: (conn, sql) => dbQuery(connRefs().get(conn)!, sql),
+    connNames: () => [...connRefs().keys()],
+  });
+  // Claude 는 그 자리 연결 파일(--mcp-config)로 붙는다. 토큰이 들어 있어 앱 설정 폴더에만 둔다. Codex 는 환경변수 토큰을 읽는다
+  const claudeConfig = path.join(app.getPath('userData'), 'mcp-erd.json').replace(/\\/g, '/');
+  fs.writeFileSync(claudeConfig, JSON.stringify({ mcpServers: { erd: { type: 'http', url: h.url, headers: { Authorization: `Bearer ${h.token}` } } } }, null, 2));
+  setTermEnv({ ERD_MCP_URL: h.url, ERD_MCP_TOKEN: h.token });
+  mcpInfo = { url: h.url, claudeConfig };
+}
 
 function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.pickFolder, async (_e, defaultPath?: string) => {
@@ -22,6 +71,7 @@ function registerIpc(win: BrowserWindow) {
     const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md'] }] });
     return r.canceled ? null : r.filePaths[0];
   });
+  ipcMain.handle(IPC.mcpInfo, () => mcpInfo);
   ipcMain.handle(IPC.exportNextVersion, (_e, dir: string) => nextFlywayVersion(dir));
   ipcMain.handle(IPC.exportWrite, (_e, dir: string, files, history) => writeExport(dir, files, history));
   ipcMain.handle(IPC.settingsGet, () => getSettings());
@@ -94,6 +144,7 @@ function createWindow() {
     },
   });
   registerIpc(win);
+  mainWin = win;
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else win.loadFile(path.join(__dirname, '../renderer/index.html'));
@@ -117,7 +168,7 @@ function createWindow() {
     win.webContents.on('render-process-gone', (_e, d) => console.log('[renderer-gone]', d.reason, d.exitCode));
     win.webContents.once('did-finish-load', async () => {
       console.log('[loaded]');
-      const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR, exportDir: process.env.ERD_EXPORT_DIR };
+      const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR, exportDir: process.env.ERD_EXPORT_DIR, measure: process.env.ERD_MEASURE };
       //   ERD_AUTO=step7  ERD_EXPORT_DIR(시험용 임시 폴더)에 Flyway, 이력, MD 파일을 만든다. 이력 파일은 허브 원본을 그 폴더로 복사해 쓴다
       if (auto === 'step7' && args.exportDir && args.beDir) {
         const be = args.beDir.replace(/[\\/]+$/, '');
@@ -131,6 +182,14 @@ function createWindow() {
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
         //   ERD_AUTO=step5  DB 비교, ERD 차이 적용(전체 실행 후 롤백). ERD_SHOT 을 주면 비교 탭과 적용 탭 화면을 남긴다
         //   ERD_AUTO=step6  ERD 수정 → dev 적용(커밋) → 다시 읽어 차이 0 → 되돌리기로 시험 테이블 지움. ERD_SHOT 을 주면 편집 화면을 남긴다
+        //   ERD_AUTO=step8  실제 claude 로 AI 변경 → 강조, 다른 테이블 위치 그대로 확인. ERD_SHOT 이면 확정 대기 화면을 남기고, 끝에 취소한다
+        if (auto === 'step8') {
+          const shot = process.env.ERD_SHOT;
+          if (shot && !process.env.ERD_MEASURE) fs.writeFileSync(`${shot}-pending.png`, (await win.webContents.capturePage()).toPNG());
+          console.log('[cancel]', JSON.stringify(await win.webContents.executeJavaScript('window.__erdAiCancel()')));
+          app.quit();
+          return;
+        }
         if (auto === 'step7') {
           const shot = process.env.ERD_SHOT;
           if (shot) {
@@ -269,8 +328,11 @@ async function manualScenario(beDir: string) {
 // 사용자가 띄워 둔 앱과 캐시 폴더가 겹치지 않게 하기 위해서다
 if (process.env.ERD_USER_DATA) app.setPath('userData', process.env.ERD_USER_DATA);
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setHistoryDir(path.join(app.getPath('userData'), 'history'));
+  fs.mkdirSync(app.getPath('userData'), { recursive: true });
+  // AI 연결을 못 띄워도 나머지 기능은 쓴다
+  await startAi().catch(e => console.log('[mcp] 시작 실패', (e as Error).message));
   createWindow();
 });
 app.on('window-all-closed', () => app.quit());

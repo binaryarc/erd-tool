@@ -12,6 +12,8 @@ export interface TableNodeData {
   width: number;
   /** 미니 ERD 가운데 테이블 */
   focus?: boolean;
+  /** AI 가 바꿔 확정을 기다리는 테이블 */
+  ai?: boolean;
   columns: { name: string; type: string; comment?: string; pk: boolean; fk: boolean; notNull: boolean }[];
 }
 
@@ -25,7 +27,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
 </script>
 
 <template>
-  <div class="tbl" :class="{ compact: view.compact, focus: data.focus }" :style="{ width: data.width + 'px' }">
+  <div class="tbl" :class="{ compact: view.compact, focus: data.focus, ai: data.ai }" :style="{ width: data.width + 'px' }">
     <div class="head" :title="data.comment">
       <b>{{ title(data) }}</b>
       <span v-if="view.nameMode === 'both' && data.comment" class="logical">{{ data.comment }}</span>
@@ -63,6 +65,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
 .key .fk { color: #0b4f8a; background: #bcdcff; }
 .key .nn { color: var(--muted); border: 1px solid var(--line); line-height: 10px; }
 .tbl.focus { box-shadow: 0 0 0 3px var(--warn); }
+.tbl.ai { box-shadow: 0 0 0 3px #f08c00; }
 /* 폭은 내용에 맞춰 계산되므로 이름은 줄이지 않는다. 최대 폭에 걸리면 논리명부터 줄어든다 */
 .name { flex: none; }
 .row .logical { flex: 1; min-width: 0; }

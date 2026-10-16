@@ -60,7 +60,7 @@ function tableLines(t: Table, common: Column[]): string[] {
   ];
 }
 
-function columnText(c: Column, pk: boolean): string {
+export function columnText(c: Column, pk: boolean): string {
   return [
     c.name, c.type,
     pk ? 'PK' : '',
@@ -71,7 +71,7 @@ function columnText(c: Column, pk: boolean): string {
 }
 
 /** 컬럼 끝부분이 공통 컬럼 정의와 완전히 같을 때만 +common 으로 줄인다 (정보 손실 없음) */
-function endsWithCommon(cols: Column[], common: Column[]): boolean {
+export function endsWithCommon(cols: Column[], common: Column[]): boolean {
   if (!common.length || cols.length < common.length) return false;
   const tail = cols.slice(cols.length - common.length);
   return tail.every((c, i) => sameColumn(c, common[i]));
@@ -219,7 +219,7 @@ function parseIndex(text: string, model: SchemaModel, errors: ModelError[]) {
 }
 
 /** `이름 타입 [PK] [NN] [=기본값] [#코멘트]` — 타입은 공백을 포함할 수 있어 PK, NN, =, # 앞까지가 타입이다 */
-function parseColumn(body: string, err: (m: string) => void): { column: Column; pk: boolean } | undefined {
+export function parseColumn(body: string, err: (m: string) => void): { column: Column; pk: boolean } | undefined {
   const hash = findUnquoted(body, ' #');
   const comment = hash >= 0 ? unesc(body.slice(hash + 2)) : undefined;
   const main = hash >= 0 ? body.slice(0, hash) : body;
