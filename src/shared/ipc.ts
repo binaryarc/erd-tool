@@ -59,7 +59,10 @@ export interface Settings {
 export interface ExportFile { name: string; content: string }
 /** 99-migration-history.md 「변경 이력」 표에 덧붙일 한 줄 */
 export interface HistoryAppend { file: string; line: string }
-export interface ExportResult { written: string[]; history?: string }
+/** overwrite: 같은 이름을 덮어쓴다 (MD). 없으면 같은 이름이 있을 때 하나도 쓰지 않는다 (Flyway) */
+export interface ExportOptions { overwrite?: boolean }
+/** replaced: 덮어쓴 파일 이름 */
+export interface ExportResult { written: string[]; replaced: string[]; history?: string }
 
 /** AI 연결 정보 (STEP 8). 토큰은 화면에 주지 않는다(터미널 환경변수와 Claude 연결 파일에만 있다) */
 export interface McpInfo { url: string; claudeConfig: string }
@@ -185,8 +188,8 @@ export interface ErdApi {
   export: {
     /** 폴더의 V 파일 중 가장 큰 번호 + 1 */
     nextVersion(dir: string): Promise<number>;
-    /** 새 파일만 쓴다. 같은 이름이 있으면 하나도 쓰지 않고 오류 */
-    write(dir: string, files: ExportFile[], history?: HistoryAppend): Promise<ExportResult>;
+    /** 기본은 새 파일만 (같은 이름이 있으면 하나도 쓰지 않고 오류). overwrite 면 덮어쓴다 */
+    write(dir: string, files: ExportFile[], history?: HistoryAppend, opts?: ExportOptions): Promise<ExportResult>;
   };
   settings: {
     get(): Promise<Settings>;

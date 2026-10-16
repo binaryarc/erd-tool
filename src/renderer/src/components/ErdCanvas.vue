@@ -12,7 +12,7 @@ import '@vue-flow/minimap/dist/style.css';
 import TableNode, { type TableNodeData } from './TableNode.vue';
 import { arrange, tableHeight } from '../../../shared/model/arrange';
 import { arrangeTree } from '../../../shared/model/tree';
-import type { Diagram } from '../../../shared/model/layout';
+import { arrangeMode, type Diagram } from '../../../shared/model/layout';
 import type { SchemaModel } from '../../../shared/model/types';
 import { COMPACT_ZOOM, VIEW_KEY, type ViewState } from '../view';
 import { tableWidth } from '../text-width';
@@ -40,7 +40,7 @@ const nodes = computed<Node[]>(() => {
   const widthOf = (t: { id: string }) => widths.get(t.id)!;
   let positions: Map<string, { x: number; y: number }>;
   let groupNodes: Node[] = [];
-  if (props.diagram.mode === 'tree') {
+  if (arrangeMode(props.diagram) === 'tree') {
     positions = arrangeTree(props.model, { width: widthOf, height: t => tableHeight(t) });
     for (const [id, [x, y]] of Object.entries(props.diagram.pinned)) if (positions.has(id)) positions.set(id, { x, y });
   } else {
@@ -81,7 +81,7 @@ watch(() => getSelectedNodes.value.map(n => n.id).join(','), () => {
 watch([() => viewport.value.zoom, () => view.compactOnZoomOut], ([z, on]) => { view.compact = on && z < COMPACT_ZOOM; });
 // 다른 모델로 바뀌거나 배치 방식이 바뀌면 전체가 보이게 맞춘다.
 // diagram 은 반응형이 아니라(layout 을 그대로 IPC 로 보내므로) version 이 바뀔 때 방식이 달라졌는지 직접 비교한다
-let lastMode = props.diagram.mode;
+let lastMode = arrangeMode(props.diagram);
 async function refit() {
   await nextTick();
   setTimeout(() => fitView({ padding: 0.15 }), 50);
@@ -101,8 +101,8 @@ onMounted(() => {
 });
 onBeforeUnmount(() => observer?.disconnect());
 watch(() => props.version, () => {
-  if (props.diagram.mode === lastMode) return;
-  lastMode = props.diagram.mode;
+  if (arrangeMode(props.diagram) === lastMode) return;
+  lastMode = arrangeMode(props.diagram);
   void refit();
 });
 

@@ -73,7 +73,7 @@ function registerIpc(win: BrowserWindow) {
   });
   ipcMain.handle(IPC.mcpInfo, () => mcpInfo);
   ipcMain.handle(IPC.exportNextVersion, (_e, dir: string) => nextFlywayVersion(dir));
-  ipcMain.handle(IPC.exportWrite, (_e, dir: string, files, history) => writeExport(dir, files, history));
+  ipcMain.handle(IPC.exportWrite, (_e, dir: string, files, history, opts) => writeExport(dir, files, history, opts));
   ipcMain.handle(IPC.settingsGet, () => getSettings());
   ipcMain.handle(IPC.settingsSet, (_e, patch) => setSettings(patch));
   ipcMain.handle(IPC.modelLoad, (_e, dir: string) => loadModel(dir));

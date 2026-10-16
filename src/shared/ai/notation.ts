@@ -2,7 +2,7 @@
 // 좌표 숫자 대신 그룹 규칙과 행, 열 위치로 화면 배치를 알린다(AI 가 좌표를 계산하면 격자가 어긋난다).
 
 import { columnText, endsWithCommon, groupOf } from '../model/erd-format';
-import type { Diagram } from '../model/layout';
+import { arrangeMode, type Diagram } from '../model/layout';
 import type { SchemaModel, Table } from '../model/types';
 
 const byName = (a: { name: string }, b: { name: string }) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
@@ -67,8 +67,9 @@ function side(a: Box, b: Box): string {
 /** 화면 배치를 말로 (설계 10-3). boxes 는 테이블 ID 별 화면 사각형 */
 export function viewStateText(model: SchemaModel, d: Diagram, boxes: Map<string, Box>, zoom: number, diagramName: string): string {
   const name = new Map(model.tables.map(t => [t.id, t.name]));
-  const lines = [`다이어그램 ${diagramName}: ${d.mode === 'tree' ? '트리 배치 (FK 부모가 위, 자식이 아래)' : '그룹 격자 배치'}, 확대 ${Math.round(zoom * 100)}%`];
-  if (d.mode !== 'tree') {
+  const tree = arrangeMode(d) === 'tree';
+  const lines = [`다이어그램 ${diagramName}: ${tree ? '트리 배치 (FK 부모가 위, 자식이 아래)' : '그룹 격자 배치'}, 확대 ${Math.round(zoom * 100)}%`];
+  if (!tree) {
     for (const [g, p] of Object.entries(d.groups).sort(([, a], [, b]) => a.rule.origin[0] - b.rule.origin[0])) {
       lines.push(`그룹 ${g}: 격자 ${p.rule.cols}열 간격 ${p.rule.gap}`);
       for (let i = 0; i < p.order.length; i += p.rule.cols) {
