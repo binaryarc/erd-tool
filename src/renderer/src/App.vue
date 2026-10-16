@@ -22,7 +22,7 @@ import { buildJoinSelect } from '../../shared/sql/join';
 import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
 import { arrangeMode, emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
 import type { ModelError, SchemaModel } from '../../shared/model/types';
-import type { ConnRef, ManualConn, ReverseResult, SessionData, SessionTab, ShellKind } from '../../shared/ipc';
+import type { ConnRef, ManualConn, ReverseResult, SavePlan, SessionData, SessionTab, ShellKind } from '../../shared/ipc';
 import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
 import { neighborhood } from '../../shared/model/tree';
 import { applyCommands } from '../../shared/ai/commands';
@@ -403,8 +403,14 @@ window.addEventListener('beforeunload', e => {
 });
 
 async function openModel(dir?: string) {
-  const d = dir ?? await window.erd.pickFolder(modelDir.value || undefined);
-  if (!d) return;
+  let d = dir;
+  if (!d) {
+    // 폴더 안 파일이 모두 보이는 창에서 파일 하나를 고르면 그 폴더를 연다 (2026-10-16 사용자 지정)
+    const picked = await window.erd.model.pickOpen(modelDir.value || undefined);
+    if (!picked) return;
+    if (!picked.hasModel) { message.value = `${picked.dir} 에 _index.erd 가 없어 ERD 모델 폴더가 아니다`; return; }
+    d = picked.dir;
+  }
   // 다른 ERD 탭에 이미 열린 폴더면 그 탭으로 간다 (한 폴더를 두 탭에서 고치면 저장할 때 서로 덮어쓴다)
   const other = [...docs.values()].find(x => x !== cur.value && sameDir(x.modelDir.value, d) && x.model.value);
   if (other) { activeTab.value = other.id; message.value = `이미 ${titleOf(other.id)} 탭에 열려 있어 그 탭으로 옮김`; return; }
@@ -434,13 +440,29 @@ async function save() {
   if (aiBase.value) { message.value = '확정 대기 중인 AI 변경을 확정하거나 취소한 뒤 저장한다'; return; }
   const picked = await window.erd.model.pickSaveDir();
   if (!picked) return;
+  return saveWithPreview(picked);
+}
+
+/** 고른 폴더에 저장 미리보기를 보이고, 「저장」 이면 저장한다 (시험 모드는 폴더 고르기 창 없이 이것을 부른다) */
+async function saveWithPreview(picked: { dir: string; hasModel: boolean }) {
+  if (!model.value) return;
   const other = [...docs.values()].find(x => x !== cur.value && sameDir(x.modelDir.value, picked.dir));
   if (other) { message.value = `그 폴더는 ${titleOf(other.id)} 탭에 열려 있어 저장하지 않았다`; return; }
   const same = sameDir(picked.dir, modelDir.value);
-  if (picked.hasModel && !same && !confirm(`${picked.dir}\n이 폴더에 다른 ERD 모델 파일(.erd)이 있다. 이 모델로 덮어쓰고, 이 모델에 없는 그룹 파일은 지운다. 계속할까요?`)) return;
+  // 저장하면 바뀔 파일을 먼저 보여 주고 확인을 받는다 (2026-10-16 사용자 지정). 쓰기 전 소속 정리도 복사본으로 미리 해 본다
+  const l = structuredClone(layout.value);
+  pruneMembers(l, model.value);
+  const plan = await window.erd.model.planSave(picked.dir, JSON.parse(JSON.stringify(model.value)), l);
+  if (!await askSave({ dir: picked.dir, plan, otherModel: picked.hasModel && !same })) return;
   await setModelDir(picked.dir);
   return saveTo(picked.dir);
 }
+
+/** 저장 미리보기 창: 새로 씀, 바뀜, 지움, 그대로 파일 목록. 「저장」 이면 true */
+const savePreview = ref<{ dir: string; plan: SavePlan; otherModel: boolean; resolve: (ok: boolean) => void } | null>(null);
+const askSave = (p: { dir: string; plan: SavePlan; otherModel: boolean }) =>
+  new Promise<boolean>(resolve => { savePreview.value = { ...p, resolve }; });
+function answerSave(ok: boolean) { const p = savePreview.value; savePreview.value = null; p?.resolve(ok); }
 
 /** 고른 폴더에 저장 (시험 모드는 폴더 고르기 없이 이것을 부른다) */
 async function saveTo(dir: string) {
@@ -477,6 +499,7 @@ function setArrangeMode(mode: 'grid' | 'tree') {
   history.pushSnap(snapNow());
   diagram.value.mode = mode;
   diagram.value.pinned = {};
+  refreshDiagram(); // 그룹 격자 배치는 격자로 바꿀 때 만들고, 트리로 바꾸면 지운다
   version.value++;
   dirty.value = true;
 }
@@ -637,7 +660,7 @@ function onPick(names: string[]) {
 // 미니 ERD: 더블클릭한 테이블과 FK 로 바로 이어진 테이블만, 항상 트리로
 const miniName = docField(cur, 'miniName');
 const miniModel = computed(() => (model.value && miniName.value ? neighborhood(model.value, miniName.value) : null));
-const miniDiagram: Diagram = { mode: 'tree', groups: {}, pinned: {} };
+const miniDiagram: Diagram = { mode: 'tree', pinned: {} };
 const mini = ref<InstanceType<typeof ErdCanvas>>();
 const compare = ref<InstanceType<typeof CompareTab>>();
 const editor = ref<InstanceType<typeof TableEditor>>();
@@ -710,7 +733,7 @@ window.addEventListener('keydown', e => {
   const el = e.target as HTMLElement;
   if (e.key === 'Escape' && menu.value) { menu.value = null; return; }
   if (e.key === 'Escape' && dlg.value) { answerDlg(''); return; }
-  if (!isErd(activeTab.value) || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value || connectAsk.value) return;
+  if (!isErd(activeTab.value) || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value || connectAsk.value || savePreview.value) return;
   // Delete: 고른 테이블을 모델에서 지운다 (확인 창). 입력 칸 안의 Delete 는 그대로 둔다 (STEP 10)
   if (e.key === 'Delete' && !el.closest('input, textarea, select, [contenteditable]')) {
     if (selected.value.length) { e.preventDefault(); void deleteTables([...selected.value]); }
@@ -1592,6 +1615,13 @@ window.__erdDomain = async (step: string, a?: string, b?: string) => {
   }));
 };
 
+/** 저장 미리보기 시험: dir 에 저장 미리보기를 띄운다 (끝을 기다리지 않는다). 메인이 창을 읽고 「저장」 을 누른다 */
+window.__erdSavePreview = async (dir: string) => {
+  void saveWithPreview({ dir, hasModel: true });
+  for (let i = 0; i < 50 && !savePreview.value; i++) await sleep(100);
+  return !!savePreview.value;
+};
+
 /** 배치 되돌리기 시험 (STEP 10): 메인이 실제 입력으로 옮기고 되돌린 뒤 여기서 위치, 탭, FK 를 읽는다 */
 window.__erdUndo = async (step: string, a?: string, b?: string) => {
   const id = (n: string) => model.value!.tables.find(t => t.name === n)?.id ?? '';
@@ -1831,6 +1861,28 @@ window.__erdBench = async () => {
         </div>
       </form>
     </div>
+    <div v-if="savePreview" class="modal" @keydown.esc="answerSave(false)">
+      <div class="dialog save-preview">
+        <p><b>ERD 저장</b> <span class="muted">{{ savePreview.dir }}</span></p>
+        <p v-if="savePreview.otherModel" class="warn">이 폴더에는 다른 ERD 모델이 있다. 이 모델로 덮어쓴다.</p>
+        <p v-if="!savePreview.plan.added.length && !savePreview.plan.changed.length && !savePreview.plan.removed.length">바뀌는 파일이 없다 (그대로 {{ savePreview.plan.unchanged.length }}개).</p>
+        <template v-for="g in [
+          { key: 'added', label: '새로 씀', cls: 'ok' },
+          { key: 'changed', label: '바뀜', cls: '' },
+          { key: 'removed', label: '지움 (이 모델에 없는 모델 파일)', cls: 'warn' },
+          { key: 'unchanged', label: '그대로', cls: 'muted' },
+        ] as const" :key="g.key">
+          <div v-if="savePreview.plan[g.key].length" class="sp-group" :data-kind="g.key">
+            <div :class="g.cls"><b>{{ g.label }} {{ savePreview.plan[g.key].length }}개</b></div>
+            <ul><li v-for="f in savePreview.plan[g.key]" :key="f">{{ f }}</li></ul>
+          </div>
+        </template>
+        <div class="row">
+          <button @click="answerSave(true)">저장</button>
+          <button @click="answerSave(false)">취소</button>
+        </div>
+      </div>
+    </div>
     <div v-if="dlg" class="modal">
       <div class="dialog ask">
         <p>{{ dlg.text }}</p>
@@ -1908,6 +1960,11 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .pane.canvas { display: flex; flex-direction: column; }
 .erd-area { flex: 1; min-height: 0; position: relative; }
 .dialog.ask p { white-space: pre-line; margin-top: 0; }
+.save-preview { min-width: 420px; max-height: 80vh; display: flex; flex-direction: column; gap: 6px; }
+.save-preview p { margin: 0; word-break: break-all; }
+.save-preview .sp-group { font-size: 12px; }
+.save-preview ul { margin: 2px 0 0; padding-left: 18px; max-height: 140px; overflow: auto; font: 12px Consolas, 'Malgun Gothic', monospace; }
+.save-preview .ok { color: var(--ok); } .save-preview .muted { color: var(--muted); }
 .dialog.conn { display: flex; flex-direction: column; gap: 8px; min-width: 420px; }
 .dialog.conn p { margin: 0; }
 .dialog.conn label { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 8px; font-size: 12px; }

@@ -91,7 +91,7 @@ export function viewStateText(model: SchemaModel, d: Diagram, boxes: Map<string,
   const tree = arrangeMode(d) === 'tree';
   const lines = [`다이어그램 ${diagramName}: ${tree ? '트리 배치 (FK 부모가 위, 자식이 아래)' : '그룹 격자 배치'}, 확대 ${Math.round(zoom * 100)}%`];
   if (!tree) {
-    for (const [g, p] of Object.entries(d.groups).sort(([, a], [, b]) => a.rule.origin[0] - b.rule.origin[0])) {
+    for (const [g, p] of Object.entries(d.groups ?? {}).sort(([, a], [, b]) => a.rule.origin[0] - b.rule.origin[0])) {
       lines.push(`그룹 ${g}: 격자 ${p.rule.cols}열 간격 ${p.rule.gap}`);
       for (let i = 0; i < p.order.length; i += p.rule.cols) {
         const row = p.order.slice(i, i + p.rule.cols).map(id => `${name.get(id) ?? id}${d.pinned[id] ? '(고정됨)' : ''}`);

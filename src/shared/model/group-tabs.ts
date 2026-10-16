@@ -39,7 +39,7 @@ function checkTabName(l: Layout, name: string, except?: string) {
 export function createTab(l: Layout, name: string, members: string[] = []): void {
   name = name.trim();
   checkTabName(l, name);
-  l.diagrams[name] = { groups: {}, pinned: {}, members: [...new Set(members)] };
+  l.diagrams[name] = { pinned: {}, members: [...new Set(members)] };
   l.tabs = [...(l.tabs ?? []), name];
 }
 

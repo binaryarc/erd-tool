@@ -12,7 +12,8 @@ export interface GroupPlacement {
 export interface Diagram {
   /** 배치 방식: grid 는 그룹별 격자, tree 는 FK 트리 (없으면 tree, arrangeMode 로 읽는다) */
   mode?: 'grid' | 'tree';
-  groups: Record<string, GroupPlacement>;
+  /** 그룹 격자 배치(접두어 그룹별 열 수, 간격, 순서). 「그룹 격자」 정렬일 때만 둔다 (2026-10-16 사용자 지정: 트리에서는 저장하지 않는다) */
+  groups?: Record<string, GroupPlacement>;
   /** 테이블 ID → 직접 지정한 좌표 */
   pinned: Record<string, [number, number]>;
   /** 그룹 탭(STEP 10)의 소속 테이블 ID. 있으면 이 다이어그램은 그 테이블만 보인다. 「전체」 에는 없다 */

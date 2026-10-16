@@ -80,7 +80,7 @@ describe('도메인 (STEP 10)', () => {
     m = setColumnDomain(m, 'mst_biz', 'biz_seq', 'seq_id');
     const first = serializeModel(m);
     expect(first['_index.erd']).toContain('domain code varchar(10)\ndomain seq_id integer\n');
-    expect(first['mdm.erd']).toContain('  biz_seq integer %seq_id PK\n  biz_cd varchar(10) %code\n');
+    expect(first['tables.erd']).toContain('  biz_seq integer %seq_id PK\n  biz_cd varchar(10) %code\n');
     const parsed = parseModel(first);
     expect(validateModel(parsed)).toEqual([]);
     expect(serializeModel(parsed.model)).toEqual(first);
@@ -101,7 +101,7 @@ describe('도메인 (STEP 10)', () => {
   it('공통 컬럼과 도메인이 다르면 +common 으로 줄이지 않는다 (줄이면 도메인이 사라진다)', () => {
     let m = addDomain(base, 'user_id', 'varchar(20)');
     m = setColumnDomain(m, 'mst_biz', 'reg_id', 'user_id');
-    const out = serializeModel(m)['mdm.erd'];
+    const out = serializeModel(m)['tables.erd'];
     expect(out).toContain('mst_biz @t1\n');
     expect(out).toContain('  reg_id varchar(20) %user_id NN\n');
     expect(out).toContain('mst_wh @t2 +common\n');

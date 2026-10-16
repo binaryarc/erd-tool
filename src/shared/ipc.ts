@@ -13,6 +13,8 @@ export const IPC = {
   modelLoad: 'model:load',
   modelSave: 'model:save',
   modelPickSaveDir: 'model:pickSaveDir',
+  modelPlanSave: 'model:planSave',
+  modelPickOpen: 'model:pickOpen',
   connList: 'conn:list',
   connTest: 'conn:test',
   connTestDraft: 'conn:testDraft',
@@ -118,6 +120,17 @@ export interface SaveResult {
   /** 더 이상 테이블, 함수가 없어 지운 파일 */
   removed: string[];
 }
+
+/** 저장 미리보기 (쓰기 전): 새로 생길 파일, 바뀔 파일, 그대로인 파일, 지울 파일 */
+export interface SavePlan {
+  added: string[];
+  changed: string[];
+  unchanged: string[];
+  removed: string[];
+}
+
+/** 「ERD 폴더 열기」 로 고른 폴더. hasModel 이 false 면 _index.erd 가 없는 폴더다 */
+export interface PickedModelDir { dir: string; hasModel: boolean }
 
 /** 접속 프로필 (비밀번호 없음) */
 export interface ProfileInfo {
@@ -248,6 +261,10 @@ export interface ErdApi {
     save(dir: string, model: SchemaModel, layout: Layout): Promise<SaveResult>;
     /** 「ERD 저장」 폴더 고르기. 처음 위치는 BE 폴더의 docs/erd, 없으면 사용자 홈. hasModel: 고른 폴더에 모델 파일(.erd)이 이미 있다 */
     pickSaveDir(): Promise<{ dir: string; hasModel: boolean } | null>;
+    /** 저장하면 바뀔 파일 목록 (쓰지 않는다) */
+    planSave(dir: string, model: SchemaModel, layout: Layout): Promise<SavePlan>;
+    /** 「ERD 폴더 열기」: 모든 파일이 보이는 파일 창에서 폴더 안 파일 하나를 고르면 그 폴더 (functions 안 파일이면 그 위 폴더) */
+    pickOpen(defaultDir?: string): Promise<PickedModelDir | null>;
   };
   conn: {
     /** BE 폴더 properties 로 만든 프로필 */
