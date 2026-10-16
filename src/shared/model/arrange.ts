@@ -78,7 +78,8 @@ export function arrange(model: SchemaModel, d: Diagram, widthOf: (t: Table) => n
     for (let i = 0; i < tables.length; i += cols) {
       const row = tables.slice(i, i + cols);
       row.forEach((t, c) => positions.set(t.id, { x: x0 + c * (colWidth + gap), y }));
-      y += Math.max(0, ...row.map(t => tableHeight(t))) + gap;
+      // 끌어 옮긴(고정한) 테이블은 그 칸에 없으므로 줄 높이에 넣지 않는다. 고정한 테이블이 커져도 다른 테이블이 움직이지 않게 (STEP 8)
+      y += Math.max(0, ...row.filter(t => !d.pinned[t.id]).map(t => tableHeight(t))) + gap;
     }
     const width = groupWidth(g.rule, colWidth) + 40;
     groups.push({ name, x: x0 - 20, y: origin[1], width, height: y - origin[1] });

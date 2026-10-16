@@ -53,6 +53,10 @@ export function findShell(kind: ShellKind, env: NodeJS.ProcessEnv = process.env,
 
 const terms = new Map<string, pty.IPty>();
 
+/** 터미널 셸에 더 넣는 환경변수 (STEP 8: ERD_MCP_URL, ERD_MCP_TOKEN. 설계 11장 3번) */
+let extraEnv: Record<string, string> = {};
+export const setTermEnv = (env: Record<string, string>) => { extraEnv = env; };
+
 export function spawnTerm(id: string, kind: ShellKind, cols: number, rows: number,
   onData: (d: string) => void, onExit: (code: number) => void) {
   killTerm(id);
@@ -60,7 +64,7 @@ export function spawnTerm(id: string, kind: ShellKind, cols: number, rows: numbe
   const cwd = os.homedir();
   // useConptyDll: 기본 방식은 셸을 끌 때 node-pty 보조 프로세스가 「AttachConsole failed」 를 내고 5초 늦게 정리된다 (STEP 4 확인)
   const p = pty.spawn(shell.path, shell.args, {
-    name: 'xterm-256color', cols, rows, cwd, env: process.env as Record<string, string>, useConptyDll: true,
+    name: 'xterm-256color', cols, rows, cwd, env: { ...(process.env as Record<string, string>), ...extraEnv }, useConptyDll: true,
   });
   p.onData(onData);
   p.onExit(({ exitCode }) => { terms.delete(id); onExit(exitCode); });

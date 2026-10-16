@@ -27,6 +27,8 @@ const props = withDefaults(defineProps<{
   fitOnResize?: boolean;
   /** 이 값이 바뀔 때만 전체 보기로 맞춘다 (없으면 모델이 바뀔 때마다). 본 ERD 는 모델을 고칠 때마다 화면이 튀지 않게 불러올 때만 바꾼다 */
   fitKey?: number;
+  /** AI 가 바꿔 확정을 기다리는 테이블 ID (주황 테두리, STEP 8) */
+  highlight?: Set<string>;
 }>(), { flowId: 'main', showMiniMap: true, fitOnResize: false });
 const emit = defineEmits<{ pin: [id: string, x: number, y: number]; select: [names: string[]]; open: [name: string] }>();
 const view = inject(VIEW_KEY) as ViewState;
@@ -52,7 +54,7 @@ const nodes = computed<Node[]>(() => {
   const tableNodes: Node[] = props.model.tables.map(t => {
     const fkCols = new Set(t.fks.flatMap(f => f.columns));
     const data: TableNodeData = {
-      name: t.name, comment: t.comment, width: widths.get(t.id)!, focus: t.name === props.focus,
+      name: t.name, comment: t.comment, width: widths.get(t.id)!, focus: t.name === props.focus, ai: props.highlight?.has(t.id),
       columns: t.columns.map(c => ({ name: c.name, type: c.type, comment: c.comment, notNull: c.notNull, pk: t.pk.includes(c.name), fk: fkCols.has(c.name) })),
     };
     return { id: t.id, type: 'table', position: positions.get(t.id) ?? { x: 0, y: 0 }, data };
@@ -143,7 +145,18 @@ async function focusTable(name: string) {
   if (t) await fitView({ nodes: [t.id], maxZoom: 1, padding: 0.4 });
 }
 
-defineExpose({ bench, fitView, focusTable });
+/** 테이블 ID 별 화면 사각형과 확대 배율 (AI 의 erd_view_state) */
+function boxes() {
+  const m = new Map<string, { x: number; y: number; w: number; h: number }>();
+  const byId = new Map(props.model.tables.map(t => [t.id, t]));
+  for (const n of nodes.value) {
+    const t = byId.get(n.id);
+    if (t) m.set(n.id, { x: n.position.x, y: n.position.y, w: (n.data as TableNodeData).width, h: tableHeight(t, view.compact) });
+  }
+  return m;
+}
+
+defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoom });
 </script>
 
 <template>

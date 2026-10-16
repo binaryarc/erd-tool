@@ -19,6 +19,12 @@ import type { ModelError, SchemaModel } from '../../shared/model/types';
 import type { ReverseResult, ShellKind } from '../../shared/ipc';
 import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
 import { neighborhood } from '../../shared/model/tree';
+import { applyCommands } from '../../shared/ai/commands';
+import { findSpotNear } from '../../shared/ai/place';
+import { overview, tablesText, viewStateText } from '../../shared/ai/notation';
+import { buildSchemaDocs } from '../../shared/export/md';
+import { buildFlyway, suggestDescription } from '../../shared/export/flyway';
+import { loadConnOptions } from './conn-options';
 
 const view = reactive<ViewState>({
   nameMode: loadPref('nameMode', 'both', ['physical', 'logical', 'both'] as const),
@@ -52,6 +58,8 @@ function show(m: SchemaModel, l: Layout) {
   fitKey.value++;
   history.clear();
   syncHistory();
+  aiBase.value = null;
+  aiSteps.length = 0;
 }
 
 // ---------- ERD 수정 (STEP 6) ----------
@@ -131,6 +139,149 @@ async function applyToDb() {
   await compare.value!.compare();
 }
 
+// ---------- AI(MCP) 도구 처리 (STEP 8, 설계 10장) ----------
+// 메인의 MCP 서버가 ERD 도구 호출을 여기로 넘긴다. 모델과 확정 대기 상태가 화면에 있기 때문이다.
+// AI 가 바꾼 것은 첫 변경 직전 모습(aiBase)과 비교해 주황 테두리로 강조하고, 사람이 「확정」하기 전까지 저장을 막는다.
+type Pins = Record<string, [number, number]>;
+interface AiStep { before: SchemaModel; beforePinned: Pins; after: SchemaModel }
+const aiBase = shallowRef<{ model: SchemaModel; pinned: Pins } | null>(null);
+const aiSteps: AiStep[] = [];
+const pinsNow = (): Pins => ({ ...(diagram.value?.pinned ?? {}) });
+
+/** 확정 대기 중인 테이블 ID: 기준과 구조가 다르거나 고정 좌표가 다른 테이블 */
+const aiChanged = computed(() => {
+  void version.value; // 고정 좌표는 diagram 을 직접 고치므로 version 으로 다시 계산한다
+  const base = aiBase.value, m = model.value;
+  if (!base || !m) return new Set<string>();
+  const names = new Set(diffModels(base.model, m).map(d => d.table).filter(Boolean));
+  const ids = new Set(m.tables.filter(t => names.has(t.name)).map(t => t.id));
+  const pins = diagram.value?.pinned ?? {};
+  for (const id of new Set([...Object.keys(pins), ...Object.keys(base.pinned)])) {
+    if (String(pins[id]) !== String(base.pinned[id]) && m.tables.some(t => t.id === id)) ids.add(id);
+  }
+  return ids;
+});
+const nameOf = (id: string) => model.value?.tables.find(t => t.id === id)?.name ?? id;
+
+function needModel(): SchemaModel {
+  if (!model.value || !diagram.value) throw new Error('ERD 도구에 열린 모델이 없다. 사람에게 모델 폴더를 열거나 DB 에서 불러와 달라고 하세요');
+  return model.value;
+}
+
+function setPins(p: Pins) {
+  diagram.value!.pinned = { ...p };
+  version.value++;
+}
+
+async function aiApply(lines: string[]): Promise<string> {
+  const before = needModel();
+  const beforePinned = pinsNow();
+  const r = applyCommands(before, lines); // 실패하면 여기서 끝나고 아무것도 바뀌지 않는다
+  history.push(before);
+  setModel(r.model);
+  const placed: string[] = [];
+  try {
+    for (const p of r.places) {
+      await nextTick();
+      const ids = new Map(r.model.tables.map(t => [t.name, t.id]));
+      const boxes = canvas.value!.boxes();
+      const me = boxes.get(ids.get(p.table)!)!; // 바뀐 크기 (컬럼을 더했으면 더 길다)
+      const spot = findSpotNear(boxes, ids.get(p.after)!, ids.get(p.table)!, { w: me.w, h: me.h });
+      diagram.value!.pinned[ids.get(p.table)!] = [spot.x, spot.y];
+      version.value++;
+      placed.push(`${p.table} 를 ${p.after} 옆 빈 자리에 고정했다 (다른 테이블은 그대로)`);
+    }
+  } catch (e) {
+    // 자리를 못 찾으면 전체를 되돌린다 (하나라도 실패하면 아무것도 적용하지 않는다)
+    history.undo(model.value!);
+    setModel(before);
+    setPins(beforePinned);
+    throw e;
+  }
+  if (!aiBase.value) aiBase.value = { model: before, pinned: beforePinned };
+  aiSteps.push({ before, beforePinned, after: model.value! });
+  version.value++;
+  message.value = 'AI 가 고침 (확정 대기)';
+  return [
+    `적용함: 명령 ${r.done.length}줄`,
+    ...placed,
+    `확정 대기 중인 테이블: ${[...aiChanged.value].map(nameOf).join(', ')}`,
+    '화면에 주황 테두리로 강조됐다. 사람이 「확정」해야 모델 파일에 저장된다',
+  ].join('\n');
+}
+
+function aiUndo(): string {
+  const step = aiSteps.at(-1);
+  if (!step) throw new Error('되돌릴 AI 변경이 없다 (사람이 확정했거나 아직 고치지 않았다)');
+  if (model.value !== step.after) throw new Error('그 뒤에 사람이 ERD 를 고쳐서 AI 변경만 되돌릴 수 없다');
+  aiSteps.pop();
+  history.push(model.value);
+  setModel(step.before);
+  setPins(step.beforePinned);
+  if (!aiSteps.length) aiBase.value = null;
+  return `마지막 erd_apply 를 되돌렸다. 남은 확정 대기 변경: ${aiSteps.length}번`;
+}
+
+/** 사람의 「확정」: 강조만 푼다 (저장은 「저장」 버튼으로) */
+function aiConfirm() {
+  aiBase.value = null;
+  aiSteps.length = 0;
+  version.value++;
+  message.value = 'AI 변경을 확정함 (저장 전)';
+}
+/** 사람의 「취소」: AI 가 고치기 전 모습으로 */
+function aiCancel() {
+  const base = aiBase.value;
+  if (!base || !model.value) return;
+  history.push(model.value);
+  setModel(base.model);
+  setPins(base.pinned);
+  aiBase.value = null;
+  aiSteps.length = 0;
+  message.value = 'AI 변경을 취소함';
+}
+
+async function aiExport(args: { kind?: string; conn?: string; description?: string }): Promise<string> {
+  const m = needModel();
+  if (aiBase.value) throw new Error('확정 대기 중인 AI 변경이 있다. 사람이 확정하거나 취소한 뒤 내보낸다');
+  const s = await window.erd.settings.get();
+  if (args.kind === 'md') {
+    const dir = s.exportDirs?.md;
+    if (!dir) throw new Error('MD 폴더가 정해지지 않았다. 사람이 내보내기 탭에서 한 번 폴더를 골라야 한다');
+    const r = await window.erd.export.write(dir, buildSchemaDocs(m, new Date()));
+    return `만든 파일 ${r.written.length}개\n${r.written.join('\n')}`;
+  }
+  const opts = await loadConnOptions();
+  const o = opts.find(x => x.profile === args.conn || x.label.startsWith(`${args.conn} (`));
+  if (!o) throw new Error(`접속 ${args.conn ?? ''} 이 없다. 쓸 수 있는 접속: ${opts.map(x => x.profile ?? x.label).join(', ')}`);
+  const dir = s.exportDirs?.flyway ?? (s.beDir ? `${s.beDir}/src/main/resource/db/migration` : '');
+  if (!dir) throw new Error('Flyway 폴더가 정해지지 않았다. 사람이 DB 비교 탭에서 한 번 만들어야 한다');
+  const from = (await window.erd.db.read(o.ref)).model;
+  const description = args.description || suggestDescription(diffModels(from, m));
+  const f = buildFlyway({ from, to: m, version: await window.erd.export.nextVersion(dir), description, fromLabel: o.label, toLabel: '지금 ERD', now: new Date() });
+  const r = await window.erd.export.write(dir, [{ name: f.fileName, content: f.sql }]);
+  return `만듦: ${r.written[0]} (문장 ${f.statements}개, 위험 ${f.dangers}개). DB 에는 실행하지 않았다`;
+}
+
+const cleanError = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+let aiQueue: Promise<unknown> = Promise.resolve();
+// 도구 호출은 하나씩 처리한다 (AI 가 한꺼번에 불러도 모델이 섞이지 않게)
+window.erd.mcp.onCall((id, tool, args) => {
+  aiQueue = aiQueue.then(async () => {
+    try {
+      let text: string;
+      if (tool === 'erd_overview') text = overview(needModel());
+      else if (tool === 'erd_tables') text = tablesText(needModel(), (args.names as string[]) ?? []);
+      else if (tool === 'erd_view_state') { needModel(); text = viewStateText(model.value!, diagram.value!, canvas.value!.boxes(), canvas.value!.zoom(), DEFAULT_DIAGRAM); }
+      else if (tool === 'erd_apply') text = await aiApply((args.commands as string[]) ?? []);
+      else if (tool === 'erd_undo') text = aiUndo();
+      else if (tool === 'erd_export') text = await aiExport(args);
+      else throw new Error(`모르는 도구: ${tool}`);
+      window.erd.mcp.reply(id, { text });
+    } catch (e) { window.erd.mcp.reply(id, { error: cleanError(e) }); }
+  });
+});
+
 async function setModelDir(dir: string) {
   modelDir.value = dir;
   await window.erd.settings.set({ modelDir: dir });
@@ -162,6 +313,8 @@ function applyReverse(r: ReverseResult) {
 
 async function save() {
   if (!model.value || !modelDir.value) return;
+  // 사람이 확정해야 모델 파일에 저장된다 (설계 10-4)
+  if (aiBase.value) { message.value = '확정 대기 중인 AI 변경을 확정하거나 취소한 뒤 저장한다'; return; }
   const r = await window.erd.model.save(modelDir.value, model.value, layout.value);
   dirty.value = false;
   message.value = `저장: 바뀐 파일 ${r.written.length}개, 그대로 ${r.unchanged.length}개, 지운 파일 ${r.removed.length}개`;
@@ -566,7 +719,79 @@ async function step7Scenario(beDir: string, dir: string, exportDir: string) {
   return JSON.parse(JSON.stringify(out));
 }
 
-window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir }) => {
+/**
+ * STEP 8 시험 (완료 기준): 내장 터미널에서 실제 Claude Code 에 「mst_biz_wh 에 sort_no 컬럼 추가하고 mst_biz_center 옆에 둬」 라고 하면
+ * ERD 에 강조된 변경이 나타나고 다른 테이블 위치는 바뀌지 않는다. 모델 파일은 저장하지 않는다(메인이 캡처 뒤 취소한다).
+ * prompt 를 주면 그 문장으로, measure 면 토큰 측정용 짧은 요청 두 개(도구 부름, 안 부름)를 json 출력으로 돌린다.
+ */
+async function step8Scenario(beDir: string, dir: string, exportDir: string, measure: boolean) {
+  await panel.value!.setSource('be');
+  await panel.value!.setBeDir(beDir);
+  await openModel(dir);
+  activeTab.value = 'erd';
+  await nextTick(); await frames(10); await sleep(800);
+  const out: Record<string, unknown> = {};
+  const before = canvas.value!.boxes();
+  const info = await window.erd.mcp.info();
+  out.mcp = info ? { url: info.url } : null;
+  if (!info) return out;
+
+  const tid = await addTerm('powershell');
+  await nextTick(); await sleep(3000);
+  const term = terminals.value!.get(tid)!;
+  /** 터미널에 명령을 치고 끝 표시가 나올 때까지 기다린다. 입력 줄에는 끝 표시 글자가 그대로 나오지 않게 둘로 나눠 친다 */
+  const run = async (cmd: string, limitMs: number) => {
+    const mark = `ERD_DONE_${Math.random().toString(36).slice(2, 8)}`;
+    term.write(`${cmd}; echo ("${mark.slice(0, 5)}" + "${mark.slice(5)}")\r`);
+    const t0 = Date.now();
+    while (Date.now() - t0 < limitMs) {
+      await sleep(1000);
+      if (term.bufferText().split('\n').some(l => l.trim() === mark)) return Math.round((Date.now() - t0) / 1000);
+    }
+    return -1;
+  };
+  const claude = (prompt: string, extra = '') =>
+    `claude -p "${prompt}" --mcp-config "${info.claudeConfig}" --strict-mcp-config --allowedTools "mcp__erd__*" ${extra}`;
+
+  // 토큰 측정: erd_overview 를 부를 때와 안 부를 때 입력 토큰 차이 (대략값)
+  if (measure) {
+    const a = `${exportDir}/with-overview.json`.replace(/\\/g, '/'), b = `${exportDir}/without.json`.replace(/\\/g, '/');
+    out.measure = {
+      withOverview: await run(claude('erd_overview 도구를 한 번 부르고, 그 결과의 줄 수만 숫자로 답해', `--output-format json | Out-File -Encoding utf8 "${a}"`), 180_000),
+      without: await run(claude('도구를 부르지 말고 0 이라고만 답해', `--output-format json | Out-File -Encoding utf8 "${b}"`), 180_000),
+      overviewChars: overview(model.value!).length,
+    };
+    return JSON.parse(JSON.stringify(out)); // 측정만 한다 (완료 기준 문장은 다시 돌리지 않는다)
+  }
+
+  const prompt = 'mst_biz_wh 에 sort_no 컬럼 추가하고 mst_biz_center 옆에 둬';
+  out.claudeSeconds = await run(claude(prompt), 300_000);
+  await nextTick(); await frames(10); await sleep(1000);
+  const m = model.value!;
+  const wh = m.tables.find(t => t.name === 'mst_biz_wh')!;
+  const center = m.tables.find(t => t.name === 'mst_biz_center')!;
+  const after = canvas.value!.boxes();
+  const moved = [...before].filter(([id, b]) => id !== wh.id && (after.get(id)?.x !== b.x || after.get(id)?.y !== b.y)).map(([id]) => nameOf(id));
+  const c = after.get(center.id)!, w = after.get(wh.id)!;
+  out.result = {
+    sortNo: wh.columns.find(x => x.name === 'sort_no') ?? null,
+    pinned: diagram.value!.pinned[wh.id] ?? null,
+    whBox: w, centerBox: c,
+    besideCenter: w.x >= c.x + c.w && w.x - (c.x + c.w) < 400 && Math.abs(w.y - c.y) < 600,
+    otherTablesMoved: moved.length, movedNames: moved.slice(0, 10), totalTables: before.size,
+    highlighted: [...aiChanged.value].map(nameOf), highlightDom: document.querySelectorAll('.vue-flow__node-table .tbl.ai').length,
+    banner: document.querySelector('.ai-bar')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+    saveDisabled: (document.querySelector('header button:nth-of-type(2)') as HTMLButtonElement | null)?.disabled ?? null,
+  };
+  out.terminalTail = term.bufferText().split('\n').map(l => l.trimEnd()).filter(Boolean).slice(-12);
+  await canvas.value!.focusTable('mst_biz_wh');
+  return JSON.parse(JSON.stringify(out));
+}
+/** STEP 8 시험 끝: 확정 대기를 취소해 원래 모델로 (저장하지 않음) */
+window.__erdAiCancel = () => { aiCancel(); return { pending: !!aiBase.value, tables: model.value?.tables.length, sortNo: !!model.value?.tables.find(t => t.name === 'mst_biz_wh')?.columns.some(c => c.name === 'sort_no') }; };
+
+window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure }) => {
+  if (scenario === 'step8') return step8Scenario(beDir, dir, exportDir!, !!measure);
   if (scenario === 'step7') return step7Scenario(beDir, dir, exportDir!);
   if (scenario === 'step6') return step6Scenario(beDir, dir);
   if (scenario === 'step5') return step5Scenario(beDir, dir);
@@ -607,7 +832,7 @@ window.__erdBench = async () => {
   <div class="app">
     <header>
       <button @click="openModel()">모델 폴더 열기</button>
-      <button :disabled="!model" @click="save">저장{{ dirty ? ' *' : '' }}</button>
+      <button :disabled="!model || !!aiBase" :title="aiBase ? 'AI 변경을 확정하거나 취소한 뒤 저장한다' : ''" @click="save">저장{{ dirty ? ' *' : '' }}</button>
       <button :disabled="!model" title="새 테이블을 만들고 편집 패널을 연다" @click="newTable">테이블 추가</button>
       <button :disabled="!canUndo" title="Ctrl+Z" @click="undo">되돌리기</button>
       <button :disabled="!canRedo" title="Ctrl+Y" @click="redo">다시 하기</button>
@@ -662,10 +887,15 @@ window.__erdBench = async () => {
                   <button class="add" title="Ctrl+`" @click="toggleTerm">{{ termVisible ? '터미널 숨기기 ▾' : '터미널 ▴' }}</button>
                 </nav>
                 <div v-show="activeTab === 'erd'" class="pane canvas">
+                  <div v-if="aiBase" class="ai-bar">
+                    AI 변경 <b>{{ aiChanged.size }}</b>개 테이블 확정 대기 (주황 테두리)
+                    <button @click="aiConfirm">확정</button>
+                    <button @click="aiCancel">취소</button>
+                  </div>
                   <!-- 테이블을 더블클릭하면 오른쪽에 미니 ERD 가 열린다 (그 테이블과 FK 로 바로 이어진 테이블만) -->
                   <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName">
                     <template #first>
-                      <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" :fit-key="fitKey"
+                      <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
                                  @pin="onPin" @select="n => (selected = n)" @open="n => { editId = ''; miniName = n; }" />
                       <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
                     </template>
@@ -757,6 +987,8 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .dialog { background: var(--bg); border: 1px solid var(--line); padding: 16px; max-width: 480px; }
 .dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
 .mini { height: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); }
+.ai-bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; gap: 8px; align-items: center;
+  background: var(--bg); border: 2px solid #f08c00; padding: 4px 10px; font-size: 12px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2); }
 .mini header { border-bottom: 1px solid var(--line); font-size: 12px; }
 .mini .muted { color: var(--muted); }
 .mini-body { flex: 1; min-height: 0; position: relative; }

@@ -54,6 +54,11 @@ const api: ErdApi = {
   },
   onCloseRequest: cb => { ipcRenderer.on(IPC.closeRequest, (_e, dirty) => cb(dirty)); },
   confirmClose: ok => ipcRenderer.send(IPC.closeConfirm, ok),
+  mcp: {
+    info: () => ipcRenderer.invoke(IPC.mcpInfo),
+    onCall: cb => { ipcRenderer.on(IPC.mcpCall, (_e, id, tool, args) => cb(id, tool, args)); },
+    reply: (id, r) => ipcRenderer.send(IPC.mcpReply, id, r),
+  },
 };
 
 contextBridge.exposeInMainWorld('erd', api);

@@ -39,6 +39,9 @@ export const IPC = {
   pickFile: 'dialog:pickFile',
   exportNextVersion: 'export:nextVersion',
   exportWrite: 'export:write',
+  mcpInfo: 'mcp:info',
+  mcpCall: 'mcp:call',
+  mcpReply: 'mcp:reply',
 } as const;
 
 /** 접속 정보를 어디서 가져올지: BE 폴더 properties 자동 매핑, 또는 직접 입력 */
@@ -57,6 +60,11 @@ export interface ExportFile { name: string; content: string }
 /** 99-migration-history.md 「변경 이력」 표에 덧붙일 한 줄 */
 export interface HistoryAppend { file: string; line: string }
 export interface ExportResult { written: string[]; history?: string }
+
+/** AI 연결 정보 (STEP 8). 토큰은 화면에 주지 않는다(터미널 환경변수와 Claude 연결 파일에만 있다) */
+export interface McpInfo { url: string; claudeConfig: string }
+/** 화면이 MCP 도구 호출에 주는 답: AI 에게 줄 글 또는 오류 */
+export interface McpReply { text?: string; error?: string }
 
 /** 어느 접속인지 가리키는 값 */
 export type ConnRef = { source: 'be'; beDir: string; name: string } | { source: 'manual'; id: string };
@@ -231,4 +239,11 @@ export interface ErdApi {
   /** 창을 닫을 때 커밋 안 한 탭이 있으면 메인이 묻는다. 화면은 확인 결과를 돌려준다 */
   onCloseRequest(cb: (dirty: { tabId: string; label: string }[]) => void): void;
   confirmClose(ok: boolean): void;
+  /** AI(MCP) 연결. ERD 도구 호출은 화면이 처리해 답한다 */
+  mcp: {
+    /** 서버를 못 띄웠으면 null */
+    info(): Promise<McpInfo | null>;
+    onCall(cb: (id: number, tool: string, args: Record<string, unknown>) => void): void;
+    reply(id: number, r: McpReply): void;
+  };
 }

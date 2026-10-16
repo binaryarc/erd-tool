@@ -1,5 +1,7 @@
 <script setup lang="ts">
 // 아래 터미널 영역 (VS Code 터미널처럼): 터미널 탭 여러 개, + PowerShell, + Git Bash, 닫기, 영역 숨기기.
+// 「AI 연결」(STEP 8): 지금 터미널에 Claude Code 나 Codex 를 이 앱의 MCP 서버에 붙여 실행하는 명령을 넣는다.
+// 그 자리 연결만 한다(사용자 결정 2026-10-16). Claude, Codex 설정 파일은 바꾸지 않는다.
 import { nextTick, ref } from 'vue';
 import TerminalTab from './TerminalTab.vue';
 import type { ShellKind } from '../../../shared/ipc';
@@ -33,7 +35,27 @@ function onStarted(id: string, label: string) {
   if (t) t.title = label;
 }
 
-defineExpose({ add, close, terms, get: (id: string) => refs.get(id), activate: (id: string) => (active.value = id) });
+const aiError = ref('');
+
+/** AI 를 붙여 실행하는 명령. Codex 의 -c 값은 TOML 로 읽히지 않으면 글자 그대로 쓰여 따옴표 없이 준다(셸마다 따옴표 처리가 달라서) */
+async function aiCommand(kind: 'claude' | 'codex'): Promise<string> {
+  const info = await window.erd.mcp.info();
+  if (!info) throw new Error('AI 연결 서버가 떠 있지 않다 (앱을 다시 켜 보세요)');
+  return kind === 'claude'
+    ? `claude --mcp-config "${info.claudeConfig}"`
+    : `codex -c mcp_servers.erd.url=${info.url} -c mcp_servers.erd.bearer_token_env_var=ERD_MCP_TOKEN`;
+}
+
+async function connectAi(kind: 'claude' | 'codex') {
+  aiError.value = '';
+  try {
+    const cmd = await aiCommand(kind);
+    if (!active.value) { await add('powershell'); await new Promise(r => setTimeout(r, 1500)); } // 셸이 뜰 때까지
+    refs.get(active.value)?.write(cmd + '\r');
+  } catch (e) { aiError.value = (e as Error).message; }
+}
+
+defineExpose({ add, close, terms, aiCommand, get: (id: string) => refs.get(id), activate: (id: string) => (active.value = id) });
 </script>
 
 <template>
@@ -45,6 +67,13 @@ defineExpose({ add, close, terms, get: (id: string) => refs.get(id), activate: (
       </button>
       <button class="add" @click="add('powershell')">+ PowerShell</button>
       <button class="add" @click="add('bash')">+ Git Bash</button>
+      <select class="add" title="지금 터미널에서 AI 를 이 ERD 에 붙여 실행한다 (그 자리 연결, 설정 파일은 바꾸지 않음)"
+              @change="e => { const s = e.target as HTMLSelectElement; if (s.value) void connectAi(s.value as 'claude' | 'codex'); s.value = ''; }">
+        <option value="">AI 연결 ▾</option>
+        <option value="claude">Claude Code</option>
+        <option value="codex">Codex</option>
+      </select>
+      <span v-if="aiError" class="err">{{ aiError }}</span>
       <span class="spacer" />
       <button class="add" title="터미널 영역 숨기기 (Ctrl+`)" @click="emit('hide')">숨기기 ▾</button>
     </nav>
@@ -67,6 +96,7 @@ defineExpose({ add, close, terms, get: (id: string) => refs.get(id), activate: (
 .add { border-style: dashed; background: transparent; }
 .x { margin-left: 6px; color: var(--muted); }
 .spacer { flex: 1; }
+.err { color: var(--warn); font-size: 12px; margin-left: 6px; }
 .body { flex: 1; min-height: 0; position: relative; }
 .term { position: absolute; inset: 0; }
 .empty { color: #9da5b4; padding: 12px; margin: 0; font-size: 12px; }
