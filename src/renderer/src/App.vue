@@ -16,7 +16,7 @@ import { buildJoinSelect } from '../../shared/sql/join';
 import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
 import { arrangeMode, emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
 import type { ModelError, SchemaModel } from '../../shared/model/types';
-import type { ReverseResult, ShellKind } from '../../shared/ipc';
+import type { ConnRef, ManualConn, ReverseResult, ShellKind } from '../../shared/ipc';
 import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
 import { neighborhood } from '../../shared/model/tree';
 import { applyCommands } from '../../shared/ai/commands';
@@ -911,7 +911,46 @@ async function passwordScenario(beDir: string) {
   return JSON.parse(JSON.stringify(out));
 }
 
-window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure }) => {
+/** STEP 9: 다른 DBMS 를 직접 입력 접속으로 붙여 접속 시험 → 리버스 → 저장 → 캔버스 → SQL 탭 조회. 접속은 끝에 지운다 */
+async function dbmsScenario(baseDir: string, list: { name: string; conn: ManualConn; password: string; sql: string }[]) {
+  const out: Record<string, unknown> = {};
+  for (const d of list) {
+    const saved = await window.erd.manual.save({ ...d.conn, id: '', name: d.name, savePassword: false }, d.password);
+    const ref: ConnRef = { source: 'manual', id: saved.id };
+    try {
+      const test = await window.erd.conn.test(ref);
+      const dir = `${baseDir}/${d.conn.driver}`;
+      await setModelDir(dir);
+      const r = await window.erd.db.reverse(ref, dir);
+      applyReverse(r);
+      await saveTo(dir);
+      await openModel(dir);
+      await nextTick(); await frames(10); await sleep(800);
+      const id = addSql();
+      await nextTick(); await frames(5);
+      const tab = tabRefs.get(id) as InstanceType<typeof SqlTab>;
+      await tab.loadOptions();
+      await tab.connect('manual:' + saved.id);
+      tab.editor()!.setValue(d.sql);
+      await tab.run();
+      await frames(5); await sleep(300);
+      out[d.conn.driver] = {
+        test: { ok: test.ok, tables: test.tables, fks: test.fks, server: test.server },
+        reverse: { tables: r.model.tables.length, fks: r.model.tables.reduce((n, t) => n + t.fks.length, 0), counts: r.counts, dialect: r.model.dialect, schema: r.model.schema, warnings: r.warnings.length },
+        loaded: { tables: model.value?.tables.length, dialect: model.value?.dialect, nodes: document.querySelectorAll('.vue-flow__node').length },
+        sql: { grid: tab.grid(), state: tab.state() },
+      };
+    } catch (e) {
+      out[d.conn.driver] = { error: (e as Error).message };
+    } finally {
+      await window.erd.manual.remove(saved.id);
+    }
+  }
+  return JSON.parse(JSON.stringify(out));
+}
+
+window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure, dbms }) => {
+  if (scenario === 'dbms') return dbmsScenario(dir, JSON.parse(dbms ?? '[]'));
   if (scenario === 'password') return passwordScenario(beDir);
   if (scenario === 'suggest') return suggestScenario(beDir);
   if (scenario === 'mcp') { // 시험용: 모델을 열고 기다린다. 그동안 밖에서 MCP 도구를 직접 부른다 (mcp-erd.json 의 주소와 토큰)
