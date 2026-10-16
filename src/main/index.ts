@@ -142,14 +142,16 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.on(IPC.termResize, (_e, id: string, c: number, r: number) => resizeTerm(id, c, r));
   ipcMain.on(IPC.termKill, (_e, id: string) => killTerm(id));
 
-  // 창 닫기: 커밋 안 한 탭이 있으면 화면에 묻는다 (설계 5장 6번)
+  // 창 닫기: 커밋 안 한 탭이나 저장 안 한 ERD 변경이 있으면 화면에 묻는다 (설계 5장 6번)
   let closing = false;
+  let modelDirty = false;
+  ipcMain.on(IPC.modelDirty, (_e, d: boolean) => { modelDirty = d; });
   win.on('close', e => {
     if (closing) return;
     const dirty = dirtyTabs();
-    if (!dirty.length) return;
+    if (!dirty.length && !modelDirty) return;
     e.preventDefault();
-    win.webContents.send(IPC.closeRequest, dirty);
+    win.webContents.send(IPC.closeRequest, dirty, modelDirty);
   });
   ipcMain.on(IPC.closeConfirm, (_e, ok: boolean) => {
     if (!ok) return;

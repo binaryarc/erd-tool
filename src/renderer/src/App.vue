@@ -29,7 +29,8 @@ import { loadConnOptions } from './conn-options';
 
 const view = reactive<ViewState>({
   nameMode: loadPref('nameMode', 'both', ['physical', 'logical', 'both'] as const),
-  edgeKind: loadPref('edgeKind', 'smoothstep', ['smoothstep', 'straight', 'default'] as const),
+  // 선 모양 기본값은 직선 (사용자 지정 2026-10-16). 이 PC 에서 고른 적이 있으면 그것을 쓴다
+  edgeKind: loadPref('edgeKind', 'straight', ['smoothstep', 'straight', 'default'] as const),
   compactOnZoomOut: false, compact: false,
 });
 watch(() => view.nameMode, v => savePref('nameMode', v));
@@ -313,9 +314,18 @@ async function onBeDir(be: string) {
   if (!modelDir.value) await setModelDir(`${be}/docs/erd/model`);
 }
 
+/** 저장 안 한 ERD 변경(확정 대기 중인 AI 변경 포함)이 있으면 버려도 되는지 묻는다. 없으면 바로 true */
+function discardOk(what: string): boolean {
+  if (!dirty.value && !aiBase.value) return true;
+  return confirm(`저장하지 않은 ERD 변경이 있다${aiBase.value ? ' (확정 대기 중인 AI 변경 포함)' : ''}.\n${what} 이 변경은 사라진다. 계속할까요?`);
+}
+// 창 닫기 확인은 메인이 하므로 상태를 알려 둔다
+watch([dirty, aiBase], () => window.erd.setModelDirty(dirty.value || !!aiBase.value), { immediate: true });
+
 async function openModel(dir?: string) {
   const d = dir ?? await window.erd.pickFolder(modelDir.value || undefined);
   if (!d) return;
+  if (!discardOk('다른 ERD 를 열면')) return;
   await setModelDir(d);
   const r = await window.erd.model.load(d);
   errors.value = r.errors;
@@ -472,7 +482,9 @@ async function closeTab(t: Tab) {
   if (activeTab.value === t.id) activeTab.value = tabs.value[tabs.value.length - 1].id;
 }
 
-window.erd.onCloseRequest(async dirty => {
+window.erd.onCloseRequest(async (dirty, modelDirty) => {
+  if (modelDirty && !discardOk('창을 닫으면')) { window.erd.confirmClose(false); return; }
+  if (!dirty.length) { window.erd.confirmClose(true); return; }
   const a = await ask(dirty.map(d => tabs.value.find(t => t.id === d.tabId)?.title ?? d.label));
   if (a !== 'cancel') for (const d of dirty) await window.erd.sql[a](d.tabId);
   window.erd.confirmClose(a !== 'cancel');
@@ -978,7 +990,7 @@ window.__erdBench = async () => {
       <!-- 왼쪽 접속 패널 | 오른쪽(위: ERD, SQL 탭 / 아래: 터미널). 경계선을 끌어 크기를 바꾼다 -->
       <SplitPane dir="row" fixed="first" :initial="300" :min="200" :max="700" storage-key="left">
         <template #first>
-          <ConnPanel ref="panel" :model-dir="modelDir" @apply="applyReverse" @be-dir="onBeDir" />
+          <ConnPanel ref="panel" :model-dir="modelDir" :can-replace="() => discardOk('DB 에서 불러온 것으로 바꾸면')" @apply="applyReverse" @be-dir="onBeDir" />
         </template>
         <template #second>
           <SplitPane dir="col" fixed="second" :initial="280" :min="100" storage-key="terminal" :hide-fixed="!termVisible">
@@ -1103,8 +1115,13 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .tabs { display: flex; gap: 2px; align-items: flex-end; padding: 4px 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .tabs button { border: 1px solid var(--line); border-bottom: none; background: var(--panel-bg); color: var(--fg); padding: 4px 10px; cursor: pointer; }
 .tabs button.on { background: var(--bg); font-weight: bold; border-color: var(--accent); }
-.tabs .add { background: transparent; border-style: dashed; }
+.tabs .add { background: transparent; border-style: dashed; border-bottom-style: none; } /* border-style 이 아래 테두리를 굵은 점선으로 되살리지 않게 */
 .tabs .x { margin-left: 6px; color: var(--muted); }
+/* 위 영역 탭줄: 탭과 탭 여는 버튼을 모두 같은 크기 사각형으로 (사용자 요청 2026-10-16). 왼쪽 접속 패널의 .tabs 는 건드리지 않는다 */
+/* 모양은 그대로 아래 화면에 붙은 탭(아래 테두리 없음)이고, 고른 탭은 탭줄 아래 선을 덮어 화면과 이어진다 */
+.workarea > .tabs button { box-sizing: border-box; flex: none; width: 112px; height: 24px; padding: 0 4px; font-size: 12px; /* 가장 긴 「SELECT 만들기 (1)」 이 잘리지 않는 폭 */
+  display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; }
+.workarea > .tabs button.on { margin-bottom: -1px; height: 25px; }
 .pane { flex: 1; min-height: 0; position: relative; }
 .canvas { position: relative; }
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }

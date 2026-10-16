@@ -37,6 +37,7 @@ export const IPC = {
   termExit: 'term:exit',
   closeRequest: 'app:closeRequest',
   closeConfirm: 'app:closeConfirm',
+  modelDirty: 'app:modelDirty',
   pickFile: 'dialog:pickFile',
   exportNextVersion: 'export:nextVersion',
   exportWrite: 'export:write',
@@ -257,9 +258,11 @@ export interface ErdApi {
     onData(cb: (termId: string, data: string) => void): void;
     onExit(cb: (termId: string, code: number) => void): void;
   };
-  /** 창을 닫을 때 커밋 안 한 탭이 있으면 메인이 묻는다. 화면은 확인 결과를 돌려준다 */
-  onCloseRequest(cb: (dirty: { tabId: string; label: string }[]) => void): void;
+  /** 창을 닫을 때 커밋 안 한 탭이나 저장 안 한 ERD 변경이 있으면 메인이 묻는다. 화면은 확인 결과를 돌려준다 */
+  onCloseRequest(cb: (dirty: { tabId: string; label: string }[], modelDirty: boolean) => void): void;
   confirmClose(ok: boolean): void;
+  /** 저장 안 한 ERD 변경(확정 대기 중인 AI 변경 포함)이 있는지 메인에 알린다. 창 닫기 확인에 쓴다 */
+  setModelDirty(dirty: boolean): void;
   /** AI(MCP) 연결. ERD 도구 호출은 화면이 처리해 답한다 */
   mcp: {
     /** 서버를 못 띄웠으면 null */

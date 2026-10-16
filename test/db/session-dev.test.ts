@@ -61,6 +61,24 @@ describe.skipIf(!!skip)('dev DB SQL 세션', () => {
     await closeSession('c');
   }, 30_000);
 
+  it('더 받다가 오류가 나도 탭이 멈추지 않고, 앞 변경과 트랜잭션은 남는다', async () => {
+    await openSession('e', dev, 'dev');
+    await runSql('e', `update ${TABLE} set val = 'kept' where id = 1`);
+    // 1,500번째 행에서 0 으로 나누기: 처음 1,000행은 받고, 더 받을 때 오류가 난다
+    const first = await runSql('e', 'select 1 / (g - 1500) v from generate_series(1, 2000) g');
+    expect([first.rows.length, first.state.more]).toEqual([1000, true]);
+    const more = await fetchMore('e');
+    expect(more.error?.code).toBe('22012'); // division_by_zero
+    expect(more.state.more).toBe(false);
+    // 다음 실행이 끝난다 (전에는 여기서 멈췄다) 그리고 앞 UPDATE 가 살아 있다
+    const next = await runSql('e', `select val from ${TABLE}`);
+    expect(next.error).toBeUndefined();
+    expect(next.rows[0][0]).toBe('kept');
+    expect(next.state.dirty).toBe(true);
+    await rollbackTx('e');
+    await closeSession('e');
+  }, 30_000);
+
   it('읽기 전용 접속에서 UPDATE 는 막히고, 쓰기 허용 후에는 된다 (완료 기준 1)', async () => {
     const st = await openSession('d', dev, 'dev 읽기 전용', readOnlyDev);
     expect(st.readOnly).toBe(true);
