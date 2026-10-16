@@ -74,16 +74,24 @@ class Session {
       };
     } catch (e) {
       await this.client.query('ROLLBACK TO SAVEPOINT erd_stmt').catch(() => {});
-      const err = e as Error & { position?: string; code?: string };
-      return { command: '', columns: [], rows: [], rowCount: null, ms: Date.now() - t0, state: this.state(),
-        error: { message: err.message, code: err.code, position: err.position ? Number(err.position) : undefined } };
+      return this.fail(e, t0);
     }
   }
 
   async fetchMore(): Promise<SqlResult> {
     const t0 = Date.now();
     if (!this.cursor) return this.done('', null, t0);
-    const { rows } = await read(this.cursor, FETCH_SIZE);
+    let rows: unknown[][];
+    try {
+      ({ rows } = await read(this.cursor, FETCH_SIZE));
+    } catch (e) {
+      // 더 받다가 오류가 나면(예: 1,001번째 행에서 0 으로 나누기) 커서는 닫지 않고 버린다.
+      // pg-cursor 는 오류 때 이미 동기화를 마쳐, close() 가 다시 오지 않을 응답을 기다리며 끝나지 않는다(다음 실행이 멈췄다, 2026-10-16 화면 재현).
+      // 이 커서를 연 문장의 savepoint 로 되돌려 트랜잭션과 앞 변경을 살린다
+      this.cursor = null;
+      await this.client.query('ROLLBACK TO SAVEPOINT erd_stmt').catch(() => {});
+      return this.fail(e, t0);
+    }
     const more = rows.length === FETCH_SIZE;
     if (!more) await this.closeCursor();
     return { command: 'FETCH', columns: this.columns, rows, rowCount: rows.length, ms: Date.now() - t0, state: this.state(more) };
@@ -122,6 +130,12 @@ class Session {
 
   private done(command: string, rowCount: number | null, t0: number): SqlResult {
     return { command, columns: [], rows: [], rowCount, ms: Date.now() - t0, state: this.state() };
+  }
+
+  private fail(e: unknown, t0: number): SqlResult {
+    const err = e as Error & { position?: string; code?: string };
+    return { command: '', columns: [], rows: [], rowCount: null, ms: Date.now() - t0, state: this.state(),
+      error: { message: err.message, code: err.code, position: err.position ? Number(err.position) : undefined } };
   }
 }
 

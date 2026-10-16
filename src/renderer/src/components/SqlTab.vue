@@ -168,11 +168,14 @@ async function more() {
   busy.value = true;
   try {
     const r = await window.erd.sql.fetchMore(props.tabId);
+    // 더 받다가 난 오류: 받아 둔 행은 그대로 두고 오류만 알린다 (그 문장은 savepoint 로 취소됨)
+    if (r.error) { show(r); message.value = `더 받기 실패, 이 문장은 취소함 (앞 변경과 트랜잭션은 그대로): ${message.value}`; return; }
     grid.value?.applyTransaction({ add: r.rows });
     fetched.value += r.rows.length;
     state.value = r.state; emit('state', r.state);
     message.value = `${fetched.value}행${r.state.more ? ' (더 있음)' : ''}`;
-  } finally { busy.value = false; }
+  } catch (e) { message.value = clean(e); }
+  finally { busy.value = false; }
 }
 
 async function tx(kind: 'commit' | 'rollback') {

@@ -5,7 +5,8 @@ import type { ConnRef, ConnSource, ConnTestResult, ManualConnInfo, ProfileInfo, 
 import { applySelected, isEmptyDiff } from '../../../shared/model/merge';
 import ManualConnForm from './ManualConnForm.vue';
 
-const props = defineProps<{ modelDir: string }>();
+/** canReplace: 지금 ERD 를 바꿔도 되는지 (저장 안 한 변경이 있으면 화면이 묻는다). false 면 불러온 결과를 그대로 둔다 */
+const props = defineProps<{ modelDir: string; canReplace?: () => boolean }>();
 const emit = defineEmits<{ apply: [r: ReverseResult]; beDir: [dir: string] }>();
 
 const source = ref<ConnSource>('be');
@@ -104,6 +105,7 @@ const pickAll = (on: boolean) => { picked.value = new Set(on ? changedNames.valu
 function apply() {
   const r = pending.value;
   if (!r) return;
+  if (props.canReplace && !props.canReplace()) return;
   const model = r.hadModel ? applySelected(r.prev, r.model, picked.value, takeRoutines.value) : r.model;
   emit('apply', { ...r, model });
   pending.value = null;

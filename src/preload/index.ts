@@ -54,8 +54,9 @@ const api: ErdApi = {
     onData: cb => { ipcRenderer.on(IPC.termData, (_e, id, d) => cb(id, d)); },
     onExit: cb => { ipcRenderer.on(IPC.termExit, (_e, id, c) => cb(id, c)); },
   },
-  onCloseRequest: cb => { ipcRenderer.on(IPC.closeRequest, (_e, dirty) => cb(dirty)); },
+  onCloseRequest: cb => { ipcRenderer.on(IPC.closeRequest, (_e, dirty, modelDirty) => cb(dirty, modelDirty)); },
   confirmClose: ok => ipcRenderer.send(IPC.closeConfirm, ok),
+  setModelDirty: dirty => ipcRenderer.send(IPC.modelDirty, dirty),
   password: {
     onAsk: cb => { ipcRenderer.on(IPC.pwAsk, (_e, id, req) => cb(id, req)); },
     reply: (id, answer) => ipcRenderer.send(IPC.pwReply, id, answer),
