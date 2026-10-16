@@ -1,12 +1,13 @@
 // 모델 폴더 읽기, 쓰기 (메인 프로세스 전용)
 
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { FUNCTIONS_DIR, INDEX_FILE, parseModel, serializeModel } from '../shared/model/erd-format';
 import { emptyLayout, LAYOUT_FILE, parseLayout, serializeLayout, type Layout } from '../shared/model/layout';
 import { validateModel } from '../shared/model/validate';
 import type { SchemaModel } from '../shared/model/types';
-import type { LoadResult, SaveResult } from '../shared/ipc';
+import type { LoadResult, SavePlan, SaveResult } from '../shared/ipc';
 
 const listDir = (dir: string) => fs.readdir(dir).catch(() => [] as string[]);
 
@@ -32,24 +33,41 @@ export async function loadModel(dir: string): Promise<LoadResult> {
   return { model: parsed.model, layout, errors };
 }
 
+/**
+ * 저장하면 무엇이 바뀌는지만 본다 (쓰지 않는다). 「ERD 저장」 이 먼저 보여 주고 확인을 받는다 (2026-10-16 사용자 지정).
+ * added 는 새로 생길 파일, changed 는 내용이 바뀔 파일, removed 는 이 모델에 없어 지울 모델 파일(.erd, functions/*.sql)
+ */
+export async function planSave(dir: string, model: SchemaModel, layout: Layout): Promise<SavePlan & { out: Record<string, string> }> {
+  const out: Record<string, string> = { ...serializeModel(model), [LAYOUT_FILE]: serializeLayout(layout) };
+  const plan: SavePlan = { added: [], changed: [], unchanged: [], removed: [] };
+  for (const name of Object.keys(out).sort()) {
+    const old = await fs.readFile(path.join(dir, name), 'utf8').catch(() => null);
+    if (old === null) plan.added.push(name);
+    else if (old === out[name]) plan.unchanged.push(name);
+    else plan.changed.push(name);
+  }
+  for (const f of await modelFiles(dir)) if (f !== INDEX_FILE && !(f in out)) plan.removed.push(f);
+  return { ...plan, out };
+}
+
 /** 내용이 바뀐 파일만 쓰고, 테이블이나 함수가 없어진 파일은 지운다 */
 export async function saveModel(dir: string, model: SchemaModel, layout: Layout): Promise<SaveResult> {
   await fs.mkdir(dir, { recursive: true });
-  const out: Record<string, string> = { ...serializeModel(model), [LAYOUT_FILE]: serializeLayout(layout) };
-  const result: SaveResult = { written: [], unchanged: [], removed: [] };
-  for (const [name, text] of Object.entries(out).sort(([a], [b]) => (a < b ? -1 : 1))) {
+  const { out, added, changed, unchanged, removed } = await planSave(dir, model, layout);
+  const written = [...added, ...changed].sort();
+  for (const name of written) {
     const file = path.join(dir, name);
-    const old = await fs.readFile(file, 'utf8').catch(() => null);
-    if (old === text) { result.unchanged.push(name); continue; }
     await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, text, 'utf8');
-    result.written.push(name);
+    await fs.writeFile(file, out[name], 'utf8');
   }
-  for (const f of await modelFiles(dir)) {
-    if (f !== INDEX_FILE && !(f in out)) {
-      await fs.unlink(path.join(dir, f));
-      result.removed.push(f);
-    }
-  }
-  return result;
+  for (const f of removed) await fs.unlink(path.join(dir, f));
+  return { written, unchanged, removed };
+}
+
+/** 「ERD 폴더 열기」 에서 고른 파일의 모델 폴더: 그 파일의 폴더. functions/ 안 파일이면 그 위 폴더. hasModel 은 _index.erd 가 있는지 */
+export function modelDirOfFile(file: string): { dir: string; hasModel: boolean } {
+  const has = (d: string) => existsSync(path.join(d, INDEX_FILE));
+  let dir = path.dirname(file);
+  if (!has(dir) && has(path.dirname(dir))) dir = path.dirname(dir);
+  return { dir, hasModel: has(dir) };
 }

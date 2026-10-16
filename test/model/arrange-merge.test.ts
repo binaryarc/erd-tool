@@ -12,12 +12,25 @@ const table = (id: string, name: string, n = 1, extra: Partial<Table> = {}): Tab
 const model = (tables: Table[]): SchemaModel =>
   ({ version: 1, groups: SHOP_GROUPS, common: [], sequences: [], tables, functions: [] });
 
+/** 「그룹 격자」 정렬을 고른 배치 */
+const gridLayout = () => { const l = emptyLayout(); l.diagrams['전체'] = { mode: 'grid', pinned: {} }; return l; };
+
 describe('배치', () => {
+  it('트리 정렬(기본)에서는 접두어 그룹 격자 항목을 만들지 않고, 격자에서 트리로 바꾸면 지운다 (2026-10-16 사용자 지정)', () => {
+    const m = model([table('t1', 'mst_a'), table('t2', 'whs_a')]);
+    const l = emptyLayout();
+    expect(syncLayout(m, l)).toEqual({ pinned: {} });
+    l.diagrams['전체'].mode = 'grid';
+    expect(Object.keys(syncLayout(m, l).groups!).sort()).toEqual(['mdm', 'wms']);
+    l.diagrams['전체'].mode = 'tree';
+    expect(syncLayout(m, l).groups).toBeUndefined();
+  });
+
   it('그룹 규칙의 열 수와 간격으로 격자를 만들고, 줄 높이는 그 줄의 가장 높은 테이블', () => {
     const m = model([table('t1', 'mst_a', 3), table('t2', 'mst_b', 10), table('t3', 'mst_c', 1)]);
-    const l = emptyLayout();
+    const l = gridLayout();
     const d = syncLayout(m, l);
-    d.groups.mdm.rule.cols = 2;
+    d.groups!.mdm.rule.cols = 2;
     const { positions } = arrange(m, d);
     const top = positions.get('t1')!.y;
     expect(positions.get('t2')).toEqual({ x: NODE.width + 40, y: top });
@@ -26,35 +39,35 @@ describe('배치', () => {
 
   it('테이블 폭이 다르면 그룹 칸 폭은 가장 넓은 테이블에 맞추고, 넓어진 그룹이 겹치면 뒤 그룹을 민다', () => {
     const m = model([table('t1', 'whs_a'), table('t2', 'whs_b'), table('t3', 'mst_a')]);
-    const d = syncLayout(m, emptyLayout());
-    d.groups.wms.rule.cols = 2;
+    const d = syncLayout(m, gridLayout());
+    d.groups!.wms.rule.cols = 2;
     const wide = 500;
     const { positions, groups } = arrange(m, d, t => (t.name === 'whs_a' ? wide : NODE.width));
     expect(positions.get('t2')!.x).toBe(wide + 40); // 칸 폭 = 가장 넓은 테이블
     const [wms, mdm] = groups;
     expect(mdm.x).toBeGreaterThanOrEqual(wms.x + wms.width); // 겹치지 않음
-    expect(d.groups.mdm.rule.origin[0]).toBeLessThan(mdm.x); // 저장된 시작점은 그대로
+    expect(d.groups!.mdm.rule.origin[0]).toBeLessThan(mdm.x); // 저장된 시작점은 그대로
   });
 
   it('새 그룹은 앞 그룹 오른쪽에, 끌어 옮긴 테이블은 그 좌표에 놓는다', () => {
     const m = model([table('t1', 'mst_a'), table('t2', 'whs_a')]);
-    const d = syncLayout(m, emptyLayout());
+    const d = syncLayout(m, gridLayout());
     d.pinned.t2 = [5000, 700];
     const { positions, groups } = arrange(m, d);
-    expect(d.groups.wms.rule.origin[0]).toBe(0); // 그룹 규칙 순서(wms 먼저)
-    expect(d.groups.mdm.rule.origin[0]).toBeGreaterThan(4 * NODE.width);
+    expect(d.groups!.wms.rule.origin[0]).toBe(0); // 그룹 규칙 순서(wms 먼저)
+    expect(d.groups!.mdm.rule.origin[0]).toBeGreaterThan(4 * NODE.width);
     expect(positions.get('t2')).toEqual({ x: 5000, y: 700 });
     expect(groups.map(g => g.name).sort()).toEqual(['mdm', 'wms']);
   });
 
   it('모델이 바뀌면 없어진 ID 는 순서와 pinned 에서 빼고 새 테이블은 뒤에 붙인다', () => {
-    const l = emptyLayout();
+    const l = gridLayout();
     const d = syncLayout(model([table('t1', 'mst_b'), table('t2', 'mst_a')]), l);
-    expect(d.groups.mdm.order).toEqual(['t2', 't1']); // 이름순
-    d.groups.mdm.order = ['t1', 't2']; // 사람이 바꾼 순서
+    expect(d.groups!.mdm.order).toEqual(['t2', 't1']); // 이름순
+    d.groups!.mdm.order = ['t1', 't2']; // 사람이 바꾼 순서
     d.pinned.t2 = [1, 1];
     syncLayout(model([table('t1', 'mst_b'), table('t3', 'mst_0')]), l);
-    expect(d.groups.mdm.order).toEqual(['t1', 't3']);
+    expect(d.groups!.mdm.order).toEqual(['t1', 't3']);
     expect(d.pinned).toEqual({});
   });
 });

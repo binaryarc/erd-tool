@@ -2,7 +2,7 @@
 // 좌표는 저장하지 않는다. 사람이 끌어 옮긴 테이블만 pinned 에 좌표가 있다.
 
 import { groupOf } from './erd-format';
-import type { Diagram, Layout } from './layout';
+import { arrangeMode, type Diagram, type Layout } from './layout';
 import type { SchemaModel, Table } from './types';
 
 /** 화면 크기 (TableNode.vue 의 CSS 와 같아야 한다). width 는 최소 폭, 실제 폭은 내용에 맞춘다 */
@@ -28,24 +28,27 @@ export interface Arranged {
  * 처음 만드는 그룹은 앞 그룹 오른쪽에 놓는다. layout 을 직접 고친다.
  */
 export function syncLayout(model: SchemaModel, layout: Layout, diagram = DEFAULT_DIAGRAM): Diagram {
-  const d = (layout.diagrams[diagram] ??= { groups: {}, pinned: {} });
+  const d = (layout.diagrams[diagram] ??= { pinned: {} });
+  const ids = new Set(model.tables.map(t => t.id));
+  for (const id of Object.keys(d.pinned)) if (!ids.has(id)) delete d.pinned[id];
+  // 그룹 격자 배치는 「그룹 격자」 정렬일 때만 만든다. 트리로 바꾸면 지운다 (layout.json 에 접두어 그룹이 남지 않게)
+  if (arrangeMode(d) !== 'grid') { delete d.groups; return d; }
+  const groups = (d.groups ??= {});
   const byGroup = new Map<string, Table[]>();
   for (const t of [...model.tables].sort((a, b) => (a.name < b.name ? -1 : 1))) {
     const g = groupOf(t.name, model.groups);
     byGroup.set(g, [...(byGroup.get(g) ?? []), t]);
   }
-  const ids = new Set(model.tables.map(t => t.id));
-  for (const g of Object.keys(d.groups)) if (!byGroup.has(g)) delete d.groups[g];
-  for (const id of Object.keys(d.pinned)) if (!ids.has(id)) delete d.pinned[id];
+  for (const g of Object.keys(groups)) if (!byGroup.has(g)) delete groups[g];
 
   // 그룹 규칙 순서대로, 새 그룹은 지금 있는 그룹들의 오른쪽 끝에 붙인다
-  let right = Math.max(0, ...Object.values(d.groups).map(g => g.rule.origin[0] + groupWidth(g.rule) + GROUP_GAP));
+  let right = Math.max(0, ...Object.values(groups).map(g => g.rule.origin[0] + groupWidth(g.rule) + GROUP_GAP));
   for (const rule of model.groups) {
     const tables = byGroup.get(rule.name);
     if (!tables) continue;
-    let g = d.groups[rule.name];
+    let g = groups[rule.name];
     if (!g) {
-      g = d.groups[rule.name] = { rule: { cols: DEFAULT_RULE.cols, gap: DEFAULT_RULE.gap, origin: [right, 0] }, order: [] };
+      g = groups[rule.name] = { rule: { cols: DEFAULT_RULE.cols, gap: DEFAULT_RULE.gap, origin: [right, 0] }, order: [] };
       right += groupWidth(g.rule) + GROUP_GAP;
     }
     const inGroup = new Set(tables.map(t => t.id));
@@ -68,7 +71,7 @@ export function arrange(model: SchemaModel, d: Diagram, widthOf: (t: Table) => n
   const positions = new Map<string, { x: number; y: number }>();
   const groups: GroupBox[] = [];
   let prevRight = -Infinity;
-  const entries = Object.entries(d.groups).sort(([, a], [, b]) => a.rule.origin[0] - b.rule.origin[0]);
+  const entries = Object.entries(d.groups ?? {}).sort(([, a], [, b]) => a.rule.origin[0] - b.rule.origin[0]);
   for (const [name, g] of entries) {
     const { cols, gap, origin } = g.rule;
     const tables = g.order.map(id => byId.get(id)).filter((t): t is Table => !!t);

@@ -6,22 +6,21 @@ import { MODEL_VERSION, type Column, type Domain, type FkAction, type ForeignKey
 
 export const INDEX_FILE = '_index.erd';
 export const FUNCTIONS_DIR = 'functions/';
+/** 테이블을 모두 담는 파일 */
+export const TABLES_FILE = 'tables.erd';
 const COMMON_MARK = '+common';
 const FUNCTION_HEAD = '-- erd-function ';
 
 // ---------- 쓰기 ----------
 
-/** 모델을 파일 이름 → 내용 으로 바꾼다. 테이블이 없는 그룹은 파일을 만들지 않는다. */
+/**
+ * 모델을 파일 이름 → 내용 으로 바꾼다. 테이블은 모두 tables.erd 한 파일에 이름순으로 쓴다. 테이블이 없으면 파일을 만들지 않는다.
+ * (2026-10-16 사용자 지정: 전에는 접두어 그룹마다 mdm.erd, wms.erd 처럼 나눠 썼다. 읽기는 폴더의 *.erd 를 모두 읽어 예전 폴더도 열린다)
+ */
 export function serializeModel(model: SchemaModel): Record<string, string> {
   const files: Record<string, string> = { [INDEX_FILE]: serializeIndex(model) };
-  const byGroup = new Map<string, Table[]>();
-  for (const t of model.tables) {
-    const g = groupOf(t.name, model.groups);
-    byGroup.set(g, [...(byGroup.get(g) ?? []), t]);
-  }
-  for (const [g, tables] of [...byGroup].sort(([a], [b]) => cmp(a, b))) {
-    const lines = tables.sort((a, b) => cmp(a.name, b.name)).flatMap(t => tableLines(t, model.common));
-    files[`${g}.erd`] = lines.join('\n') + '\n';
+  if (model.tables.length) {
+    files[TABLES_FILE] = [...model.tables].sort((a, b) => cmp(a.name, b.name)).flatMap(t => tableLines(t, model.common)).join('\n') + '\n';
   }
   // 함수: 이름마다 파일 하나, 같은 이름(인자만 다름)은 인자 순으로 한 파일에
   const byName = new Map<string, FunctionDef[]>();

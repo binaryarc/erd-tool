@@ -139,6 +139,22 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
   } finally {
     if (part === 'connect' && out.prep) out.cleanup = await js(`window.__erdConnect('cleanup', ${JSON.stringify(process.env.ERD_BE_DIR)})`);
   }
+  if (part === 'savepreview') try {
+    // 예전 형식(접두어 그룹 파일 나눔, 트리인데 layout.json 에 그룹 격자 항목) 모델 폴더를 열고 같은 폴더에 저장:
+    // 미리보기 창에 새로 씀(tables.erd), 바뀜(_index.erd, layout.json), 지움(mdm.erd 등)이 나오고, 「저장」 을 누르면 그대로 된다
+    const dir = process.env.ERD_SAVE_DIR!;
+    const readDir = () => fs.readdirSync(dir).sort();
+    out.before = { files: readDir(), layoutGroups: Object.keys(JSON.parse(fs.readFileSync(`${dir}/layout.json`, 'utf8')).diagrams?.['전체']?.groups ?? {}) };
+    out.opened = await js(`window.__erdSavePreview(${JSON.stringify(dir)})`);
+    out.preview = await js(`[...document.querySelectorAll('.save-preview .sp-group')].map(g => ({ kind: g.dataset.kind, files: [...g.querySelectorAll('li')].map(li => li.textContent) }))`);
+    out.filesBeforeClick = readDir(); // 미리보기만으로는 아무것도 쓰지 않는다
+    await clickText('.save-preview .row button', '저장');
+    await sleep(1500);
+    const layout = JSON.parse(fs.readFileSync(`${dir}/layout.json`, 'utf8'));
+    out.after = { files: readDir(), layoutGroups: layout.diagrams?.['전체']?.groups ?? null, message: await js(`document.querySelector('footer span')?.textContent`) };
+    // 그룹 격자로 바꾸면 그때 그룹 격자 항목을 만들어 그룹 상자가 그려진다
+    out.grid = await js(`window.__erdView({ mode: 'grid' }).then(v => ({ ...v, groupBoxes: [...document.querySelectorAll('.vue-flow__node-group .group-box span')].map(e => e.textContent) }))`);
+  } catch (e) { out.error = (e as Error).message; }
   if (part === 'domain') try {
     // 완료 기준: 도메인 타입을 바꾸면 쓰는 모든 컬럼이 바뀌고 dev 에 적용한 뒤 다시 읽으면 차이 0. 저장 → 읽기 → 저장 바이트 같음.
     // 같은 모델 폴더로 DB 에서 다시 불러와도 연결이 남고, 타입이 바뀐 컬럼만 풀리며 경고가 나온다. 끝에 dev 의 시험 테이블을 지운다

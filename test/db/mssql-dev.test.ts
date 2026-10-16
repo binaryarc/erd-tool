@@ -86,13 +86,13 @@ describe.skipIf(!!skip)('SQL Server 어댑터 (도커 erdtest)', () => {
     model.tables.forEach((t, i) => (t.id = `t${i + 1}`));
     model.groups = [{ name: 'erd', isDefault: true }];
     await saveModel(dir, model, emptyLayout());
-    const before = fs.readFileSync(path.join(dir, 'erd.erd'), 'utf8');
+    const before = fs.readFileSync(path.join(dir, 'tables.erd'), 'utf8');
     const loaded = await loadModel(dir);
     expect(loaded.errors).toEqual([]);
     expect([loaded.model.dialect, loaded.model.schema]).toEqual(['sqlserver', 'dbo']);
     const again = await saveModel(dir, loaded.model, loaded.layout);
     expect(again.written).toEqual([]);
-    expect(fs.readFileSync(path.join(dir, 'erd.erd'), 'utf8')).toBe(before);
+    expect(fs.readFileSync(path.join(dir, 'tables.erd'), 'utf8')).toBe(before);
   }, 60_000);
 
   it('전체 CREATE 를 빈 DB 에 실행하고 다시 읽으면 차이 0, 화면 수정 ALTER 를 적용해도 차이 0', async () => {

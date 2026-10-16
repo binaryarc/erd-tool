@@ -42,14 +42,23 @@ describe('.erd 형식', () => {
 
   it('테이블은 넣은 순서와 상관없이 이름순으로 저장된다', () => {
     const files = serializeModel(model([table('t2', 'mst_wh'), table('t1', 'mst_biz'), table('t3', 'mst_center')]));
-    const heads = files['mdm.erd'].split('\n').filter(l => l && !l.startsWith(' '));
+    const heads = files['tables.erd'].split('\n').filter(l => l && !l.startsWith(' '));
     expect(heads).toEqual(['mst_biz @t1', 'mst_center @t3', 'mst_wh @t2']);
   });
 
-  it('그룹 규칙대로 파일이 나뉘고, 맞는 접두어가 없으면 기본 그룹으로 간다', () => {
+  it('테이블은 접두어 그룹과 상관없이 tables.erd 한 파일에 쓴다 (2026-10-16 사용자 지정). 테이블이 없으면 그 파일도 없다', () => {
     const files = serializeModel(model([table('t1', 'mst_biz'), table('t2', 'whs_iw_h'), table('t3', 'flyway_schema_history')]));
-    expect(Object.keys(files).sort()).toEqual(['_index.erd', 'mdm.erd', 'sm.erd', 'wms.erd']);
-    expect(files['sm.erd']).toContain('flyway_schema_history @t3');
+    expect(Object.keys(files).sort()).toEqual(['_index.erd', 'tables.erd']);
+    expect(files['tables.erd'].split('\n').filter(l => l && !l.startsWith(' '))).toEqual(['flyway_schema_history @t3', 'mst_biz @t1', 'whs_iw_h @t2']);
+    expect(Object.keys(serializeModel(model([])))).toEqual(['_index.erd']);
+  });
+
+  it('예전처럼 접두어 그룹마다 나뉜 파일(mdm.erd, wms.erd)도 그대로 읽는다', () => {
+    const old = { '_index.erd': 'erd-model 2\ndb postgresql public\ngroup mdm prefix=mst_ default\ngroup wms prefix=whs_\n', 'mdm.erd': 'mst_a @t1\n  seq integer PK\n', 'wms.erd': 'whs_b @t2\n  seq integer PK\n' };
+    const p = parseModel(old);
+    expect(validateModel(p)).toEqual([]);
+    expect(p.model.tables.map(t => t.name)).toEqual(['mst_a', 'whs_b']);
+    expect(serializeModel(p.model)['tables.erd']).toBe('mst_a @t1\n  seq integer PK\nwhs_b @t2\n  seq integer PK\n');
   });
 
   it('공통 컬럼은 정의와 똑같을 때만 +common 으로 줄인다', () => {
@@ -57,9 +66,9 @@ describe('.erd 형식', () => {
     const diff = table('t2', 'mst_b', { columns: [{ name: 'seq', type: 'integer', notNull: true }, COMMON[0], { ...COMMON[1], comment: '다른 코멘트' }] });
     const moved = table('t3', 'mst_c', { columns: [...COMMON, { name: 'seq', type: 'integer', notNull: true }] });
     const { first, parsed } = roundTrip(model([same, diff, moved]));
-    expect(first['mdm.erd']).toContain('mst_a @t1 +common');
-    expect(first['mdm.erd']).not.toContain('mst_b @t2 +common');
-    expect(first['mdm.erd']).not.toContain('mst_c @t3 +common');
+    expect(first['tables.erd']).toContain('mst_a @t1 +common');
+    expect(first['tables.erd']).not.toContain('mst_b @t2 +common');
+    expect(first['tables.erd']).not.toContain('mst_c @t3 +common');
     expect(parsed.model.tables.map(t => t.columns)).toEqual([same.columns, diff.columns, moved.columns]);
   });
 
@@ -76,7 +85,7 @@ describe('.erd 형식', () => {
     expect(parsed.errors).toEqual([]);
     expect(parsed.model.tables[0]).toEqual(t);
     expect(second).toEqual(first);
-    expect(first['mdm.erd'].split('\n').length).toBe(cols.length + 2); // 줄바꿈 코멘트도 한 줄
+    expect(first['tables.erd'].split('\n').length).toBe(cols.length + 2); // 줄바꿈 코멘트도 한 줄
   });
 
   it('시퀀스와 그룹 규칙을 _index.erd 로 보존한다', () => {
@@ -97,7 +106,7 @@ describe('.erd 형식', () => {
     expect([p.model.dialect, p.model.schema]).toEqual([undefined, undefined]);
     const out = serializeModel(p.model);
     expect(out['_index.erd']).toBe('erd-model 3\ndb postgresql public\ngroup mdm prefix=mst_ default\n');
-    expect(out['mdm.erd']).toBe(v1['mdm.erd']); // 그룹 파일은 그대로
+    expect(out['tables.erd']).toBe(v1['mdm.erd']); // 테이블 줄은 그대로 (파일 이름만 tables.erd)
   });
 
   it('DB 종류와 스키마를 보존하고, 모르는 DB 종류와 버전은 오류다', () => {
@@ -149,7 +158,7 @@ describe('layout.json', () => {
     const first = serializeLayout(l);
     expect(serializeLayout(parseLayout(first))).toBe(first);
     expect(first.indexOf('"cols"')).toBeLessThan(first.indexOf('"gap"'));
-    expect(parseLayout(first).diagrams['전체'].groups.mdm.order).toEqual(['t2', 't1']); // 순서 배열은 그대로
+    expect(parseLayout(first).diagrams['전체'].groups!.mdm.order).toEqual(['t2', 't1']); // 순서 배열은 그대로
   });
 });
 
@@ -167,7 +176,7 @@ describe('UNIQUE 제약과 함수', () => {
     const { first, parsed, second } = roundTrip(m);
     expect(parsed.errors).toEqual([]);
     expect(second).toEqual(first);
-    expect(first['mdm.erd']).toContain('  UQ uq_a (cd)\n  UQ uq_b (cd, seq)\n');
+    expect(first['tables.erd']).toContain('  UQ uq_a (cd)\n  UQ uq_b (cd, seq)\n');
     expect(Object.keys(first).filter(f => f.startsWith('functions/')).sort()).toEqual(['functions/fn_lpad.sql', 'functions/fn_split.sql']);
     expect(parsed.model.tables[0].uniques.map(u => u.name)).toEqual(['uq_a', 'uq_b']); // 저장하면 이름순
     expect(parsed.model.functions.find(f => f.args === 'text')?.definition).toBe(m.functions[1].definition);
@@ -189,9 +198,9 @@ describe('UNIQUE 제약과 함수', () => {
       checks: [{ name: 'ck_qty', definition: 'CHECK ((qty >= 0))' }],
     });
     const r = roundTrip(model([t]));
-    expect(r.first['mdm.erd']).toContain('  seq integer PK IDENTITY');
-    expect(r.first['mdm.erd']).toContain("  qty2 integer =GENERATED ALWAYS AS (qty * 2 + length('a = b')) STORED");
-    expect(r.first['mdm.erd']).toContain('  CK ck_qty CHECK ((qty >= 0))');
+    expect(r.first['tables.erd']).toContain('  seq integer PK IDENTITY');
+    expect(r.first['tables.erd']).toContain("  qty2 integer =GENERATED ALWAYS AS (qty * 2 + length('a = b')) STORED");
+    expect(r.first['tables.erd']).toContain('  CK ck_qty CHECK ((qty >= 0))');
     expect(r.parsed.errors).toEqual([]);
     expect(r.parsed.model.tables[0].columns).toEqual(t.columns);
     expect(r.parsed.model.tables[0].checks).toEqual(t.checks);
@@ -200,7 +209,7 @@ describe('UNIQUE 제약과 함수', () => {
 
   it('이름 바꾼 기록(renamedFrom)은 파일에 남기지 않는다', () => {
     const t = table('t1', 'mst_a', { renamedFrom: 'mst_old', columns: [{ name: 'seq', type: 'integer', notNull: true, renamedFrom: 'id' }] });
-    expect(serializeModel(model([t]))['mdm.erd']).toBe(serializeModel(model([table('t1', 'mst_a')]))['mdm.erd']);
+    expect(serializeModel(model([t]))['tables.erd']).toBe(serializeModel(model([table('t1', 'mst_a')]))['tables.erd']);
   });
 
   it('FK 참조 동작과 DEFERRABLE 을 저장하고 그대로 읽는다 (없으면 줄이 전과 같다)', () => {
@@ -212,7 +221,7 @@ describe('UNIQUE 제약과 함수', () => {
       { name: 'fk_4', columns: ['seq'], refTable: 'mst_a', refColumns: ['seq'], onDelete: 'restrict' as const, deferrable: 'deferred' as const },
     ];
     const r = roundTrip(model([{ ...a, fks }]));
-    const text = r.first['mdm.erd'];
+    const text = r.first['tables.erd'];
     expect(text).toContain('  FK fk_1 (seq) > mst_a(seq)\n');
     expect(text).toContain('  FK fk_2 (seq) > mst_a(seq) ON DELETE CASCADE ON UPDATE SET NULL\n');
     expect(text).toContain('  FK fk_3 (seq) > mst_a(seq) DEFERRABLE\n');
@@ -230,10 +239,10 @@ describe('IDENTITY 시작값, 증가값 (STEP 9)', () => {
   it('(1,1) 이면 적지 않고, 아니면 IDENTITY(시작,증가) 로 적고 다시 읽는다', () => {
     const t = (c: Partial<Table['columns'][number]>): Table => ({ id: 't1', name: 'mst_a', comment: '', pk: ['seq'], fks: [], uniques: [], indexes: [],
       columns: [{ name: 'seq', type: 'int', notNull: true, identity: 'always', ...c }] });
-    const plain = serializeModel(model([t({})]))['mdm.erd'];
+    const plain = serializeModel(model([t({})]))['tables.erd'];
     expect(plain).toBe('mst_a @t1\n  seq int PK IDENTITY\n');
     const { first, parsed } = roundTrip(model([t({ identityStart: 1000, identityStep: 10 })]));
-    expect(first['mdm.erd']).toBe('mst_a @t1\n  seq int PK IDENTITY(1000,10)\n');
+    expect(first['tables.erd']).toBe('mst_a @t1\n  seq int PK IDENTITY(1000,10)\n');
     expect(parsed.model.tables[0].columns[0]).toMatchObject({ identity: 'always', identityStart: 1000, identityStep: 10 });
     expect(parseModel({ '_index.erd': 'erd-model 2\n', 'm.erd': 'mst_a @t1\n  seq int PK IDENTITY_BD(5,-1)\n' }).model.tables[0].columns[0])
       .toMatchObject({ identity: 'default', identityStart: 5, identityStep: -1 });

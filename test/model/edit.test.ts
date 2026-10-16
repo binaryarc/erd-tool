@@ -39,7 +39,7 @@ describe('ERD 수정 명령', () => {
     const m = addColumn(base, 'mst_biz', { name: 'sort_no', type: 'INT', notNull: true, default: '0' });
     expect(T(m, 'mst_biz').columns.map(c => c.name)).toEqual(['biz_seq', 'biz_nm', 'sort_no', 'reg_id', 'reg_dt']);
     expect(T(m, 'mst_biz').columns[2]).toEqual({ name: 'sort_no', type: 'integer', notNull: true, default: '0' });
-    expect(serializeModel(m)['mdm.erd']).toContain('mst_biz @t1 +common');
+    expect(serializeModel(m)['tables.erd']).toContain('mst_biz @t1 +common');
     expect(addColumn(base, 'mst_wh', { name: 'x', type: 'text', notNull: false }, 'wh_seq').tables[1].columns.map(c => c.name)).toEqual(['wh_seq', 'x', 'biz_seq']);
     expect(() => addColumn(base, 'mst_biz', { name: 'biz_nm', type: 'text', notNull: false })).toThrow('이미 있다');
   });

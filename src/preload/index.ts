@@ -21,6 +21,8 @@ const api: ErdApi = {
     load: dir => ipcRenderer.invoke(IPC.modelLoad, dir),
     save: (dir, model, layout) => ipcRenderer.invoke(IPC.modelSave, dir, model, layout),
     pickSaveDir: () => ipcRenderer.invoke(IPC.modelPickSaveDir),
+    planSave: (dir, model, layout) => ipcRenderer.invoke(IPC.modelPlanSave, dir, model, layout),
+    pickOpen: defaultDir => ipcRenderer.invoke(IPC.modelPickOpen, defaultDir),
   },
   conn: {
     list: beDir => ipcRenderer.invoke(IPC.connList, beDir),

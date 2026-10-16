@@ -81,13 +81,13 @@ describe.skipIf(!!skip)('MySQL 어댑터 (도커 erdtest)', () => {
     model.tables.forEach((t, i) => (t.id = `t${i + 1}`));
     model.groups = [{ name: 'erd', isDefault: true }];
     await saveModel(dir, model, emptyLayout());
-    const before = fs.readFileSync(path.join(dir, 'erd.erd'), 'utf8');
+    const before = fs.readFileSync(path.join(dir, 'tables.erd'), 'utf8');
     const loaded = await loadModel(dir);
     expect(loaded.errors).toEqual([]);
     expect([loaded.model.dialect, loaded.model.schema]).toEqual(['mysql', 'erdtest']);
     const again = await saveModel(dir, loaded.model, loaded.layout);
     expect(again.written).toEqual([]);
-    expect(fs.readFileSync(path.join(dir, 'erd.erd'), 'utf8')).toBe(before);
+    expect(fs.readFileSync(path.join(dir, 'tables.erd'), 'utf8')).toBe(before);
   }, 60_000);
 
   it('자동완성 목록: 테이블, 뷰, 컬럼 타입과 코멘트', async () => {

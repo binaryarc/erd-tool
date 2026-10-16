@@ -20,6 +20,7 @@ declare global {
     __erdConnect?: (step: string, a?: string, b?: string) => Promise<unknown>;
     __erdUndo?: (step: string, a?: string, b?: string) => Promise<unknown>;
     __erdDomain?: (step: string, a?: string, b?: string) => Promise<unknown>;
+    __erdSavePreview?: (dir: string) => Promise<boolean>;
   }
 }
 
