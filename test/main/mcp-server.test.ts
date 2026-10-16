@@ -35,11 +35,11 @@ describe('MCP 서버', () => {
     expect((await rpc('tools/list', {}, 'Bearer nope')).status).toBe(401);
   });
 
-  it('initialize 와 도구 7개', async () => {
+  it('initialize 와 도구 8개', async () => {
     const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
     expect(init.body.result.serverInfo.name).toBe('erd-tool');
     const tools = (await rpc('tools/list')).body.result.tools.map((t: { name: string }) => t.name).sort();
-    expect(tools).toEqual(['db_query', 'erd_apply', 'erd_export', 'erd_overview', 'erd_tables', 'erd_undo', 'erd_view_state']);
+    expect(tools).toEqual(['db_compare', 'db_query', 'erd_apply', 'erd_export', 'erd_overview', 'erd_tables', 'erd_undo', 'erd_view_state']);
   });
 
   it('ERD 도구는 화면에 묻고, 실패는 isError 로 돌려준다', async () => {
@@ -47,6 +47,8 @@ describe('MCP 서버', () => {
     expect(asked.at(-1)).toEqual({ tool: 'erd_overview', args: {} });
     expect((await callTool('erd_tables', { names: ['mst_biz'] })).content[0].text).toBe('erd_tables 응답');
     expect(asked.at(-1)).toEqual({ tool: 'erd_tables', args: { names: ['mst_biz'] } });
+    await callTool('db_compare', { from: 'dev', to: 'erd', kind: 'index' });
+    expect(asked.at(-1)).toEqual({ tool: 'db_compare', args: { from: 'dev', to: 'erd', kind: 'index' } });
     const bad = await callTool('erd_apply', { commands: ['x'] });
     expect(bad.isError).toBe(true);
     expect(bad.content[0].text).toContain('모르는 명령');

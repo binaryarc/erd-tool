@@ -201,6 +201,7 @@ function createWindow() {
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
         //   ERD_AUTO=step5  DB 비교, ERD 차이 적용(전체 실행 후 롤백). ERD_SHOT 을 주면 비교 탭과 적용 탭 화면을 남긴다
         //   ERD_AUTO=step6  ERD 수정 → dev 적용(커밋) → 다시 읽어 차이 0 → 되돌리기로 시험 테이블 지움. ERD_SHOT 을 주면 편집 화면을 남긴다
+        //   ERD_AUTO=mcp  모델을 열고 ERD_MEASURE 밀리초(기본 60초) 기다린다. 그동안 밖에서 MCP 도구를 직접 불러 본다
         //   ERD_AUTO=password  비밀번호 창(자동 실패, 틀림, 취소). 끝에 비밀번호 저장소(Windows 계정 암호화)에 시험 값을 넣고 읽고 지운다
         if (auto === 'password') {
           const k = 'be:erd-tool-store-probe:dev';

@@ -2,6 +2,8 @@
 // 좌표 숫자 대신 그룹 규칙과 행, 열 위치로 화면 배치를 알린다(AI 가 좌표를 계산하면 격자가 어긋난다).
 
 import { columnText, endsWithCommon, groupOf } from '../model/erd-format';
+import type { DiffItem, DiffKind } from '../model/diff';
+import { summaryText } from '../export/flyway';
 import { arrangeMode, type Diagram } from '../model/layout';
 import type { SchemaModel, Table } from '../model/types';
 
@@ -52,6 +54,23 @@ export function tablesText(model: SchemaModel, names: string[]): string {
   }
   if (missing.length) out.push(`없는 테이블: ${missing.join(', ')}`);
   return out.join('\n');
+}
+
+const KIND: Record<DiffKind, string> = { table: '테이블', column: '컬럼', pk: 'PK', fk: 'FK', unique: 'UNIQUE', index: '인덱스', sequence: '시퀀스', function: '함수' };
+const CHANGE = { add: '추가', drop: '삭제', alter: '변경' } as const;
+
+/** 두 구조 비교 결과 (MCP db_compare). from 을 to 처럼 바꾸려면 필요한 차이다. 목록은 limit 개까지 */
+export function diffText(items: DiffItem[], fromLabel: string, toLabel: string, limit = 200): string {
+  if (!items.length) return `${fromLabel} 와(과) ${toLabel} 는 구조가 같다 (차이 0)`;
+  const dangers = items.filter(i => i.danger).length;
+  const lines = [
+    `${fromLabel} 을(를) ${toLabel} 처럼 바꾸려면: 차이 ${items.length}개, 위험 ${dangers}개`,
+    `요약: ${summaryText(items)}`,
+    ...items.slice(0, limit).map((d, i) =>
+      `${i + 1}. ${KIND[d.kind]} ${CHANGE[d.change]} ${d.table && d.table !== d.name ? `${d.table}.` : ''}${d.name}: ${d.detail}${d.danger ? ` [위험: ${d.danger}]` : ''}`),
+  ];
+  if (items.length > limit) lines.push(`(앞 ${limit}개만 보임. kind 로 종류를 좁혀 다시 물을 수 있다)`);
+  return lines.join('\n');
 }
 
 export interface Box { x: number; y: number; w: number; h: number }

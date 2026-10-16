@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CommandError, MAX_COMMANDS, applyCommands } from '../../src/shared/ai/commands';
 import { findSpotNear } from '../../src/shared/ai/place';
-import { overview, tablesText, viewStateText, type Box } from '../../src/shared/ai/notation';
+import { diffText, overview, tablesText, viewStateText, type Box } from '../../src/shared/ai/notation';
+import { diffModels } from '../../src/shared/model/diff';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
 
 const col = (name: string, type: string, extra: Partial<Column> = {}): Column => ({ name, type, notNull: false, ...extra });
@@ -51,6 +52,21 @@ describe('AI 에게 주는 글', () => {
       '고정: mst_biz_wh (mst_biz 의 오른쪽)',
       '겹친 테이블 쌍: 0',
     ].join('\n'));
+  });
+});
+
+describe('두 구조 비교 글 (db_compare)', () => {
+  it('요약, 차이 목록, 위험, 같으면 차이 0, 많으면 앞부분만', () => {
+    const changed = applyCommands(model, ['add_column mst_biz.memo text', 'drop_column mst_biz_wh.use_yn']).model;
+    expect(diffText(diffModels(model, changed), 'dev', '지금 ERD')).toBe([
+      'dev 을(를) 지금 ERD 처럼 바꾸려면: 차이 2개, 위험 1개',
+      '요약: 컬럼 추가 1, 컬럼 삭제 1',
+      '1. 컬럼 추가 mst_biz.memo: text',
+      '2. 컬럼 삭제 mst_biz_wh.use_yn: char(1) [위험: 컬럼 값이 사라진다]',
+    ].join('\n'));
+    expect(diffText([], 'dev', 'test')).toBe('dev 와(과) test 는 구조가 같다 (차이 0)');
+    const many = applyCommands(model, Array.from({ length: 5 }, (_, i) => `add_column mst_biz.c${i} int`)).model;
+    expect(diffText(diffModels(model, many), 'a', 'b', 2).split('\n').at(-1)).toBe('(앞 2개만 보임. kind 로 종류를 좁혀 다시 물을 수 있다)');
   });
 });
 
