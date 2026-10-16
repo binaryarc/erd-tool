@@ -17,6 +17,7 @@ import { inputTerm, killTerm, resizeTerm, setTermEnv, spawnTerm } from './termin
 import { nextFlywayVersion, writeExport } from './export';
 import { startMcp } from './mcp/server';
 import { dbQuery } from './mcp/db-query';
+import { step10Inputs } from './step10-auto';
 import type { ConnRef as Ref, McpInfo, McpReply } from '../shared/ipc';
 
 // ---------- BE 프로필 비밀번호 (2026-10-16) ----------
@@ -257,6 +258,14 @@ function createWindow() {
         if (auto === 'dbms') {
           const shot = process.env.ERD_SHOT;
           if (shot) fs.writeFileSync(`${shot}-dbms.png`, (await win.webContents.capturePage()).toPNG());
+          app.quit();
+          return;
+        }
+        //   ERD_AUTO=step10  편집 편의 기능을 실제 키보드, 마우스 입력으로 시험한다. ERD_STEP10 에 고를 부분(enter), ERD_SHOT 이면 화면을 남긴다
+        if (auto === 'step10') {
+          console.log('[step10]', JSON.stringify(await step10Inputs(win, process.env.ERD_STEP10 ?? 'enter')));
+          const shot = process.env.ERD_SHOT;
+          if (shot) fs.writeFileSync(`${shot}-step10.png`, (await win.webContents.capturePage()).toPNG());
           app.quit();
           return;
         }
