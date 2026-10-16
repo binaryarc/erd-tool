@@ -1,0 +1,44 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { nextFlywayVersion, writeExport } from '../../src/main/export';
+
+let dir = '';
+beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'erd-export-')); });
+afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
+
+const HISTORY = '# 이력\n\n## 변경 이력\n\n| 반영일시 | 내용 |\n|---|---|\n| 1 | a |\n';
+
+describe('내보내기 파일 쓰기', () => {
+  it('다음 Flyway 번호 (없는 폴더는 1)', async () => {
+    await fs.writeFile(path.join(dir, 'V7__a.sql'), '');
+    await fs.writeFile(path.join(dir, 'R__b.sql'), '');
+    expect(await nextFlywayVersion(dir)).toBe(8);
+    expect(await nextFlywayVersion(path.join(dir, 'none'))).toBe(1);
+  });
+
+  it('새 파일을 쓰고 이력 표에 한 줄 덧붙인다', async () => {
+    const hist = path.join(dir, '99-migration-history.md');
+    await fs.writeFile(hist, HISTORY);
+    const r = await writeExport(path.join(dir, 'out'), [{ name: 'a.md', content: 'A\n' }], { file: hist, line: '| 2 | b |' });
+    expect(r.written).toEqual([path.join(dir, 'out', 'a.md')]);
+    expect(await fs.readFile(r.written[0], 'utf8')).toBe('A\n');
+    expect(await fs.readFile(hist, 'utf8')).toBe(HISTORY.replace('| 1 | a |\n', '| 1 | a |\n| 2 | b |\n'));
+  });
+
+  it('같은 이름이 하나라도 있으면 아무것도 쓰지 않는다, 폴더가 든 이름도 거부', async () => {
+    await fs.writeFile(path.join(dir, 'b.md'), 'old');
+    await expect(writeExport(dir, [{ name: 'a.md', content: 'A' }, { name: 'b.md', content: 'B' }])).rejects.toThrow('b.md');
+    expect(await fs.readdir(dir)).toEqual(['b.md']);
+    expect(await fs.readFile(path.join(dir, 'b.md'), 'utf8')).toBe('old');
+    await expect(writeExport(dir, [{ name: '../x.md', content: '' }])).rejects.toThrow('폴더');
+  });
+
+  it('이력 파일에 「변경 이력」 표가 없으면 새 파일도 쓰지 않는다', async () => {
+    const hist = path.join(dir, 'h.md');
+    await fs.writeFile(hist, '# 없음\n');
+    await expect(writeExport(dir, [{ name: 'a.md', content: 'A' }], { file: hist, line: '| x |' })).rejects.toThrow('변경 이력');
+    expect(await fs.readdir(dir)).toEqual(['h.md']);
+  });
+});

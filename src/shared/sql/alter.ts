@@ -2,6 +2,8 @@
 // 순서: 지울 FK, UNIQUE, 인덱스 → 지울 테이블 → 새 시퀀스 → 컬럼 변경, 추가, 삭제와 PK → 새 테이블 → 코멘트
 //       → 새 UNIQUE, 인덱스, FK → 지울 시퀀스 → 함수
 // 만든 SQL 은 바로 실행하지 않고 SQL 탭에 띄운다. 위험한 문장 위에는 [위험] 주석을 단다.
+// flyway 선택 사항(STEP 7): 허브 03-flyway-migration.md 4절대로 public. 을 붙이고 여러 번 실행해도 안전하게 쓴다
+//   (IF NOT EXISTS, IF EXISTS, 제약 추가는 pg_constraint 를 확인하는 DO 블록).
 
 import { diffModels, isProcedure, type DiffItem } from '../model/diff';
 import type { Column, ForeignKey, FunctionDef, Index, SchemaModel, Sequence, Table, Unique } from '../model/types';
@@ -16,39 +18,63 @@ function colDef(c: Column): string {
   return [q(c.name), c.type, c.notNull ? 'NOT NULL' : '', c.default !== undefined ? `DEFAULT ${c.default}` : ''].filter(Boolean).join(' ');
 }
 
-const createTable = (t: Table) => [
-  `CREATE TABLE ${q(t.name)} (`,
-  [...t.columns.map(c => '  ' + colDef(c)), ...(t.pk.length ? [`  PRIMARY KEY (${cols(t.pk)})`] : [])].join(',\n'),
-  ');',
-].join('\n');
+export interface AlterOptions {
+  /** Flyway 파일용: public. 접두어와 여러 번 실행해도 안전한 문장 */
+  flyway?: boolean;
+}
 
-const comments = (t: Table) => [
-  ...(t.comment ? [`COMMENT ON TABLE ${q(t.name)} IS ${lit(t.comment)};`] : []),
-  ...t.columns.filter(c => c.comment).map(c => `COMMENT ON COLUMN ${q(t.name)}.${q(c.name)} IS ${lit(c.comment!)};`),
-];
-
-const addFk = (t: string, f: ForeignKey) =>
-  `ALTER TABLE ${q(t)} ADD CONSTRAINT ${q(f.name)} FOREIGN KEY (${cols(f.columns)}) REFERENCES ${q(f.refTable)} (${cols(f.refColumns)});`;
-const addUq = (t: string, u: Unique) => `ALTER TABLE ${q(t)} ADD CONSTRAINT ${q(u.name)} UNIQUE (${cols(u.columns)});`;
-const addIx = (t: string, i: Index) => `CREATE ${i.unique ? 'UNIQUE ' : ''}INDEX ${q(i.name)} ON ${q(t)} (${cols(i.columns)});`;
-const dropCon = (t: string, n: string) => `ALTER TABLE ${q(t)} DROP CONSTRAINT ${q(n)};`;
-
-/** PK 제약 이름은 모델에 없어(단일 PK 는 컬럼 줄 표시뿐) DB 에서 찾아 지운다 */
-const dropPk = (t: string) => [
-  `DO $$`,
-  `DECLARE n text;`,
-  `BEGIN`,
-  `  SELECT conname INTO n FROM pg_constraint WHERE conrelid = ${lit(t)}::regclass AND contype = 'p';`,
-  `  IF n IS NOT NULL THEN EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', ${lit(t)}, n); END IF;`,
-  `END $$;`,
-].join('\n');
-
-const fnSql = (f: FunctionDef) => f.definition.replace(/;?\s*$/, '') + ';';
-const dropFn = (f: FunctionDef) => `DROP ${isProcedure(f) ? 'PROCEDURE' : 'FUNCTION'} ${q(f.name)}(${f.args});`;
+/** 문장 만들기. flyway 면 이름에 public. 을 붙이고 IF NOT EXISTS, IF EXISTS 를 쓴다 */
+function writer(o: AlterOptions) {
+  const f = !!o.flyway;
+  const n = (x: string) => (f ? 'public.' + q(x) : q(x));
+  const ifNot = f ? 'IF NOT EXISTS ' : '';
+  const ifEx = f ? 'IF EXISTS ' : '';
+  /** flyway 면 제약이 없을 때만 실행 (ADD CONSTRAINT 에는 IF NOT EXISTS 가 없다) */
+  const guard = (t: string, sql: string, cond: string) => (f
+    ? `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = ${lit(n(t))}::regclass AND ${cond}) THEN ${sql} END IF; END $$;`
+    : sql);
+  return {
+    n,
+    createTable: (t: Table) => [
+      `CREATE TABLE ${ifNot}${n(t.name)} (`,
+      [...t.columns.map(c => '  ' + colDef(c)), ...(t.pk.length ? [`  PRIMARY KEY (${cols(t.pk)})`] : [])].join(',\n'),
+      ');',
+    ].join('\n'),
+    comments: (t: Table) => [
+      ...(t.comment ? [`COMMENT ON TABLE ${n(t.name)} IS ${lit(t.comment)};`] : []),
+      ...t.columns.filter(c => c.comment).map(c => `COMMENT ON COLUMN ${n(t.name)}.${q(c.name)} IS ${lit(c.comment!)};`),
+    ],
+    addFk: (t: string, k: ForeignKey) => guard(t,
+      `ALTER TABLE ${n(t)} ADD CONSTRAINT ${q(k.name)} FOREIGN KEY (${cols(k.columns)}) REFERENCES ${n(k.refTable)} (${cols(k.refColumns)});`,
+      `conname = ${lit(k.name)}`),
+    addUq: (t: string, u: Unique) => guard(t, `ALTER TABLE ${n(t)} ADD CONSTRAINT ${q(u.name)} UNIQUE (${cols(u.columns)});`, `conname = ${lit(u.name)}`),
+    addPk: (t: string, pk: string[]) => guard(t, `ALTER TABLE ${n(t)} ADD PRIMARY KEY (${cols(pk)});`, `contype = 'p'`),
+    addIx: (t: string, i: Index) => `CREATE ${i.unique ? 'UNIQUE ' : ''}INDEX ${ifNot}${q(i.name)} ON ${n(t)} (${cols(i.columns)});`,
+    dropIx: (i: string) => `DROP INDEX ${ifEx}${n(i)};`,
+    dropCon: (t: string, c: string) => `ALTER TABLE ${n(t)} DROP CONSTRAINT ${ifEx}${q(c)};`,
+    dropTable: (t: string) => `DROP TABLE ${ifEx}${n(t)};`,
+    addColumn: (t: string, c: Column) => `ALTER TABLE ${n(t)} ADD COLUMN ${ifNot}${colDef(c)};`,
+    dropColumn: (t: string, c: string) => `ALTER TABLE ${n(t)} DROP COLUMN ${ifEx}${q(c)};`,
+    createSeq: (s: Sequence) => `CREATE SEQUENCE ${ifNot}${n(s.name)} START WITH ${s.start} INCREMENT BY ${s.inc};`,
+    dropSeq: (s: string) => `DROP SEQUENCE ${ifEx}${n(s)};`,
+    /** PK 제약 이름은 모델에 없어(단일 PK 는 컬럼 줄 표시뿐) DB 에서 찾아 지운다 */
+    dropPk: (t: string) => [
+      `DO $$`,
+      `DECLARE n text;`,
+      `BEGIN`,
+      `  SELECT conname INTO n FROM pg_constraint WHERE conrelid = ${lit(n(t))}::regclass AND contype = 'p';`,
+      `  IF n IS NOT NULL THEN EXECUTE format('ALTER TABLE ${f ? 'public.' : ''}%I DROP CONSTRAINT %I', ${lit(t)}, n); END IF;`,
+      `END $$;`,
+    ].join('\n'),
+    fnSql: (fn: FunctionDef) => fn.definition.replace(/;?\s*$/, '') + ';',
+    dropFn: (fn: FunctionDef) => `DROP ${isProcedure(fn) ? 'PROCEDURE' : 'FUNCTION'} ${ifEx}${n(fn.name)}(${fn.args});`,
+  };
+}
 
 export interface AlterScript { sql: string; statements: number; dangers: number; items: DiffItem[] }
 
-export function buildAlter(from: SchemaModel, to: SchemaModel, items: DiffItem[] = diffModels(from, to)): AlterScript {
+export function buildAlter(from: SchemaModel, to: SchemaModel, items: DiffItem[] = diffModels(from, to), opts: AlterOptions = {}): AlterScript {
+  const w = writer(opts);
   const toTables = new Map(to.tables.map(t => [t.name, t]));
   const sections: { title: string; lines: string[] }[] = [];
   let dangers = 0;
@@ -62,37 +88,37 @@ export function buildAlter(from: SchemaModel, to: SchemaModel, items: DiffItem[]
   const dropKeys = section('지울 FK, UNIQUE, 인덱스');
   for (const i of items) {
     if (!['fk', 'unique', 'index'].includes(i.kind) || i.change === 'add' || isTableDrop(i.table)) continue;
-    dropKeys.push(i.kind === 'index' ? `DROP INDEX ${q(i.name)};` : dropCon(i.table!, i.name));
+    dropKeys.push(i.kind === 'index' ? w.dropIx(i.name) : w.dropCon(i.table!, i.name));
   }
 
   // 2) 지울 테이블
   const dropTables = section('지울 테이블');
-  for (const i of items.filter(x => x.kind === 'table' && x.change === 'drop')) { warn(dropTables, `${i.name}: ${i.danger}`); dropTables.push(`DROP TABLE ${q(i.name)};`); }
+  for (const i of items.filter(x => x.kind === 'table' && x.change === 'drop')) { warn(dropTables, `${i.name}: ${i.danger}`); dropTables.push(w.dropTable(i.name)); }
 
   // 3) 새 시퀀스 (새 테이블 기본값 nextval 이 먼저 필요)
   const seqAdd = section('새 시퀀스, 바뀐 시퀀스');
   for (const i of items.filter(x => x.kind === 'sequence' && x.change !== 'drop')) {
     const s = i.to as Sequence;
-    seqAdd.push(i.change === 'add' ? `CREATE SEQUENCE ${q(s.name)} START WITH ${s.start} INCREMENT BY ${s.inc};`
-      : `ALTER SEQUENCE ${q(s.name)} INCREMENT BY ${s.inc}; -- 시작값은 바꾸지 않는다 (지금 값 ${s.start})`);
+    seqAdd.push(i.change === 'add' ? w.createSeq(s)
+      : `ALTER SEQUENCE ${w.n(s.name)} INCREMENT BY ${s.inc}; -- 시작값은 바꾸지 않는다 (지금 값 ${s.start})`);
   }
 
   // 4) 있는 테이블의 컬럼과 PK.
   //    PK 는 먼저 지우고 컬럼을 바꾼 뒤 다시 만든다: PK 에 든 컬럼은 NOT NULL 을 풀 수 없다 (dev 실제 적용 시험에서 확인)
   const pkDrops = section('바뀌는 PK 지우기');
   for (const i of items) {
-    if (i.kind === 'pk' && i.change !== 'add' && !isTableAdd(i.table) && !isTableDrop(i.table)) pkDrops.push(dropPk(i.table!));
+    if (i.kind === 'pk' && i.change !== 'add' && !isTableAdd(i.table) && !isTableDrop(i.table)) pkDrops.push(w.dropPk(i.table!));
   }
   const colLines = section('컬럼 변경, 추가, 삭제');
   for (const i of items) {
     if (isTableAdd(i.table) || isTableDrop(i.table) || i.kind === 'pk') continue;
-    const t = q(i.table ?? '');
+    const t = w.n(i.table ?? '');
     if (i.kind === 'column' && i.change === 'add') {
       warn(colLines, i.danger && `${i.table}.${i.name}: ${i.danger}`);
-      colLines.push(`ALTER TABLE ${t} ADD COLUMN ${colDef(i.to as Column)};`);
+      colLines.push(w.addColumn(i.table!, i.to as Column));
     } else if (i.kind === 'column' && i.change === 'drop') {
       warn(colLines, `${i.table}.${i.name}: ${i.danger}`);
-      colLines.push(`ALTER TABLE ${t} DROP COLUMN ${q(i.name)};`);
+      colLines.push(w.dropColumn(i.table!, i.name));
     } else if (i.kind === 'column' && i.change === 'alter') {
       const a = i.from as Column, b = i.to as Column, c = q(b.name);
       warn(colLines, i.danger && `${i.table}.${i.name}: ${i.danger}`);
@@ -109,45 +135,45 @@ export function buildAlter(from: SchemaModel, to: SchemaModel, items: DiffItem[]
   for (const i of items) {
     if (i.kind !== 'pk' || isTableAdd(i.table) || isTableDrop(i.table)) continue;
     const pk = i.to as string[];
-    if (pk.length) pkAdds.push(`ALTER TABLE ${q(i.table!)} ADD PRIMARY KEY (${cols(pk)});`);
+    if (pk.length) pkAdds.push(w.addPk(i.table!, pk));
   }
 
   // 5) 새 테이블 (FK 는 7 에서 한꺼번에: 서로 참조하는 새 테이블이 있어도 순서 걱정이 없다)
   const newTables = section('새 테이블');
   for (const i of items.filter(x => x.kind === 'table' && x.change === 'add')) {
     const t = toTables.get(i.name)!;
-    newTables.push(createTable(t), ...comments(t));
+    newTables.push(w.createTable(t), ...w.comments(t));
   }
 
   // 6) UNIQUE, 인덱스 추가 (새 테이블 것 포함)
   const addKeys = section('새 UNIQUE, 인덱스');
   for (const i of items.filter(x => x.kind === 'table' && x.change === 'add')) {
     const t = toTables.get(i.name)!;
-    addKeys.push(...t.uniques.map(u => addUq(t.name, u)), ...t.indexes.map(x => addIx(t.name, x)));
+    addKeys.push(...t.uniques.map(u => w.addUq(t.name, u)), ...t.indexes.map(x => w.addIx(t.name, x)));
   }
   for (const i of items) {
     if (i.change === 'drop' || isTableAdd(i.table)) continue;
-    if (i.kind === 'unique') addKeys.push(addUq(i.table!, i.to as Unique));
-    if (i.kind === 'index') addKeys.push(addIx(i.table!, i.to as Index));
+    if (i.kind === 'unique') addKeys.push(w.addUq(i.table!, i.to as Unique));
+    if (i.kind === 'index') addKeys.push(w.addIx(i.table!, i.to as Index));
   }
 
   // 7) FK 추가
   const addFks = section('새 FK');
   for (const i of items.filter(x => x.kind === 'table' && x.change === 'add')) {
     const t = toTables.get(i.name)!;
-    addFks.push(...t.fks.map(f => addFk(t.name, f)));
+    addFks.push(...t.fks.map(f => w.addFk(t.name, f)));
   }
-  for (const i of items) if (i.kind === 'fk' && i.change !== 'drop' && !isTableAdd(i.table)) addFks.push(addFk(i.table!, i.to as ForeignKey));
+  for (const i of items) if (i.kind === 'fk' && i.change !== 'drop' && !isTableAdd(i.table)) addFks.push(w.addFk(i.table!, i.to as ForeignKey));
 
   // 8) 지울 시퀀스 (테이블 기본값이 더는 쓰지 않을 때)
   const seqDrop = section('지울 시퀀스');
-  for (const i of items.filter(x => x.kind === 'sequence' && x.change === 'drop')) seqDrop.push(`DROP SEQUENCE ${q(i.name)};`);
+  for (const i of items.filter(x => x.kind === 'sequence' && x.change === 'drop')) seqDrop.push(w.dropSeq(i.name));
 
   // 9) 함수
   const fns = section('함수');
   for (const i of items.filter(x => x.kind === 'function')) {
-    if (i.change === 'drop') { warn(fns, `${i.name}: ${i.danger}`); fns.push(dropFn(i.from as FunctionDef)); }
-    else fns.push(fnSql(i.to as FunctionDef));
+    if (i.change === 'drop') { warn(fns, `${i.name}: ${i.danger}`); fns.push(w.dropFn(i.from as FunctionDef)); }
+    else fns.push(w.fnSql(i.to as FunctionDef));
   }
 
   const body = sections.filter(s => s.lines.length).map(s => `-- ${s.title}\n${s.lines.join('\n')}`).join('\n\n');

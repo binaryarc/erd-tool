@@ -36,6 +36,9 @@ export const IPC = {
   termExit: 'term:exit',
   closeRequest: 'app:closeRequest',
   closeConfirm: 'app:closeConfirm',
+  pickFile: 'dialog:pickFile',
+  exportNextVersion: 'export:nextVersion',
+  exportWrite: 'export:write',
 } as const;
 
 /** 접속 정보를 어디서 가져올지: BE 폴더 properties 자동 매핑, 또는 직접 입력 */
@@ -45,7 +48,15 @@ export interface Settings {
   beDir?: string;
   modelDir?: string;
   connSource?: ConnSource;
+  /** 내보내기 종류별 마지막 위치 (Flyway 폴더, MD 폴더, 이력 파일) */
+  exportDirs?: { flyway?: string; md?: string; history?: string };
 }
+
+/** 내보내기로 쓸 새 파일 (폴더 없는 이름) */
+export interface ExportFile { name: string; content: string }
+/** 99-migration-history.md 「변경 이력」 표에 덧붙일 한 줄 */
+export interface HistoryAppend { file: string; line: string }
+export interface ExportResult { written: string[]; history?: string }
 
 /** 어느 접속인지 가리키는 값 */
 export type ConnRef = { source: 'be'; beDir: string; name: string } | { source: 'manual'; id: string };
@@ -161,6 +172,14 @@ export interface SqlCatalog {
 
 export interface ErdApi {
   pickFolder(defaultPath?: string): Promise<string | null>;
+  /** MD 파일 고르기 (이력 파일) */
+  pickFile(defaultPath?: string): Promise<string | null>;
+  export: {
+    /** 폴더의 V 파일 중 가장 큰 번호 + 1 */
+    nextVersion(dir: string): Promise<number>;
+    /** 새 파일만 쓴다. 같은 이름이 있으면 하나도 쓰지 않고 오류 */
+    write(dir: string, files: ExportFile[], history?: HistoryAppend): Promise<ExportResult>;
+  };
   settings: {
     get(): Promise<Settings>;
     set(patch: Settings): Promise<Settings>;
