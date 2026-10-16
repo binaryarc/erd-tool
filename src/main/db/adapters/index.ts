@@ -8,6 +8,7 @@ const LOADERS: Partial<Record<Dialect, () => Promise<DbAdapter>>> = {
   postgresql: async () => postgresAdapter,
   sqlserver: async () => (await import('./mssql')).mssqlAdapter,
   mysql: async () => (await import('./mysql')).mysqlAdapter,
+  oracle: async () => (await import('./oracle')).oracleAdapter,
 };
 
 export async function adapterFor(d: Dialect): Promise<DbAdapter> {
