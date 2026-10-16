@@ -13,6 +13,14 @@ const fail = (msg: string): never => { throw new EditError(msg); };
 /** 사람이 친 타입을 리버스가 돌려주는 모양으로 맞춘다 (PostgreSQL). 다른 DB 는 normalizeTypeFor */
 export const normalizeType = (input: string): string => normalizeTypeFor('postgresql', input);
 
+/** Oracle 은 따옴표 없이 만든 이름을 대문자로 저장한다. 새 이름은 대문자로 맞춘다 (따옴표가 필요한 이름은 그대로).
+ *  맞추지 않으면 DDL 이 소문자 이름을 따옴표로 감싸 대소문자를 구분하는 이름이 된다 (STEP 9) */
+const newName = (m: SchemaModel, n: string) => (dialectOf(m) === 'oracle' && /^[A-Za-z][A-Za-z0-9_$#]*$/.test(n) ? n.toUpperCase() : n);
+/** 있는 이름 가리키기: 그대로 없으면 Oracle 은 대문자로 맞춘 이름을 쓴다 (사람이나 AI 가 소문자로 친 경우) */
+const refName = (m: SchemaModel, names: string[], n: string) => (names.includes(n) ? n : newName(m, n));
+const tableRef = (m: SchemaModel, n: string) => refName(m, m.tables.map(t => t.name), n);
+const colRef = (m: SchemaModel, tableName: string, n: string) => refName(m, m.tables.find(t => t.name === tableName)?.columns.map(c => c.name) ?? [], n);
+
 function table(m: SchemaModel, name: string): Table {
   return m.tables.find(t => t.name === name) ?? fail(`테이블 ${name} 이 없다`);
 }
@@ -33,6 +41,7 @@ export function nextTableId(m: SchemaModel): string {
 // ---------- 테이블 ----------
 
 export function addTable(m: SchemaModel, name: string, opts: { comment?: string; withCommon?: boolean } = {}): SchemaModel {
+  name = newName(m, name);
   checkName('테이블', name);
   if (m.tables.some(t => t.name === name)) fail(`테이블 ${name} 이 이미 있다`);
   const t: Table = {
@@ -44,8 +53,9 @@ export function addTable(m: SchemaModel, name: string, opts: { comment?: string;
 
 /** 이름, 코멘트 바꾸기. 이름을 바꾸면 다른 테이블의 FK 참조도 바꾼다(ID 는 그대로라 화면 배치가 유지된다) */
 export function updateTable(m: SchemaModel, name: string, patch: { name?: string; comment?: string }): SchemaModel {
+  name = tableRef(m, name);
   table(m, name);
-  const to = patch.name ?? name;
+  const to = patch.name !== undefined ? newName(m, patch.name) : name;
   if (to !== name) {
     checkName('테이블', to);
     if (m.tables.some(t => t.name === to)) fail(`테이블 ${to} 이 이미 있다`);
@@ -94,6 +104,7 @@ function renameIn(expr: string, from: string, to: string): string {
 
 /** 테이블을 지우면 그 테이블을 가리키는 다른 테이블의 FK 도 지운다 */
 export function dropTable(m: SchemaModel, name: string): SchemaModel {
+  name = tableRef(m, name);
   table(m, name);
   return {
     ...m,
@@ -109,6 +120,9 @@ export interface ColumnInput extends Column {
 
 /** after 를 주면 그 컬럼 뒤에, 없으면 공통 컬럼(+common) 앞에 넣는다. 공통 컬럼이 끝에 모여 있어야 +common 으로 줄여 저장된다 */
 export function addColumn(m: SchemaModel, tableName: string, input: ColumnInput, after?: string): SchemaModel {
+  tableName = tableRef(m, tableName);
+  if (after !== undefined) after = colRef(m, tableName, after);
+  input = { ...input, name: newName(m, input.name) };
   const t = table(m, tableName);
   checkName('컬럼', input.name);
   if (t.columns.some(c => c.name === input.name)) fail(`${tableName} 에 컬럼 ${input.name} 이 이미 있다`);
@@ -146,9 +160,11 @@ function clean(c: Column): Column {
 /** 컬럼 고치기. 이름을 바꾸면 이 테이블의 PK, FK, UNIQUE, 인덱스와 다른 테이블의 FK 참조 컬럼도 바꾼다.
  *  pk 를 켜면 NOT NULL 도 켠다(PostgreSQL 이 PK 컬럼을 NOT NULL 로 만든다) */
 export function updateColumn(m: SchemaModel, tableName: string, colName: string, patch: Partial<ColumnInput>): SchemaModel {
+  tableName = tableRef(m, tableName);
+  colName = colRef(m, tableName, colName);
   const t = table(m, tableName);
   const old = t.columns.find(c => c.name === colName) ?? fail(`${tableName} 에 컬럼 ${colName} 이 없다`);
-  const to = patch.name ?? colName;
+  const to = patch.name !== undefined ? newName(m, patch.name) : colName;
   if (to !== colName) {
     checkName('컬럼', to);
     if (t.columns.some(c => c.name === to)) fail(`${tableName} 에 컬럼 ${to} 이 이미 있다`);
@@ -183,6 +199,8 @@ export function updateColumn(m: SchemaModel, tableName: string, colName: string,
 
 /** 컬럼을 지우면 그 컬럼이 든 FK, UNIQUE, 인덱스와 그 컬럼을 참조하는 다른 테이블의 FK 도 지운다(PostgreSQL 의 DROP COLUMN 과 같다) */
 export function dropColumn(m: SchemaModel, tableName: string, colName: string): SchemaModel {
+  tableName = tableRef(m, tableName);
+  colName = colRef(m, tableName, colName);
   const t = table(m, tableName);
   if (!t.columns.some(c => c.name === colName)) fail(`${tableName} 에 컬럼 ${colName} 이 없다`);
   return {
@@ -206,6 +224,8 @@ export function dropColumn(m: SchemaModel, tableName: string, colName: string): 
 
 /** 컬럼 순서 바꾸기 (delta: -1 위로, 1 아래로). 화면과 CREATE 문의 순서만 바뀐다 */
 export function moveColumn(m: SchemaModel, tableName: string, colName: string, delta: -1 | 1): SchemaModel {
+  tableName = tableRef(m, tableName);
+  colName = colRef(m, tableName, colName);
   const t = table(m, tableName);
   const i = t.columns.findIndex(c => c.name === colName);
   if (i < 0) fail(`${tableName} 에 컬럼 ${colName} 이 없다`);
@@ -220,13 +240,16 @@ export function moveColumn(m: SchemaModel, tableName: string, colName: string, d
 
 export const defaultFkName = (m: SchemaModel, tableName: string, refTable: string): string => {
   const taken = new Set(m.tables.flatMap(t => t.fks.map(f => f.name)));
-  const base = `fk_${tableName}_${refTable}`;
+  const base = newName(m, `fk_${tableName}_${refTable}`);
   let n = base;
   for (let i = 2; taken.has(n); i++) n = `${base}_${i}`;
   return n;
 };
 
 export function addFk(m: SchemaModel, tableName: string, fk: ForeignKey): SchemaModel {
+  tableName = tableRef(m, tableName);
+  const refTable = tableRef(m, fk.refTable);
+  fk = { ...fk, name: newName(m, fk.name), refTable, columns: fk.columns.map(c => colRef(m, tableName, c)), refColumns: fk.refColumns.map(c => colRef(m, refTable, c)) };
   const t = table(m, tableName);
   checkName('FK', fk.name);
   if (m.tables.some(x => x.fks.some(f => f.name === fk.name))) fail(`FK 이름 ${fk.name} 이 이미 있다`);
@@ -248,6 +271,8 @@ export function addFk(m: SchemaModel, tableName: string, fk: ForeignKey): Schema
 }
 
 export function dropFk(m: SchemaModel, tableName: string, fkName: string): SchemaModel {
+  tableName = tableRef(m, tableName);
+  fkName = refName(m, m.tables.find(t => t.name === tableName)?.fks.map(f => f.name) ?? [], fkName);
   const t = table(m, tableName);
   if (!t.fks.some(f => f.name === fkName)) fail(`${tableName} 에 FK ${fkName} 이 없다`);
   return withTable(m, tableName, x => ({ ...x, fks: x.fks.filter(f => f.name !== fkName) }));
