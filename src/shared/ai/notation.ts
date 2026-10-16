@@ -1,7 +1,7 @@
 // AI 에게 주는 글 (STEP 8, 설계 10-2, 10-3). 전체 모델을 한 번에 주지 않고 개요 → 필요한 테이블 순서로 묻게 한다.
 // 좌표 숫자 대신 그룹 규칙과 행, 열 위치로 화면 배치를 알린다(AI 가 좌표를 계산하면 격자가 어긋난다).
 
-import { columnText, endsWithCommon, groupOf } from '../model/erd-format';
+import { columnText, endsWithCommon, fkOptions, groupOf } from '../model/erd-format';
 import { DIFF_CHANGE_LABEL, DIFF_KIND_LABEL, type DiffItem } from '../model/diff';
 import { summaryText } from '../export/flyway';
 import { arrangeMode, type Diagram } from '../model/layout';
@@ -27,7 +27,8 @@ export function tableText(model: SchemaModel, t: Table): string {
   const cols = collapse ? t.columns.slice(0, t.columns.length - model.common.length) : t.columns;
   const singlePk = t.pk.length === 1 ? t.pk[0] : undefined;
   const inlineFk = new Map<string, string>();
-  for (const f of t.fks) if (f.columns.length === 1) inlineFk.set(f.columns[0], `${inlineFk.has(f.columns[0]) ? inlineFk.get(f.columns[0]) + ' ' : ''}FK>${f.refTable}.${f.refColumns[0]}`);
+  // 참조 동작, DEFERRABLE 은 FK 표시 뒤에 붙인다 (예: FK>mst_biz.biz_seq DEFERRABLE)
+  for (const f of t.fks) if (f.columns.length === 1) inlineFk.set(f.columns[0], `${inlineFk.has(f.columns[0]) ? inlineFk.get(f.columns[0]) + ' ' : ''}FK>${f.refTable}.${f.refColumns[0]}${fkOptions(f)}`);
   const group = groupOf(t.name, model.groups);
   return [
     [t.name, `[${group}]`, t.comment, collapse ? '+common' : ''].filter(Boolean).join(' '),
@@ -39,7 +40,7 @@ export function tableText(model: SchemaModel, t: Table): string {
       return '  ' + (hash >= 0 ? `${base.slice(0, hash)} ${fk}${base.slice(hash)}` : `${base} ${fk}`);
     }),
     ...(t.pk.length > 1 ? [`  PK (${t.pk.join(', ')})`] : []),
-    ...t.fks.filter(f => f.columns.length > 1).map(f => `  FK ${f.name} (${f.columns.join(', ')}) > ${f.refTable}(${f.refColumns.join(', ')})`),
+    ...t.fks.filter(f => f.columns.length > 1).map(f => `  FK ${f.name} (${f.columns.join(', ')}) > ${f.refTable}(${f.refColumns.join(', ')})${fkOptions(f)}`),
     ...t.uniques.map(u => `  UQ ${u.name} (${u.columns.join(', ')})`),
     ...t.indexes.map(i => `  IX ${i.name} (${i.columns.join(', ')})${i.unique ? ' UNIQUE' : ''}`),
     ...(t.checks ?? []).map(k => `  CK ${k.name} ${k.definition}`),

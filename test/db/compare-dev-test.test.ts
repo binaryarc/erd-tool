@@ -46,5 +46,9 @@ describe.skipIf(!!skip)('dev 와 test 비교', () => {
     expect(result.v19MissingInTest.length).toBe(6);
     expect(ixAdds.length).toBe(48);
     expect(procAdds.length).toBe(4);
+    // 2026-10-16 FK 에 DEFERRABLE 을 담은 뒤 새로 드러난 차이: dev 의 FK 81개는 DEFERRABLE, test 는 아니다(다른 차이는 없다)
+    const fkAlters = d.filter(x => x.kind === 'fk');
+    expect(fkAlters.length).toBe(81);
+    expect(fkAlters.every(x => x.change === 'alter' && / DEFERRABLE/.test(String(x.detail.split(' → ')[0])) && !/DEFERRABLE/.test(String(x.detail.split(' → ')[1])))).toBe(true);
   }, 120_000);
 });

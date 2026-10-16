@@ -3,6 +3,7 @@
 // 잘못된 명령은 EditError 를 던지고 모델은 그대로다.
 
 import { shortType } from './pg-types';
+import { scan } from '../sql/text';
 import type { Column, ForeignKey, SchemaModel, Table } from './types';
 
 export class EditError extends Error {}
@@ -71,11 +72,32 @@ function withRenamed<T extends { name: string; renamedFrom?: string }>(x: T, ori
   return (original === x.name ? rest : { ...rest, renamedFrom: original }) as T;
 }
 
-/** 식(CHECK, 생성식) 안에 컬럼 이름이 낱말로 들어 있는가 */
-const mentions = (expr: string, col: string) => new RegExp(`(^|[^\\w"])"?${col.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"?($|[^\\w"])`).test(expr);
+// 식(CHECK, 생성식) 안의 컬럼 이름 찾기, 바꾸기. 문자열('..')과 주석은 건드리지 않는다
+// (2026-10-16: 전에는 CHECK (kind in ('qty')) 의 'qty' 도 함께 바뀌었다)
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** 코드 구간의 낱말 col (앞뒤가 이름 글자가 아니고, 점 뒤의 다른 테이블 컬럼도 아닌 것) */
+const wordRe = (col: string) => new RegExp(`(^|[^\\w$."])${escRe(col)}(?![\\w$])`, 'g');
+const quoted = (col: string) => `"${col.replace(/"/g, '""')}"`;
+/** 이름 글자로만 된 소문자 이름이 아니면 큰따옴표로 감싼다 (PostgreSQL 이 다시 써 주는 모양) */
+const asIdent = (col: string) => (/^[a-z_][a-z0-9_$]*$/.test(col) ? col : quoted(col));
+
+function mentions(expr: string, col: string): boolean {
+  return scan(expr).some(s => {
+    const t = expr.slice(s.start, s.end);
+    if (s.kind === 'code') return new RegExp(wordRe(col).source).test(t);
+    return s.kind === 'ident' && t === quoted(col);
+  });
+}
+
 /** 식 안의 컬럼 이름을 바꾼다 (PostgreSQL 은 이름을 바꾸면 CHECK, 생성식도 따라 바꾼다) */
-const renameIn = (expr: string, from: string, to: string) =>
-  expr.replace(new RegExp(`(^|[^\\w"])("?)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\2(?=$|[^\\w"])`, 'g'), (_m, pre, qt) => `${pre}${qt}${to}${qt}`);
+function renameIn(expr: string, from: string, to: string): string {
+  return scan(expr).map(s => {
+    const t = expr.slice(s.start, s.end);
+    if (s.kind === 'code') return t.replace(wordRe(from), (_m, pre: string) => pre + asIdent(to));
+    if (s.kind === 'ident' && t === quoted(from)) return asIdent(to);
+    return t;
+  }).join('');
+}
 
 /** 테이블을 지우면 그 테이블을 가리키는 다른 테이블의 FK 도 지운다 */
 export function dropTable(m: SchemaModel, name: string): SchemaModel {
@@ -225,6 +247,9 @@ export function addFk(m: SchemaModel, tableName: string, fk: ForeignKey): Schema
     || ref.indexes.some(i => i.unique && sameSet(i.columns, fk.refColumns));
   if (!keyed) fail(`${fk.refTable}(${fk.refColumns.join(', ')}) 가 PK 나 UNIQUE 가 아니라 FK 로 가리킬 수 없다`);
   const cleanFk: ForeignKey = { name: fk.name, columns: [...fk.columns], refTable: fk.refTable, refColumns: [...fk.refColumns] };
+  if (fk.onDelete) cleanFk.onDelete = fk.onDelete;
+  if (fk.onUpdate) cleanFk.onUpdate = fk.onUpdate;
+  if (fk.deferrable) cleanFk.deferrable = fk.deferrable;
   return withTable(m, tableName, x => ({ ...x, fks: [...x.fks, cleanFk] }));
 }
 

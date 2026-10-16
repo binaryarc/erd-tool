@@ -134,4 +134,31 @@ describe.skipIf(!!skip)('ALTER 를 dev 에 실제로 적용', () => {
       await client.end();
     }
   }, 60_000);
+
+  it('FK 참조 동작과 DEFERRABLE 을 읽고, 바꾼 ALTER 를 적용하면 다시 읽은 결과가 목표와 같다 (끝에 롤백)', async () => {
+    const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
+    try {
+      await client.query('BEGIN');
+      await client.query('CREATE SCHEMA erd_tmp');
+      await client.query('SET LOCAL search_path TO erd_tmp');
+      await client.query('create table erd_p (id integer primary key)');
+      await client.query('create table erd_c (id integer primary key, p_id integer, constraint fk_c_p foreign key (p_id) references erd_p (id) on delete cascade deferrable initially deferred)');
+      const m = await read(client);
+      expect(m.tables.find(t => t.name === 'erd_c')!.fks).toEqual([
+        { name: 'fk_c_p', columns: ['p_id'], refTable: 'erd_p', refColumns: ['id'], onDelete: 'cascade', deferrable: 'deferred' },
+      ]);
+      // dev 와 test 의 차이처럼 DEFERRABLE 만 뺀 모습으로 바꾼다
+      const target = { ...m, tables: m.tables.map(t => (t.name === 'erd_c' ? { ...t, fks: [{ ...t.fks[0], deferrable: undefined }] } : t)) };
+      delete target.tables.find(t => t.name === 'erd_c')!.fks[0].deferrable;
+      await run(client, buildAlter(m, target).sql);
+      expect(meaningful(await read(client), target)).toEqual([]);
+      await run(client, buildAlter(target, m).sql);
+      expect(meaningful(await read(client), m)).toEqual([]);
+    } finally {
+      await client.query('ROLLBACK').catch(() => {});
+      const left = await client.query("select count(*)::int n from pg_namespace where nspname = 'erd_tmp'");
+      expect(left.rows[0].n).toBe(0);
+      await client.end();
+    }
+  }, 60_000);
 });

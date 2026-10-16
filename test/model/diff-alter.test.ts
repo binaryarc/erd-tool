@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { diffModels, narrowing } from '../../src/shared/model/diff';
 import { buildAlter } from '../../src/shared/sql/alter';
-import { updateColumn, updateTable } from '../../src/shared/model/edit';
+import { dropColumn, updateColumn, updateTable } from '../../src/shared/model/edit';
 import { splitStatements } from '../../src/shared/sql/text';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
 
@@ -162,5 +162,31 @@ describe('ALTER 만들기', () => {
     expect(r.tables[0].checks).toEqual([{ name: 'ck_qty', definition: 'CHECK ((amount >= 0))' }]);
     expect(r.tables[0].columns[1].generated).toBe('amount * 2');
     expect(diffModels(a, r).map(i => i.change)).toEqual(['rename']); // CHECK, 생성식은 PostgreSQL 이 따라 바꾸므로 따로 차이가 없다
+  });
+
+  it('컬럼 이름을 바꿔도 CHECK 식의 문자열과 다른 낱말은 그대로다', () => {
+    const a = model([table('t', [col('qty', 'integer'), col('kind', 'text'), col('qty_max', 'integer')],
+      { checks: [{ name: 'ck', definition: "CHECK (((kind = 'qty'::text) AND (qty <= qty_max) AND (\"qty\" > 0)))" }] })]);
+    const r = updateColumn(a, 't', 'qty', { name: 'amount' });
+    expect(r.tables[0].checks![0].definition).toBe("CHECK (((kind = 'qty'::text) AND (amount <= qty_max) AND (amount > 0)))");
+    // 큰따옴표가 필요한 새 이름은 감싼다
+    const u = updateColumn(a, 't', 'qty', { name: 'Qty' });
+    expect(u.tables[0].checks![0].definition).toContain('("Qty" <= qty_max)');
+    // 문자열 안에만 있는 이름은 그 컬럼을 쓰는 것이 아니다 (지우면 CHECK 가 남는다)
+    const b = model([table('t', [col('kind', 'text'), col('memo', 'text')], { checks: [{ name: 'ck', definition: "CHECK ((kind <> 'memo'::text))" }] })]);
+    expect(dropColumn(b, 't', 'memo').tables[0].checks).toHaveLength(1);
+    expect(dropColumn(b, 't', 'kind').tables[0].checks).toEqual([]);
+  });
+
+  it('FK 참조 동작과 DEFERRABLE 이 다르면 FK 를 다시 만든다', () => {
+    const fk = { name: 'fk_wh_biz', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] };
+    const a = model([table('mst_biz', [col('biz_seq', 'integer', { notNull: true })], { pk: ['biz_seq'] }),
+      table('mst_wh', [col('biz_seq', 'integer')], { fks: [fk] })]);
+    const b = model([a.tables[0], { ...a.tables[1], fks: [{ ...fk, onDelete: 'cascade' as const, deferrable: 'deferred' as const }] }]);
+    const items = diffModels(a, b);
+    expect(items.map(i => `${i.kind} ${i.change} ${i.detail}`)).toEqual(['fk alter (biz_seq) > mst_biz(biz_seq) → (biz_seq) > mst_biz(biz_seq) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED']);
+    const sql = buildAlter(a, b).sql;
+    expect(sql).toContain('ALTER TABLE mst_wh DROP CONSTRAINT fk_wh_biz;');
+    expect(sql).toContain('REFERENCES mst_biz (biz_seq) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;');
   });
 });

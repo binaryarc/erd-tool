@@ -1,7 +1,7 @@
 // .erd 한 줄 표기 읽기, 쓰기 (설계 문서 4장)
 // 같은 모델은 항상 같은 바이트로 저장한다: 테이블 이름순, 키 줄은 종류 후 이름순, 컬럼은 정의 순서, LF, 끝 줄바꿈 1개.
 
-import { MODEL_VERSION, type Column, type FunctionDef, type GroupRule, type ModelError, type SchemaModel, type Table } from './types';
+import { MODEL_VERSION, type Column, type FkAction, type ForeignKey, type FunctionDef, type GroupRule, type ModelError, type SchemaModel, type Table } from './types';
 
 export const INDEX_FILE = '_index.erd';
 export const FUNCTIONS_DIR = 'functions/';
@@ -52,13 +52,36 @@ function tableLines(t: Table, common: Column[]): string[] {
     ...cols.map(c => '  ' + columnText(c, c.name === singlePk)),
     ...(t.pk.length > 1 ? [`  PK (${t.pk.join(', ')})`] : []),
     ...[...t.fks].sort((a, b) => cmp(a.name, b.name))
-      .map(f => `  FK ${f.name} (${f.columns.join(', ')}) > ${f.refTable}(${f.refColumns.join(', ')})`),
+      .map(f => `  FK ${f.name} (${f.columns.join(', ')}) > ${f.refTable}(${f.refColumns.join(', ')})${fkOptions(f)}`),
     ...[...t.uniques].sort((a, b) => cmp(a.name, b.name))
       .map(u => `  UQ ${u.name} (${u.columns.join(', ')})`),
     ...[...t.indexes].sort((a, b) => cmp(a.name, b.name))
       .map(i => `  IX ${i.name} (${i.columns.join(', ')})${i.unique ? ' UNIQUE' : ''}`),
     ...[...(t.checks ?? [])].sort((a, b) => cmp(a.name, b.name)).map(c => `  CK ${c.name} ${c.definition}`),
   ];
+}
+
+/**
+ * FK 참조 동작과 DEFERRABLE 을 DDL 모양 그대로 (앞에 공백 하나). 기본값(NO ACTION, NOT DEFERRABLE)이면 빈 글자라 기존 모델 줄은 그대로다.
+ * 모델 파일, 차이 설명, ALTER 가 같은 글자를 쓴다 (2026-10-16 추가: dev 의 FK 81개는 DEFERRABLE, test 는 아님)
+ */
+export function fkOptions(f: ForeignKey): string {
+  return [
+    f.onDelete ? ` ON DELETE ${f.onDelete.toUpperCase()}` : '',
+    f.onUpdate ? ` ON UPDATE ${f.onUpdate.toUpperCase()}` : '',
+    f.deferrable ? ` DEFERRABLE${f.deferrable === 'deferred' ? ' INITIALLY DEFERRED' : ''}` : '',
+  ].join('');
+}
+
+/** fkOptions 의 거꾸로. 모르는 글자가 남으면 undefined */
+function parseFkOptions(s: string): Pick<ForeignKey, 'onDelete' | 'onUpdate' | 'deferrable'> | undefined {
+  const out: Pick<ForeignKey, 'onDelete' | 'onUpdate' | 'deferrable'> = {};
+  const act = '(RESTRICT|CASCADE|SET NULL|SET DEFAULT)';
+  let rest = s.replace(new RegExp(` ON DELETE ${act}`), (_m, a: string) => { out.onDelete = a.toLowerCase() as FkAction; return ''; })
+    .replace(new RegExp(` ON UPDATE ${act}`), (_m, a: string) => { out.onUpdate = a.toLowerCase() as FkAction; return ''; })
+    .replace(/ DEFERRABLE( INITIALLY DEFERRED)?/, (_m, d?: string) => { out.deferrable = d ? 'deferred' : 'immediate'; return ''; });
+  rest = rest.trim();
+  return rest ? undefined : out;
 }
 
 const IDENTITY_WORD = { always: 'IDENTITY', default: 'IDENTITY_BD' } as const;
@@ -154,9 +177,10 @@ export function parseModel(files: Record<string, string>): ParseResult {
         if (!m) return err(`PK 줄 형식이 아니다: ${body}`);
         cur.pk = splitList(m[1]);
       } else if (body.startsWith('FK ')) {
-        const m = body.match(/^FK (\S+) \((.+)\) > (\S+)\((.+)\)$/);
-        if (!m) return err(`FK 줄 형식이 아니다: ${body}`);
-        cur.fks.push({ name: m[1], columns: splitList(m[2]), refTable: m[3], refColumns: splitList(m[4]) });
+        const m = body.match(/^FK (\S+) \(([^)]+)\) > ([^\s(]+)\(([^)]+)\)(.*)$/);
+        const opts = m && parseFkOptions(m[5]);
+        if (!m || !opts) return err(`FK 줄 형식이 아니다: ${body}`);
+        cur.fks.push({ name: m[1], columns: splitList(m[2]), refTable: m[3], refColumns: splitList(m[4]), ...opts });
         where.set(`${cur.name} ${m[1]}`, { file, line });
       } else if (body.startsWith('UQ ')) {
         const m = body.match(/^UQ (\S+) \((.+)\)$/);

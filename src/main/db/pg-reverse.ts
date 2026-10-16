@@ -3,9 +3,12 @@
 
 import pg from 'pg';
 import { shortType } from '../../shared/model/pg-types';
-import type { Column, FunctionDef, Sequence, Table } from '../../shared/model/types';
+import type { Column, FkAction, ForeignKey, FunctionDef, Sequence, Table } from '../../shared/model/types';
 
 const SEP = '\u001f';
+
+/** pg_constraint.confdeltype, confupdtype → 모델 값 (a = NO ACTION 은 적지 않는다) */
+const FK_ACTION: Record<string, FkAction | undefined> = { r: 'restrict', c: 'cascade', n: 'set null', d: 'set default' };
 
 /** 생성식은 pg_get_expr 가 바깥 괄호를 붙여 준다 ((qty * 2)). DDL 에 다시 괄호를 씌우므로 한 겹 벗긴다 */
 function stripParens(s: string): string {
@@ -46,8 +49,9 @@ export async function reversePg(client: pg.Client, opts: ReverseOptions = {}): P
     join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
     left join pg_attrdef d on d.adrelid = c.oid and d.adnum = a.attnum
     where c.relkind in ('r', 'p') and n.nspname = $1 order by 1, a.attnum`);
-  const keys = await q<{ t: string; kind: string; name: string; ft: string | null; cols: string; fcols: string | null; def: string }>(`
+  const keys = await q<{ t: string; kind: string; name: string; ft: string | null; cols: string; fcols: string | null; def: string; del: string; upd: string; defer: boolean; deferred: boolean }>(`
     select c.relname t, k.contype kind, k.conname name, f.relname ft, pg_get_constraintdef(k.oid) def,
+      k.confdeltype::text del, k.confupdtype::text upd, k.condeferrable defer, k.condeferred deferred,
       array_to_string(array(select a.attname from unnest(k.conkey) with ordinality x(n, o)
         join pg_attribute a on a.attrelid = k.conrelid and a.attnum = x.n order by x.o), '${SEP}') cols,
       array_to_string(array(select a.attname from unnest(k.confkey) with ordinality x(n, o)
@@ -106,7 +110,14 @@ export async function reversePg(client: pg.Client, opts: ReverseOptions = {}): P
     else if (k.kind === 'u') t.uniques.push({ name: k.name, columns: split(k.cols) });
     else if (k.kind === 'c') (t.checks ??= []).push({ name: k.name, definition: k.def });
     else if (k.kind === 'x') warnings.push(`제약 ${k.t}.${k.name}: 배제(EXCLUDE) 제약은 모델에 담지 않았다`);
-    else t.fks.push({ name: k.name, columns: split(k.cols), refTable: k.ft!, refColumns: split(k.fcols) });
+    else {
+      const fk: ForeignKey = { name: k.name, columns: split(k.cols), refTable: k.ft!, refColumns: split(k.fcols) };
+      // 참조 동작과 DEFERRABLE (2026-10-16 추가). a(NO ACTION)와 바로 검사는 적지 않는다
+      if (FK_ACTION[k.del]) fk.onDelete = FK_ACTION[k.del];
+      if (FK_ACTION[k.upd]) fk.onUpdate = FK_ACTION[k.upd];
+      if (k.defer) fk.deferrable = k.deferred ? 'deferred' : 'immediate';
+      t.fks.push(fk);
+    }
   }
   for (const g of triggers) warnings.push(`트리거 ${g.t}.${g.name}: 모델에 담지 않는다`);
   for (const i of indexes) {

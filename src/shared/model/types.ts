@@ -22,11 +22,18 @@ export interface Check {
   definition: string;
 }
 
+/** FK 참조 동작. NO ACTION(기본)은 적지 않는다 */
+export type FkAction = 'restrict' | 'cascade' | 'set null' | 'set default';
+
 export interface ForeignKey {
   name: string;
   columns: string[];
   refTable: string;
   refColumns: string[];
+  onDelete?: FkAction;
+  onUpdate?: FkAction;
+  /** DEFERRABLE (immediate: INITIALLY IMMEDIATE, deferred: INITIALLY DEFERRED). 없으면 바로 검사(NOT DEFERRABLE) */
+  deferrable?: 'immediate' | 'deferred';
 }
 
 export interface Index {

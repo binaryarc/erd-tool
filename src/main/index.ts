@@ -161,9 +161,22 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.on(IPC.termKill, (_e, id: string) => killTerm(id));
 
   // 창 닫기: 커밋 안 한 탭이나 저장 안 한 ERD 변경이 있으면 화면에 묻는다 (설계 5장 6번)
-  let closing = false;
+  // 시험 모드(ERD_AUTO)는 끝에 app.quit() 으로 닫으므로 묻지 않는다 (물으면 시험이 멈춘다)
+  let closing = !!process.env.ERD_AUTO;
   let modelDirty = false;
   ipcMain.on(IPC.modelDirty, (_e, d: boolean) => { modelDirty = d; });
+  // X 버튼이 아닌 길(화면 안의 window.close(), 새로 고침 Ctrl+R)은 'close' 이벤트를 거치지 않는다.
+  // 화면의 beforeunload 가 막으면 여기로 오고, 메인이 창으로 묻는다 (2026-10-16: window.close() 로 묻지 않고 닫혔다)
+  win.webContents.on('will-prevent-unload', e => {
+    if (closing) { e.preventDefault(); return; } // 이미 X 버튼 확인을 거쳤다
+    const sql = dirtyTabs().map(d => d.label);
+    const what = [modelDirty ? '저장하지 않은 ERD 변경' : '', sql.length ? `커밋 안 한 SQL 탭(${sql.join(', ')}, 롤백된다)` : ''].filter(Boolean).join(', ');
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning', buttons: ['나가기', '머무르기'], defaultId: 1, cancelId: 1, title: 'ERD 도구',
+      message: `${what || '저장하지 않은 변경'}이 있다. 화면을 닫거나 새로 고치면 사라진다. 계속할까요?`,
+    });
+    if (choice === 0) e.preventDefault();
+  });
   win.on('close', e => {
     if (closing) return;
     const dirty = dirtyTabs();

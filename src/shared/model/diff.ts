@@ -1,6 +1,7 @@
 // 두 모델의 차이 (설계 6-2). from = 지금 모습, to = 바꿀 모습. 이름으로 맞춘다(테이블 ID 는 쓰지 않는다: 두 DB 의 ID 는 서로 다르다).
 
 import { updateColumn, updateTable } from './edit';
+import { fkOptions } from './erd-format';
 import type { Check, Column, ForeignKey, FunctionDef, Index, SchemaModel, Sequence, Table, Unique } from './types';
 
 export type DiffKind = 'table' | 'column' | 'pk' | 'fk' | 'unique' | 'check' | 'index' | 'sequence' | 'function';
@@ -86,7 +87,7 @@ function keyed<T extends { name: string }>(kind: DiffKind, table: string, from: 
   return out;
 }
 
-const fkText = (f: ForeignKey) => `(${f.columns.join(', ')}) > ${f.refTable}(${f.refColumns.join(', ')})`;
+const fkText = (f: ForeignKey) => `(${f.columns.join(', ')}) > ${f.refTable}(${f.refColumns.join(', ')})${fkOptions(f)}`;
 const ukText = (u: Unique) => `(${u.columns.join(', ')})`;
 const ixText = (i: Index) => `(${i.columns.join(', ')})${i.unique ? ' UNIQUE' : ''}`;
 const ckText = (c: Check) => c.definition;
