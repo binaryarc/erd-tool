@@ -9,6 +9,8 @@ import type { ModelError, SchemaModel } from '../../shared/model/types';
 export type Pins = Record<string, [number, number]>;
 export interface AiStep { before: SchemaModel; beforePinned: Pins; after: SchemaModel }
 export interface Viewport { x: number; y: number; zoom: number }
+/** 되돌리기 한 칸: 모델과 그때 배치(깊은 복사). 배치는 그 자리에서 고쳐 쓰므로 복사해 둔다 */
+export interface Snap { model: SchemaModel; layout: Layout }
 
 export interface ErdDoc {
   id: string;
@@ -21,7 +23,7 @@ export interface ErdDoc {
   dirty: Ref<boolean>;
   /** 이 값이 바뀔 때만 캔버스를 전체 보기로 맞춘다 */
   fitKey: Ref<number>;
-  history: EditHistory;
+  history: EditHistory<Snap>;
   canUndo: Ref<boolean>;
   canRedo: Ref<boolean>;
   /** 편집 패널에 띄운 테이블 ID */
@@ -41,7 +43,7 @@ export interface ErdDoc {
 export function newDoc(id: string, modelDir = ''): ErdDoc {
   return {
     id, modelDir: ref(modelDir), model: shallowRef(null), layout: shallowRef(emptyLayout()), diagram: shallowRef(null),
-    version: ref(0), errors: ref([]), dirty: ref(false), fitKey: ref(0), history: new EditHistory(),
+    version: ref(0), errors: ref([]), dirty: ref(false), fitKey: ref(0), history: new EditHistory<Snap>(),
     canUndo: ref(false), canRedo: ref(false), editId: ref(''), pickId: ref(''), aiBase: shallowRef(null), aiSteps: [],
     tab: ref(DEFAULT_DIAGRAM), miniName: ref(''),
   };

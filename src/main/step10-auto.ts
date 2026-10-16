@@ -139,6 +139,67 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
   } finally {
     if (part === 'connect' && out.prep) out.cleanup = await js(`window.__erdConnect('cleanup', ${JSON.stringify(process.env.ERD_BE_DIR)})`);
   }
+  if (part === 'undo') try {
+    // 테이블 이동(여러 개 함께 포함), 자동 정렬, 정렬 방식, 그룹 탭, 선 연결 FK 를 각각 Ctrl+Z 로 되돌리고 Ctrl+Y 로 다시 한다
+    const u = (step: string, a?: string, b?: string) => js<Record<string, unknown> | null>(`window.__erdUndo(${JSON.stringify(step)}, ${JSON.stringify(a ?? null)}, ${JSON.stringify(b ?? null)})`);
+    const head = async (name: string) => { const p = await js<{ x: number; y: number } | null>(`(() => { const t = [...document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table')].find(e => e.querySelector('.head b')?.textContent === ${JSON.stringify(name)}); const r = t?.querySelector('.head')?.getBoundingClientRect(); return r ? { x: r.x + 30, y: r.y + r.height / 2 } : null; })()`); if (!p) throw new Error(`${name} 머리를 못 찾았다`); return p; };
+    const blur = () => js(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
+    await u('fit', 'mst_biz,mst_wh');
+    // 1. 한 테이블 끌기 → 되돌리기 → 다시 하기
+    await drag(await head('mst_biz'), 150, 80);
+    out.moved = await u('state', 'mst_biz');
+    await blur(); await key('Z', ['control']);
+    out.moveUndone = await u('state', 'mst_biz');
+    await key('Y', ['control']);
+    out.moveRedone = await u('state', 'mst_biz');
+    // 2. 두 테이블을 골라 함께 끌기 → 되돌리기 한 번으로 둘 다 돌아온다
+    await u('fit', 'mst_biz,mst_wh');
+    const pb = await head('mst_biz'), pw = await head('mst_wh');
+    await click(pb.x, pb.y);
+    wc.sendInputEvent({ type: 'keyDown', keyCode: 'Control' }); // Vue Flow 는 Ctrl 키 눌림을 따로 본다
+    await click(pw.x, pw.y, ['control']);
+    wc.sendInputEvent({ type: 'keyUp', keyCode: 'Control' });
+    await sleep(200);
+    await drag(await head('mst_wh'), -60, 120);
+    out.multiMoved = await u('state', 'mst_biz', 'mst_wh');
+    await blur(); await key('Z', ['control']);
+    out.multiUndone = await u('state', 'mst_biz', 'mst_wh');
+    // 3. 자동 정렬 → 되돌리기
+    await clickText('header button', '자동 정렬');
+    out.arranged = await u('state');
+    await blur(); await key('Z', ['control']);
+    out.arrangeUndone = await u('state');
+    // 4. 정렬 방식 바꾸기 → 되돌리기
+    await js(`(() => { const s = [...document.querySelectorAll('header select')].find(e => [...e.options].some(o => o.value === 'grid')); s.value = 'grid'; s.dispatchEvent(new Event('change')); })()`);
+    await sleep(500);
+    out.modeChanged = await u('state');
+    await blur(); await key('Z', ['control']);
+    out.modeUndone = await u('state');
+    // 5. 그룹 탭 만들기 → 되돌리기 → 다시 하기
+    await clickText('.dtabs button', '+');
+    await sleep(500);
+    out.tabMade = await u('state');
+    await blur(); await key('Z', ['control']);
+    out.tabUndone = await u('state');
+    await key('Y', ['control']);
+    out.tabRedone = await u('state');
+    await key('Z', ['control']);
+    // 6. 선 연결로 만든 FK(새 컬럼 포함) → 되돌리기 한 번에 FK 와 새 컬럼이 함께 없어진다
+    await clickText('header button', '새 테이블');
+    await sleep(600);
+    await blur();
+    await u('place', 'new_table', 'mst_biz');
+    const from = await js<{ x: number; y: number }>(`(() => { const t = [...document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table')].find(e => e.querySelector('.head b')?.textContent === 'mst_biz'); const r = t.querySelector('.vue-flow__handle[data-handleid="s-biz_seq"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+    const to = await head('new_table');
+    await drag(from, to.x + 20 - from.x, to.y + 30 - from.y);
+    out.connectAsk = await u('state', 'new_table');
+    await clickText('.dialog.conn button', '만들기');
+    out.connected = await u('state', 'new_table');
+    await blur(); await key('Z', ['control']);
+    out.connectUndone = await u('state', 'new_table');
+    await key('Z', ['control']);
+    out.tableUndone = await u('state', 'new_table');
+  } catch (e) { out.error = (e as Error).message; }
   if (part === 'groups') try {
     const dir = process.env.ERD_SAVE_DIR!;
     // 1. 빈 그룹 탭을 만들고 그 탭의 「테이블 추가」 로 기존 테이블 3개를 한 번에 넣는다 (다른 탭으로 가지 않는다)

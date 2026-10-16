@@ -31,7 +31,7 @@ import { buildAlter } from '../../shared/sql/alter';
 import { buildSchemaDocs } from '../../shared/export/md';
 import { buildFlyway, suggestDescription } from '../../shared/export/flyway';
 import { loadConnOptions } from './conn-options';
-import { docField, docTitle, newDoc, sameDir, type ErdDoc, type Pins } from './erd-doc';
+import { docField, docTitle, newDoc, sameDir, type ErdDoc, type Pins, type Snap } from './erd-doc';
 
 const view = reactive<ViewState>({
   nameMode: loadPref('nameMode', 'both', ['physical', 'logical', 'both'] as const),
@@ -99,12 +99,15 @@ function show(m: SchemaModel, l: Layout) {
 }
 
 // ---------- ERD 수정 (STEP 6) ----------
-// 수정 명령(shared/model/edit.ts)은 새 모델을 돌려준다. 되돌리기는 수정 직전 모델을 기록해 두고 바꿔 끼운다.
-// 끌어 옮긴 위치(layout)는 되돌리기 대상이 아니다. 지운 테이블을 되살리면 위치는 그룹 규칙대로 다시 놓인다.
+// 수정 명령(shared/model/edit.ts)은 새 모델을 돌려준다. 되돌리기는 수정 직전 모델과 배치를 기록해 두고 바꿔 끼운다.
+// 배치(끌어 옮긴 위치, 정렬 방식, 그룹 탭)도 되돌린다 (STEP 10, 사용자 요청). 배치는 그 자리에서 고쳐 쓰므로 복사해 담는다
+const snapNow = (m = model.value!): Snap => ({ model: m, layout: structuredClone(layout.value) });
 const history = {
-  push: (m: SchemaModel) => cur.value.history.push(m),
-  undo: (m: SchemaModel) => cur.value.history.undo(m),
-  redo: (m: SchemaModel) => cur.value.history.redo(m),
+  /** 수정 직전 모델 (배치는 지금 것을 복사해 함께 담는다) */
+  push: (m: SchemaModel) => { cur.value.history.push(snapNow(m)); },
+  pushSnap: (s: Snap) => { cur.value.history.push(s); syncHistory(); },
+  undo: (m: SchemaModel) => cur.value.history.undo(snapNow(m)),
+  redo: (m: SchemaModel) => cur.value.history.redo(snapNow(m)),
   clear: () => cur.value.history.clear(),
   get canUndo() { return cur.value.history.canUndo; },
   get canRedo() { return cur.value.history.canRedo; },
@@ -140,13 +143,19 @@ function edit(fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void)
   return true;
 }
 
+/** 되돌리기 한 칸을 화면에 놓는다. 보던 그룹 탭이 없어졌으면 「전체」 로 */
+function restore(s: Snap) {
+  layout.value = s.layout;
+  if (!membersOf(tab.value)) tab.value = DEFAULT_DIAGRAM;
+  setModel(s.model);
+}
 function undo() {
-  const m = model.value && history.undo(model.value);
-  if (m) { setModel(m); message.value = '되돌림'; }
+  const s = model.value && history.undo(model.value);
+  if (s) { restore(s); message.value = '되돌림'; }
 }
 function redo() {
-  const m = model.value && history.redo(model.value);
-  if (m) { setModel(m); message.value = '다시 함'; }
+  const s = model.value && history.redo(model.value);
+  if (s) { restore(s); message.value = '다시 함'; }
 }
 
 function openEditor(name: string) {
@@ -442,15 +451,20 @@ async function saveTo(dir: string) {
   return r;
 }
 
-function onPin(id: string, x: number, y: number) {
-  if (!diagram.value) return;
-  diagram.value.pinned[id] = [x, y];
+/** 끌어 옮긴 테이블들 (한 번 끌기에 여러 개면 되돌리기도 한 번) */
+function onPin(pins: { id: string; x: number; y: number }[]) {
+  const d = diagram.value;
+  if (!d || !model.value) return;
+  if (pins.every(p => String(d.pinned[p.id]) === String([p.x, p.y]))) return; // 제자리 (눌렀다 놓기만)
+  history.pushSnap(snapNow());
+  for (const p of pins) d.pinned[p.id] = [p.x, p.y];
   version.value++;
   dirty.value = true;
 }
 
 function autoArrange() {
-  if (!diagram.value) return;
+  if (!diagram.value || !model.value) return;
+  history.pushSnap(snapNow());
   diagram.value.pinned = {};
   version.value++;
   dirty.value = true;
@@ -458,7 +472,8 @@ function autoArrange() {
 
 /** 정렬 방식(트리, 그룹 격자)은 layout.json 에 다이어그램별로 저장된다. 바꾸면 끌어 옮긴 위치는 지운다 */
 function setArrangeMode(mode: 'grid' | 'tree') {
-  if (!diagram.value || arrangeMode(diagram.value) === mode) return;
+  if (!diagram.value || !model.value || arrangeMode(diagram.value) === mode) return;
+  history.pushSnap(snapNow());
   diagram.value.mode = mode;
   diagram.value.pinned = {};
   version.value++;
@@ -476,8 +491,10 @@ function selectTab(name: string) {
 
 /** 탭 구성 바꾸기 (layout.json 만 바뀐다). 실패하면 화면 아래에 이유를 보인다 */
 function tabOp(f: () => void, done: string): boolean {
+  const before = snapNow(); // 그룹 탭 조작도 되돌린다
   try { f(); }
   catch (e) { if (!(e instanceof TabError)) throw e; message.value = `안 됨: ${e.message}`; return false; }
+  history.pushSnap(before);
   refreshDiagram();
   version.value++;
   dirty.value = true;
@@ -1477,6 +1494,28 @@ window.__erdConnect = async (step: string, a?: string, b?: string) => {
     columns: t?.columns.map(c => `${c.name} ${c.type}${c.notNull ? ' NN' : ''}`), fks: t?.fks, message: message.value, editor: editName.value,
     ask: connectAsk.value && { child: connectAsk.value.plan.child, parent: connectAsk.value.plan.parent, childColumn: connectAsk.value.childColumn, fkName: connectAsk.value.fkName },
     edges: document.querySelectorAll(`${mainSel} .vue-flow__edge`).length, selectedFks: selectedFks.value, canUndo: canUndo.value,
+  }));
+};
+
+/** 배치 되돌리기 시험 (STEP 10): 메인이 실제 입력으로 옮기고 되돌린 뒤 여기서 위치, 탭, FK 를 읽는다 */
+window.__erdUndo = async (step: string, a?: string, b?: string) => {
+  const id = (n: string) => model.value!.tables.find(t => t.name === n)?.id ?? '';
+  if (step === 'fit') { await canvas.value!.fitView({ nodes: a!.split(',').map(id), padding: 0.3, maxZoom: 1 }); await sleep(700); return null; }
+  if (step === 'place') { // 새 테이블 a 를 b 오른쪽에 두고 둘이 보이게 (시험 준비라 되돌리기 기록에 넣지 않는다)
+    const box = canvas.value!.boxes().get(id(b!))!;
+    diagram.value!.pinned[id(a!)] = [box.x + box.w + 120, box.y];
+    version.value++;
+    await nextTick(); await frames(5);
+    await canvas.value!.fitView({ nodes: [id(a!), id(b!)], padding: 0.3, maxZoom: 1 }); await sleep(700);
+    return null;
+  }
+  const d = diagram.value!;
+  const pos = (n: string) => d.pinned[id(n)] ?? null;
+  const t = model.value!.tables.find(x => x.name === a);
+  return JSON.parse(JSON.stringify({
+    canUndo: canUndo.value, canRedo: canRedo.value, tab: tab.value, tabs: tabNames.value, mode: arrangeMode(d), pinned: Object.keys(d.pinned).length,
+    pos: a ? pos(a) : null, pos2: b ? pos(b) : null, members: membersOf(tab.value)?.length ?? null,
+    table: t ? { columns: t.columns.map(c => c.name), fks: t.fks.map(f => f.name) } : null, hasTable: !!t, message: message.value, ask: !!connectAsk.value,
   }));
 };
 

@@ -292,24 +292,25 @@ export function dropFk(m: SchemaModel, tableName: string, fkName: string): Schem
 
 // ---------- 되돌리기 ----------
 
-/** 모델을 바꾸지 않고 통째로 들고 있어 되돌리기가 단순하다 (모델은 수정할 때마다 새로 만들어진다) */
-export class EditHistory {
-  private past: SchemaModel[] = [];
-  private future: SchemaModel[] = [];
+/** 모델을 바꾸지 않고 통째로 들고 있어 되돌리기가 단순하다 (모델은 수정할 때마다 새로 만들어진다).
+ *  화면은 모델과 배치를 함께 담는다 (STEP 10: 테이블 이동, 정렬, 그룹 탭도 되돌린다) */
+export class EditHistory<T = SchemaModel> {
+  private past: T[] = [];
+  private future: T[] = [];
   constructor(private readonly limit = 200) {}
 
-  /** 수정 직전 모델을 넣는다 */
-  push(before: SchemaModel) {
+  /** 수정 직전 상태를 넣는다 */
+  push(before: T) {
     this.past.push(before);
     if (this.past.length > this.limit) this.past.shift();
     this.future = [];
   }
-  undo(current: SchemaModel): SchemaModel | undefined {
+  undo(current: T): T | undefined {
     const prev = this.past.pop();
     if (prev) this.future.push(current);
     return prev;
   }
-  redo(current: SchemaModel): SchemaModel | undefined {
+  redo(current: T): T | undefined {
     const next = this.future.pop();
     if (next) this.past.push(current);
     return next;

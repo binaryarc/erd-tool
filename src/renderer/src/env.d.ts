@@ -18,6 +18,7 @@ declare global {
     __erdSaveReopen?: (dir: string) => Promise<unknown>;
     __erdSession?: (step: string, arg?: string) => Promise<unknown>;
     __erdConnect?: (step: string, a?: string, b?: string) => Promise<unknown>;
+    __erdUndo?: (step: string, a?: string, b?: string) => Promise<unknown>;
   }
 }
 
