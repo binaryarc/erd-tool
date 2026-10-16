@@ -2,8 +2,9 @@
 
 import type { Dialect } from '../dialect/names';
 
-/** 2: DB 종류와 스키마 줄 추가 (STEP 9). 1 은 읽을 때 PostgreSQL, public 으로 본다 */
-export const MODEL_VERSION = 2;
+/** 2: DB 종류와 스키마 줄 추가 (STEP 9). 1 은 읽을 때 PostgreSQL, public 으로 본다.
+ *  3: 도메인 줄과 컬럼의 도메인 표시 추가 (STEP 10). 1, 2 는 도메인 없이 그대로 읽는다 */
+export const MODEL_VERSION = 3;
 
 export interface Column {
   name: string;
@@ -20,6 +21,15 @@ export interface Column {
   generated?: string;
   /** 화면에서 이름을 바꾸기 전 이름. 파일에는 저장하지 않는다(메모리 전용). 차이 계산이 DROP, ADD 대신 RENAME 을 만들 때 쓴다 */
   renamedFrom?: string;
+  /** 연결한 도메인 이름 (STEP 10). 타입은 항상 그 도메인의 타입과 같다. DB 는 모르는 도구 안 개념이라 DDL, 차이 계산은 보지 않는다 */
+  domain?: string;
+}
+
+/** 도메인 (STEP 10 결정 2): 타입만 정한다. NOT NULL, 기본값은 정하지 않는다. DB 의 CREATE DOMAIN 은 쓰지 않는다 */
+export interface Domain {
+  name: string;
+  /** 모델의 DB 종류에 맞춰 정리한 타입 (normalizeTypeFor) */
+  type: string;
 }
 
 /** CHECK 제약. definition 은 pg_get_constraintdef 모양 그대로 (예: CHECK ((qty >= 0))) */
@@ -104,6 +114,8 @@ export interface SchemaModel {
   groups: GroupRule[];
   /** +common 으로 줄여 쓰는 공통 컬럼 정의 (순서 유지) */
   common: Column[];
+  /** 도메인 (STEP 10). 없으면 도메인 없음 */
+  domains?: Domain[];
   sequences: Sequence[];
   tables: Table[];
   functions: FunctionDef[];

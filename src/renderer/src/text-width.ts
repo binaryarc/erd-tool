@@ -6,6 +6,7 @@ import type { NameMode } from './view';
 const FONT = "11px Consolas, 'Malgun Gothic', monospace";
 const BOLD = 'bold ' + FONT;
 const EXT = "10px 'Malgun Gothic', sans-serif";
+const DOM = "9px Consolas, 'Malgun Gothic', monospace";
 const ctx = document.createElement('canvas').getContext('2d')!;
 const cache = new Map<string, number>();
 
@@ -34,6 +35,7 @@ export function tableWidth(t: Table, mode: NameMode, external = 0): number {
     const name = mode === 'logical' ? c.comment || c.name : c.name;
     let w = PAD + KEY + GAP + measure(name, c.notNull ? BOLD : FONT) + GAP + measure(c.type);
     if (mode === 'both' && c.comment) w += GAP + measure(c.comment);
+    if (c.domain) w += GAP + measure(c.domain, DOM) + 6; // 도메인 배지 (안쪽 여백 3+3, STEP 10)
     body = Math.max(body, w);
   }
   return Math.ceil(Math.min(NODE.maxWidth, Math.max(NODE.width, head, body) + BORDER + 4));
