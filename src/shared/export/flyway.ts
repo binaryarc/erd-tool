@@ -5,6 +5,7 @@
 
 import { DIFF_CHANGE_LABEL, DIFF_KIND_LABEL, diffModels, summarize, type DiffItem, type DiffKind } from '../model/diff';
 import { buildAlter } from '../sql/alter';
+import { dialectOf } from '../dialect/names';
 import type { SchemaModel } from '../model/types';
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -72,6 +73,8 @@ export interface FlywayFile {
 const body = (sql: string) => sql.replace(/^-- [^\n]*\n\n?/, '').trimEnd();
 
 export function buildFlyway(i: FlywayInput): FlywayFile {
+  // 여러 번 실행해도 안전한 문장(DO 블록, IF NOT EXISTS)이 PostgreSQL 전용이다 (STEP 9 범위, 사용자 결정 2026-10-16)
+  if (dialectOf(i.from.dialect ? i.from : i.to) !== 'postgresql') throw new Error('Flyway 파일은 PostgreSQL 모델에서만 만든다');
   if (!validDescription(i.description)) throw new Error(`설명은 영문 소문자 snake_case 여야 한다: ${i.description}`);
   const items = diffModels(i.from, i.to);
   if (!items.length) throw new Error('차이가 없어 Flyway 파일을 만들지 않는다');

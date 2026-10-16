@@ -1,10 +1,10 @@
 // 통합 시험 (STEP 7 완료 기준): 화면 수정으로 만든 Flyway 파일을 로컬 dev 에 적용하고 다시 리버스하면 모델 차이가 0 이다.
 // Flyway 처럼 파일 하나를 한 트랜잭션에서 실행하고, 같은 연결로 public 을 다시 읽어 비교한 뒤 끝에 롤백한다. dev 에 커밋하지 않는다.
 import { describe, expect, it } from 'vitest';
-import pg from 'pg';
 import { connect, resolve } from '../../src/main/db/connect';
 import { getProfile, passwordOf } from '../../src/main/db/profiles';
-import { reversePg } from '../../src/main/db/pg-reverse';
+import { postgresAdapter } from '../../src/main/db/adapters/postgres';
+import type { DbConn } from '../../src/main/db/adapters/types';
 import { diffModels } from '../../src/shared/model/diff';
 import { addColumn, addFk, addTable, updateColumn } from '../../src/shared/model/edit';
 import { buildFlyway } from '../../src/shared/export/flyway';
@@ -15,10 +15,10 @@ const BE = process.env.ERD_BE_DIR ?? 'C:/work/workspace/shop-be';
 let skip = '';
 try { passwordOf(getProfile(BE, 'dev'), BE); } catch (e) { skip = (e as Error).message; }
 
-async function run(client: pg.Client, sql: string) {
+async function run(client: DbConn, sql: string) {
   for (const s of splitStatements(sql)) {
     const body = s.text.replace(/^(--[^\n]*\n)+/, '').trim();
-    if (body) await client.query(body);
+    if (body) await client.exec(body);
   }
 }
 
@@ -30,9 +30,9 @@ describe.skipIf(!!skip)('STEP 7 Flyway 파일을 dev 에 적용 (롤백)', () =>
   it('적용 뒤 다시 읽으면 차이 0, 두 번 실행해도 오류 없음, ROLLBACK 블록으로 원래대로', async () => {
     const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
     try {
-      await client.query('BEGIN');
+      await client.exec('BEGIN');
       const read = async (like: SchemaModel): Promise<SchemaModel> => {
-        const r = await reversePg(client);
+        const r = await postgresAdapter.reverse(client, 'public');
         return { ...like, tables: r.tables, sequences: r.sequences, functions: r.functions };
       };
       const empty: SchemaModel = { version: 1, groups: [], common: [], sequences: [], functions: [], tables: [] };
@@ -60,10 +60,10 @@ describe.skipIf(!!skip)('STEP 7 Flyway 파일을 dev 에 적용 (롤백)', () =>
       expect(differences(await read(before), before)).toEqual([]);
       console.log(JSON.stringify({ fileName: file.fileName, statements: file.statements, dangers: file.dangers, items: file.items.length }));
     } finally {
-      await client.query('ROLLBACK').catch(() => {});
+      await client.exec('ROLLBACK').catch(() => {});
       const left = await client.query("select count(*)::int n from pg_class where relname = 'mst_erd_probe'");
-      expect(left.rows[0].n).toBe(0); // dev 에 남은 것 없음
-      await client.end();
+      expect(left[0].n).toBe(0); // dev 에 남은 것 없음
+      await client.close();
     }
   }, 120_000);
 });

@@ -1,9 +1,51 @@
-// PostgreSQL 카탈로그 → 스키마 모델 (설계 6-1). 행 데이터는 읽지 않는다.
+// PostgreSQL 어댑터 (STEP 9 전에는 connect.ts, session.ts, catalog.ts, pg-reverse.ts, mcp/db-query.ts 에 있던 코드).
+// 읽기 전용은 DB 서버가 막는다(default_transaction_read_only). 커서는 pg-cursor (확장 프로토콜이라 한 번에 문장 하나).
+// 카탈로그 → 스키마 모델 (설계 6-1). 행 데이터는 읽지 않는다.
 // 컬럼 목록은 name[] 대신 구분자로 이어 받는다 (pg 가 name[] 를 '{a,b}' 문자열로 돌려줌, STEP 2 실측).
 
 import pg from 'pg';
-import { shortType } from '../../shared/model/pg-types';
-import type { Column, FkAction, ForeignKey, FunctionDef, Sequence, Table } from '../../shared/model/types';
+import Cursor from 'pg-cursor';
+import { shortType } from '../../../shared/dialect/postgresql';
+import type { SqlCatalog } from '../../../shared/ipc';
+import type { Column, FkAction, ForeignKey, FunctionDef, Table } from '../../../shared/model/types';
+import type { CursorRead, DbAdapter, DbConn, ReverseRaw, RowCursor, Target } from './types';
+
+// DB 도구라 값은 DB 가 준 글자 그대로 보여준다 (날짜, numeric, json, bytea, 배열). 숫자와 참거짓만 바꾼다
+const KEEP_PARSED = new Set([16, 21, 23, 26, 700, 701]); // bool, int2, int4, oid, float4, float8
+const rawTypes = {
+  getTypeParser: (oid: number, format?: string) =>
+    KEEP_PARSED.has(oid) ? pg.types.getTypeParser(oid, format as 'text') : (v: string) => v,
+};
+
+function readCursor(cursor: Cursor, n: number): Promise<CursorRead> {
+  return new Promise((ok, fail) => cursor.read(n, (err, rows, result) => (err ? fail(err) : ok({
+    rows: rows as unknown[][], fields: (result.fields ?? []).map(f => f.name), command: result.command ?? '', rowCount: result.rowCount ?? null,
+  }))));
+}
+
+function wrap(client: pg.Client): DbConn {
+  return {
+    query: async <T>(sql: string, params?: unknown[]) => (await client.query({ text: sql, values: params })).rows as T[],
+    exec: async sql => { await client.query(sql); },
+    cursor(sql): RowCursor {
+      const cursor = client.query(new Cursor(sql, undefined, { rowMode: 'array', types: rawTypes }));
+      // pg-cursor 는 오류 뒤 close() 가 끝나지 않는다(더 받기 오류 때 다음 실행이 멈췄다, 2026-10-16). 오류가 난 커서는 닫지 않고 버린다
+      let failed = false;
+      return {
+        read: n => readCursor(cursor, n).catch(e => { failed = true; throw e; }),
+        close: async () => { if (!failed) await cursor.close().catch(() => {}); },
+      };
+    },
+    begin: async () => { await client.query('BEGIN'); },
+    commit: async () => { await client.query('COMMIT'); },
+    rollback: async () => { await client.query('ROLLBACK'); },
+    savepoint: async n => { await client.query(`SAVEPOINT ${n}`); },
+    rollbackTo: async n => { await client.query(`ROLLBACK TO SAVEPOINT ${n}`); },
+    release: async n => { await client.query(`RELEASE SAVEPOINT ${n}`); },
+    setReadOnly: async on => { await client.query(`set default_transaction_read_only = ${on ? 'on' : 'off'}`); },
+    close: async () => { await client.end().catch(() => {}); },
+  };
+}
 
 const SEP = '\u001f';
 
@@ -21,21 +63,8 @@ function stripParens(s: string): string {
   return s.slice(1, -1);
 }
 
-export interface ReverseOptions {
-  schema?: string;
-}
-
-export interface ReverseRaw {
-  tables: Table[];
-  sequences: Sequence[];
-  functions: FunctionDef[];
-  /** 모델에 담지 못한 것 (뷰, 부분 인덱스 등) */
-  warnings: string[];
-}
-
-export async function reversePg(client: pg.Client, opts: ReverseOptions = {}): Promise<ReverseRaw> {
-  const schema = opts.schema ?? 'public';
-  const q = async <T>(sql: string): Promise<T[]> => (await client.query({ text: sql, values: [schema] })).rows as T[];
+async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
+  const q = <T>(sql: string): Promise<T[]> => c.query<T>(sql, [schema]);
 
   const tables = await q<{ t: string; cmt: string | null }>(`
     select c.relname t, obj_description(c.oid, 'pg_class') cmt
@@ -140,12 +169,78 @@ export async function reversePg(client: pg.Client, opts: ReverseOptions = {}): P
 }
 
 /** 직접 조회한 테이블 수, FK 수 (완료 기준 대조용) */
-export async function countPg(client: pg.Client, schema = 'public'): Promise<{ tables: number; fks: number }> {
-  const r = await client.query({
-    text: `select
+async function count(c: DbConn, schema: string): Promise<{ tables: number; fks: number }> {
+  const [r] = await c.query<{ tables: number; fks: number }>(`select
       (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind in ('r', 'p') and n.nspname = $1)::int tables,
-      (select count(*) from pg_constraint k join pg_namespace n on n.oid = k.connamespace where k.contype = 'f' and n.nspname = $1)::int fks`,
-    values: [schema],
-  });
-  return r.rows[0];
+      (select count(*) from pg_constraint k join pg_namespace n on n.oid = k.connamespace where k.contype = 'f' and n.nspname = $1)::int fks`, [schema]);
+  return r;
 }
+
+const USER_SCHEMAS = `n.nspname not in ('pg_catalog', 'information_schema') and n.nspname not like 'pg_toast%' and n.nspname not like 'pg_temp%'`;
+
+async function catalog(client: DbConn): Promise<SqlCatalog> {
+  {
+    const rels = (await client.query<{ sch: string; name: string; kind: string; cmt: string | null }>(`
+      select n.nspname sch, c.relname name, c.relkind kind, obj_description(c.oid, 'pg_class') cmt
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where c.relkind in ('r', 'p', 'v', 'm', 'f') and ${USER_SCHEMAS}
+        and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'e')
+      order by 2`));
+    const cols = (await client.query<{ sch: string; tbl: string; name: string; typ: string; cmt: string | null }>(`
+      select n.nspname sch, c.relname tbl, a.attname name, format_type(a.atttypid, a.atttypmod) typ, col_description(c.oid, a.attnum) cmt
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+      where c.relkind in ('r', 'p', 'v', 'm', 'f') and ${USER_SCHEMAS}
+      order by 1, 2, a.attnum`));
+    const fns = (await client.query<{ name: string; args: string; ret: string | null }>(`
+      select distinct p.proname name, pg_get_function_identity_arguments(p.oid) args, pg_get_function_result(p.oid) ret
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where ${USER_SCHEMAS} and p.prokind in ('f', 'a')
+        and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+      order by 1`));
+
+    const key = (s: string, t: string) => `${s}.${t}`;
+    const byTable = new Map<string, SqlCatalog['tables'][number]>();
+    const tables = rels.map(r => {
+      const t = { name: r.name, schema: r.sch, kind: r.kind === 'v' || r.kind === 'm' ? 'view' as const : 'table' as const, comment: r.cmt ?? '', columns: [] as SqlCatalog['tables'][number]['columns'] };
+      byTable.set(key(r.sch, r.name), t);
+      return t;
+    });
+    for (const c of cols) byTable.get(key(c.sch, c.tbl))?.columns.push({ name: c.name, type: shortType(c.typ), comment: c.cmt ?? '' });
+    return { dialect: 'postgresql', tables, functions: fns.map(f => ({ name: f.name, args: f.args, returns: f.ret ?? '' })) };
+  }
+}
+
+export const postgresAdapter: DbAdapter = {
+  dialect: 'postgresql',
+  /** readOnly 면 이 연결의 모든 트랜잭션을 DB 서버가 읽기 전용으로 막는다 */
+  async connect(t: Target, readOnly: boolean) {
+    const client = new pg.Client({
+      host: t.host, port: t.port, database: t.database, user: t.user, password: t.password,
+      connectionTimeoutMillis: 10_000, application_name: 'erd-tool',
+    });
+    await client.connect();
+    const c = wrap(client);
+    if (readOnly) await c.setReadOnly(true);
+    return c;
+  },
+  isAuthError: e => (e as { code?: string }).code === '28P01',
+  errorInfo(e) {
+    const err = e as Error & { position?: string; code?: string };
+    return { message: err.message, code: err.code, position: err.position ? Number(err.position) : undefined };
+  },
+  defaultSchema: t => t.schema || 'public',
+  reverse,
+  count,
+  catalog,
+  async serverInfo(c) {
+    const [v] = await c.query<{ db: string; ver: string }>('select current_database() db, version() ver');
+    return { database: v.db, version: String(v.ver).split(',')[0] };
+  },
+  // 세 겹으로 막는다: 연결의 default_transaction_read_only, BEGIN READ ONLY(첫 조회를 먼저 해 읽기-쓰기 전환도 막음), 확장 프로토콜(pg-cursor)이라 한 번에 문장 하나
+  async beginAiQuery(c, timeoutMs) {
+    await c.exec(`set statement_timeout = ${Math.max(1000, Math.floor(timeoutMs))}`);
+    await c.exec('BEGIN READ ONLY');
+    await c.exec('SELECT 1'); // 첫 조회 뒤에는 트랜잭션을 읽기-쓰기로 바꿀 수 없다 (SET TRANSACTION READ WRITE 차단)
+  },
+};

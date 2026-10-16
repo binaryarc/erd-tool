@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { connect, resolve } from '../../src/main/db/connect';
 import { getProfile, passwordOf } from '../../src/main/db/profiles';
-import { reversePg } from '../../src/main/db/pg-reverse';
+import { postgresAdapter } from '../../src/main/db/adapters/postgres';
+import type { DbConn } from '../../src/main/db/adapters/types';
 import { diffModels, isProcedure, summarize } from '../../src/shared/model/diff';
 import type { FunctionDef, SchemaModel } from '../../src/shared/model/types';
 
@@ -17,9 +18,9 @@ try { for (const p of ['dev', 'test']) passwordOf(getProfile(BE, p), BE); } catc
 async function readDb(name: string): Promise<SchemaModel> {
   const client = await connect(await resolve({ source: 'be', beDir: BE, name }), true); // 읽기 전용
   try {
-    const r = await reversePg(client);
+    const r = await postgresAdapter.reverse(client, 'public');
     return { version: 1, groups: [], common: [], tables: r.tables, sequences: r.sequences, functions: r.functions };
-  } finally { await client.end(); }
+  } finally { await client.close(); }
 }
 
 const v19 = [...fs.readFileSync(`${BE}/src/main/resource/db/migration/V19__add_mapping_table_unique_index.sql`, 'utf8')

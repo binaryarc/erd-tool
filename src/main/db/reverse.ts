@@ -2,31 +2,37 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import pg from 'pg';
 import { detectCommon, groupsFromErdGroupsJson } from '../../shared/model/groups';
 import { mergeModel } from '../../shared/model/merge';
 import { emptyLayout } from '../../shared/model/layout';
 import { MODEL_VERSION, type GroupRule, type SchemaModel } from '../../shared/model/types';
 import type { ConnRef, ConnTestResult, ManualConn, ReverseResult } from '../../shared/ipc';
 import { loadModel } from '../model-store';
-import { connect, connectRef } from './connect';
-import { countPg, reversePg } from './pg-reverse';
+import { DIALECT_LABEL } from '../../shared/dialect/names';
+import { adapterFor } from './adapters';
+import type { DbAdapter, DbConn, Target } from './adapters/types';
+import { connectRef } from './connect';
 
 // 리버스와 접속 시험은 읽기만 한다
-export const testConnection = async (ref: ConnRef) => test(async () => (await connectRef(ref, true)).client);
-export const testDraft = async (c: ManualConn, password: string) => test(() => connect({ ...c, password }, true));
+export const testConnection = async (ref: ConnRef) => test(async () => connectRef(ref, true));
+export const testDraft = async ({ driver, ...c }: ManualConn, password: string) => test(async () => {
+  const target: Target = { ...c, dialect: driver, password };
+  const adapter = await adapterFor(driver);
+  return { conn: await adapter.connect(target, true), adapter, target };
+});
 
-async function test(open: () => Promise<pg.Client>): Promise<ConnTestResult> {
-  let client: pg.Client | undefined;
+async function test(open: () => Promise<{ conn: DbConn; adapter: DbAdapter; target: Target }>): Promise<ConnTestResult> {
+  let conn: DbConn | undefined;
   try {
-    client = await open();
-    const c = await countPg(client);
-    const v = await client.query('select current_database() db, version() ver');
-    return { ok: true, message: `${v.rows[0].db} 접속 성공`, tables: c.tables, fks: c.fks, server: String(v.rows[0].ver).split(',')[0] };
+    const o = await open();
+    conn = o.conn;
+    const c = await o.adapter.count(conn, o.adapter.defaultSchema(o.target));
+    const v = await o.adapter.serverInfo(conn);
+    return { ok: true, message: `${v.database} 접속 성공`, tables: c.tables, fks: c.fks, server: v.version };
   } catch (e) {
     return { ok: false, message: (e as Error).message };
   } finally {
-    await client?.end().catch(() => {});
+    await conn?.close();
   }
 }
 
@@ -44,12 +50,19 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
   const beDir = ref.source === 'be' ? ref.beDir : hubBeDir;
   const loaded = fs.existsSync(path.join(modelDir, '_index.erd')) ? await loadModel(modelDir) : null;
   const prev = loaded?.model ?? null;
-  const { client } = await connectRef(ref, true);
+  const { conn, adapter, target } = await connectRef(ref, true);
   try {
-    const raw = await reversePg(client);
-    const counts = await countPg(client);
+    // 다른 DB 종류의 모델 폴더에 덮어쓰지 않는다
+    if (prev && (prev.dialect ?? 'postgresql') !== adapter.dialect) {
+      throw new Error(`모델 폴더는 ${DIALECT_LABEL[prev.dialect ?? 'postgresql']} 모델이다. ${DIALECT_LABEL[adapter.dialect]} 접속은 다른 폴더로 불러온다`);
+    }
+    const schema = adapter.defaultSchema(target);
+    const raw = await adapter.reverse(conn, schema);
+    const counts = await adapter.count(conn, schema);
     const next: SchemaModel = {
       version: MODEL_VERSION,
+      dialect: adapter.dialect,
+      schema,
       groups: prev?.groups.length ? prev.groups : ((beDir && hubGroups(beDir)) || [{ name: 'main', isDefault: true }]),
       common: prev?.common.length ? prev.common : detectCommon(raw.tables),
       sequences: raw.sequences,
@@ -59,17 +72,18 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
     const { model, diff } = mergeModel(prev, next);
     return { model, diff, warnings: raw.warnings, counts, hadModel: !!prev, layout: loaded?.layout ?? emptyLayout(), prev };
   } finally {
-    await client.end().catch(() => {});
+    await conn.close();
   }
 }
 
 /** DB 구조를 읽기만 한다 (DB 비교 화면용). 읽기 전용 연결, 모델 폴더와 맞추지 않는다 */
 export async function readDb(ref: ConnRef): Promise<{ model: SchemaModel; warnings: string[] }> {
-  const { client } = await connectRef(ref, true);
+  const { conn, adapter, target } = await connectRef(ref, true);
   try {
-    const raw = await reversePg(client);
-    return { model: { version: MODEL_VERSION, groups: [], common: [], tables: raw.tables, sequences: raw.sequences, functions: raw.functions }, warnings: raw.warnings };
+    const schema = adapter.defaultSchema(target);
+    const raw = await adapter.reverse(conn, schema);
+    return { model: { version: MODEL_VERSION, dialect: adapter.dialect, schema, groups: [], common: [], tables: raw.tables, sequences: raw.sequences, functions: raw.functions }, warnings: raw.warnings };
   } finally {
-    await client.end().catch(() => {});
+    await conn.close();
   }
 }

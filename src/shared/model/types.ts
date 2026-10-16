@@ -1,6 +1,9 @@
 // 스키마 모델 — 화면, MD, Flyway, DDL, AI 응답을 모두 이 모델에서 만든다 (설계 문서 4장)
 
-export const MODEL_VERSION = 1;
+import type { Dialect } from '../dialect/names';
+
+/** 2: DB 종류와 스키마 줄 추가 (STEP 9). 1 은 읽을 때 PostgreSQL, public 으로 본다 */
+export const MODEL_VERSION = 2;
 
 export interface Column {
   name: string;
@@ -90,6 +93,10 @@ export interface Sequence {
 
 export interface SchemaModel {
   version: number;
+  /** DB 종류. 없으면 PostgreSQL (형식 버전 1 모델, 시험용 모델) */
+  dialect?: Dialect;
+  /** 스키마 (모델당 1개, 사용자 결정 2026-10-16). 없으면 public */
+  schema?: string;
   /** 위에서부터 접두어를 대조하고, 맞는 것이 없으면 isDefault 그룹 */
   groups: GroupRule[];
   /** +common 으로 줄여 쓰는 공통 컬럼 정의 (순서 유지) */

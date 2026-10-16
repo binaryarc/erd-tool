@@ -7,6 +7,7 @@ import { AllCommunityModule, ModuleRegistry, colorSchemeDark, themeQuartz, type 
 import { bindContext, catalogCache, catalogFromModel, monaco, registerSqlProviders, unbindContext } from '../sql/monaco';
 import SplitPane from './SplitPane.vue';
 import { loadConnOptions, type ConnOption } from '../conn-options';
+import { rulesFor } from '../../../shared/dialect';
 import { splitStatements, statementAt } from '../../../shared/sql/text';
 import type { ConnRef, HistoryEntry, SqlCatalog, SqlResult, SqlState } from '../../../shared/ipc';
 import type { SchemaModel } from '../../../shared/model/types';
@@ -113,7 +114,7 @@ async function run(sqlText?: string) {
     const sel = editor.getSelection();
     if (sel && !sel.isEmpty()) { sql = model.getValueInRange(sel); start = model.getOffsetAt(sel.getStartPosition()); }
     else {
-      const st = statementAt(model.getValue(), model.getOffsetAt(editor.getPosition()!));
+      const st = statementAt(model.getValue(), model.getOffsetAt(editor.getPosition()!), rulesFor(state.value.dialect).text);
       if (!st) return;
       sql = st.text; start = st.start;
     }
@@ -139,7 +140,7 @@ async function runAll() {
   const model = editor.getModel()!;
   // 문장 앞 주석 줄(ALTER 의 [위험] 표시 등)은 떼고 실행한다. lead 는 떼어 낸 글자 수 (오류 위치 계산용)
   const LEAD_COMMENTS = /^(\s*--[^\n]*\n)+/;
-  const stmts = splitStatements(model.getValue())
+  const stmts = splitStatements(model.getValue(), rulesFor(state.value.dialect).text)
     .map(s => {
       const body = s.text.replace(LEAD_COMMENTS, '');
       return { ...s, body: body.trim(), lead: s.text.length - body.length };
@@ -247,7 +248,7 @@ defineExpose({
       <span class="status">
         <b v-if="state?.dirty" class="warn">커밋 안 함</b>
         <span v-else-if="state?.inTx">트랜잭션 진행 중</span>
-        <span v-if="state?.readOnly" class="ro">읽기 전용</span>
+        <span v-if="state?.readOnly" class="ro" :title="state.readOnlyByAccount ? '이 DB 는 서버가 읽기 전용을 막지 못한다. 쓰기는 DB 계정 권한으로 막아야 한다' : ''">읽기 전용{{ state.readOnlyByAccount ? ' (계정 권한 필요)' : '' }}</span>
         {{ message }}
         <span class="muted">{{ catalogMessage }}</span>
       </span>

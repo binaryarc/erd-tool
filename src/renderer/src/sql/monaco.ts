@@ -23,7 +23,8 @@ export const unbindContext = (model: monaco.editor.ITextModel) => contexts.delet
 
 /** ERD 모델을 자동완성 목록 모양으로 (DB 목록을 아직 못 읽었을 때) */
 export const catalogFromModel = (m: SchemaModel): SqlCatalog => ({
-  tables: m.tables.map(t => ({ name: t.name, schema: 'public', kind: 'table', comment: t.comment,
+  dialect: m.dialect,
+  tables: m.tables.map(t => ({ name: t.name, schema: m.schema ?? 'public', kind: 'table', comment: t.comment,
     columns: t.columns.map(c => ({ name: c.name, type: c.type, comment: c.comment ?? '' })) })),
   functions: m.functions.map(f => ({ name: f.name, args: f.args, returns: '' })),
 });

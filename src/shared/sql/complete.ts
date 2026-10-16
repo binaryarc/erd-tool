@@ -6,7 +6,8 @@
 // - 문자열, 주석 안에서는 보여주지 않는다
 
 import type { SqlCatalog } from '../ipc';
-import { scan, splitStatements } from './text';
+import { rulesFor } from '../dialect';
+import { scan, splitStatements, type TextRules } from './text';
 
 export type ItemKind = 'table' | 'view' | 'column' | 'function' | 'keyword' | 'snippet';
 export interface Item {
@@ -24,26 +25,6 @@ export interface Item {
 const TABLE_KW = new Set(['from', 'join', 'into', 'update', 'table', 'truncate']);
 const COLUMN_KW = new Set(['select', 'where', 'and', 'or', 'on', 'by', 'having', 'set', 'when', 'then', 'else', 'returning', 'distinct', 'not', 'using']);
 const STOP_ALIAS = /^(where|join|left|right|inner|outer|full|cross|on|set|order|group|limit|offset|values|using|natural|lateral|returning|union|except|intersect|having|window|for)$/i;
-
-// PostgreSQL 에서 자주 쓰는 키워드 (대문자로 넣는다, DBeaver 기본과 같게)
-export const PG_KEYWORDS = [
-  'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'ILIKE', 'IS NULL', 'IS NOT NULL',
-  'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL OUTER JOIN', 'CROSS JOIN', 'ON', 'USING',
-  'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'DISTINCT', 'DISTINCT ON', 'AS', 'ASC', 'DESC', 'NULLS FIRST', 'NULLS LAST',
-  'UNION', 'UNION ALL', 'EXCEPT', 'INTERSECT', 'WITH', 'WITH RECURSIVE', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-  'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM', 'RETURNING', 'ON CONFLICT', 'DO NOTHING', 'DO UPDATE SET',
-  'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'TRUNCATE', 'CREATE INDEX', 'ADD COLUMN', 'DROP COLUMN', 'PRIMARY KEY', 'REFERENCES',
-  'BEGIN', 'COMMIT', 'ROLLBACK', 'EXPLAIN', 'EXPLAIN ANALYZE', 'TRUE', 'FALSE', 'NULL', 'DEFAULT', 'INTERVAL',
-];
-
-// PostgreSQL 기본 함수 (DB 에 만든 함수는 카탈로그에서 따로 온다)
-export const PG_FUNCTIONS = [
-  'count', 'sum', 'avg', 'min', 'max', 'coalesce', 'nullif', 'greatest', 'least', 'now', 'current_date', 'current_timestamp',
-  'to_char', 'to_date', 'to_timestamp', 'to_number', 'date_trunc', 'extract', 'age', 'string_agg', 'array_agg', 'jsonb_agg',
-  'json_build_object', 'jsonb_build_object', 'row_number', 'rank', 'dense_rank', 'lag', 'lead', 'substring', 'substr', 'length',
-  'lower', 'upper', 'trim', 'lpad', 'rpad', 'replace', 'split_part', 'concat', 'concat_ws', 'position', 'round', 'trunc', 'abs',
-  'ceil', 'floor', 'cast', 'nextval', 'currval', 'generate_series', 'unnest', 'exists',
-];
 
 const SNIPPETS: { label: string; insert: string; detail: string }[] = [
   { label: 'sel', detail: 'SELECT * FROM 테이블', insert: 'SELECT ${1:*}\n  FROM ${2:테이블}\n WHERE ${3:1 = 1};' },
@@ -68,19 +49,20 @@ export function aliasMap(sql: string, tableNames: Set<string>): Map<string, stri
 }
 
 /** 커서가 문자열이나 주석 안인가: 커서 자리에 표시 글자를 붙여 훑고, 그 글자가 코드 구간 밖이면 안쪽이다 */
-function inLiteral(before: string): boolean {
+function inLiteral(before: string, r: TextRules): boolean {
   const s = before + '\u0001';
-  const span = scan(s).find(x => x.start <= s.length - 1 && s.length - 1 < x.end);
+  const span = scan(s, r).find(x => x.start <= s.length - 1 && s.length - 1 < x.end);
   return !!span && span.kind !== 'code';
 }
 
 export function suggest(before: string, after: string, cat: SqlCatalog): Item[] {
-  if (inLiteral(before)) return [];
+  const rules = rulesFor(cat.dialect);
+  if (inLiteral(before, rules.text)) return [];
   const full = before + after;
-  const stmts = splitStatements(full);
+  const stmts = splitStatements(full, rules.text);
   const stmt = stmts.find(s => before.length >= s.start && before.length <= s.end + 1)?.text ?? '';
   // 커서 앞 같은 문장. 끝 공백을 자르면 「from 」 뒤 커서를 「from」 을 쓰는 중으로 잘못 보므로 원래 글자를 쓴다
-  const lastStmt = splitStatements(before).at(-1);
+  const lastStmt = splitStatements(before, rules.text).at(-1);
   const stmtBefore = lastStmt ? before.slice(lastStmt.start) : '';
 
   const tables = new Map(cat.tables.map(t => [t.name.toLowerCase(), t]));
@@ -109,10 +91,10 @@ export function suggest(before: string, after: string, cat: SqlCatalog): Item[] 
   const tableItems = (rank: string): Item[] => cat.tables.map(t => ({
     label: t.name, kind: t.kind, insert: t.name, detail: `${t.kind === 'view' ? '뷰' : '테이블'}${t.comment ? ' ' + t.comment : ''}`, sort: rank + t.name,
   }));
-  const keywordItems = (rank: string): Item[] => PG_KEYWORDS.map(k => ({ label: k, kind: 'keyword', insert: k, sort: rank + k }));
+  const keywordItems = (rank: string): Item[] => rules.keywords.map(k => ({ label: k, kind: 'keyword', insert: k, sort: rank + k }));
   const functionItems = (rank: string): Item[] => [
     ...cat.functions.map(f => ({ label: f.name, kind: 'function' as const, insert: `${f.name}($1)`, snippet: true, detail: `(${f.args}) ${f.returns}`, sort: rank + f.name })),
-    ...PG_FUNCTIONS.filter(f => !cat.functions.some(x => x.name === f)).map(f => ({ label: f, kind: 'function' as const, insert: `${f}($1)`, snippet: true, detail: 'PostgreSQL 함수', sort: rank + 'z' + f })),
+    ...rules.functions.filter(f => !cat.functions.some(x => x.name === f)).map(f => ({ label: f, kind: 'function' as const, insert: `${f}($1)`, snippet: true, detail: `${rules.label} 함수`, sort: rank + 'z' + f })),
   ];
   const columnItems = (rank: string): Item[] => {
     const used = [...new Set(aliases.values())];

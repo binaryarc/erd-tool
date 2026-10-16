@@ -4,7 +4,29 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ProfileInfo } from '../../shared/ipc';
+import { DIALECT_LABEL, type Dialect } from '../../shared/dialect/names';
 import { decryptValue } from './jasypt';
+
+/** jdbc URL 의 드라이버 이름 → DB 종류, 기본 포트 */
+const JDBC: Record<string, { dialect: Dialect; port: number }> = {
+  postgresql: { dialect: 'postgresql', port: 5432 },
+  sqlserver: { dialect: 'sqlserver', port: 1433 },
+  mysql: { dialect: 'mysql', port: 3306 },
+  mariadb: { dialect: 'mysql', port: 3306 },
+  oracle: { dialect: 'oracle', port: 1521 },
+};
+
+/** jdbc URL 읽기. postgresql, mysql: //호스트:포트/DB. sqlserver: //호스트:포트;databaseName=DB. oracle: thin:@호스트:포트/서비스 (또는 :SID) */
+export function parseJdbcUrl(url: string): { driver: string; host: string; port?: number; database: string } | null {
+  const u = url.replace(/^jdbc:(?:log4jdbc:)?/, '');
+  let m = u.match(/^oracle:thin:@(?:\/\/)?([^:/]+)(?::(\d+))?[/:]([^?;]+)/);
+  if (m) return { driver: 'oracle', host: m[1], port: m[2] ? Number(m[2]) : undefined, database: m[3] };
+  m = u.match(/^sqlserver:\/\/([^:;/\\]+)(?:\\[^:;]+)?(?::(\d+))?(.*)$/);
+  if (m) return { driver: 'sqlserver', host: m[1], port: m[2] ? Number(m[2]) : undefined, database: m[3].match(/;database(?:Name)?=([^;]+)/i)?.[1] ?? '' };
+  m = u.match(/^(\w+):\/\/([^:/]+)(?::(\d+))?\/([^?;]+)/);
+  if (m) return { driver: m[1], host: m[2], port: m[3] ? Number(m[3]) : undefined, database: m[4] };
+  return null;
+}
 
 const PROP_DIRS = ['src/main/resources', 'src/main/resources/prop', 'src/main/resources'];
 
@@ -29,14 +51,15 @@ export function listProfiles(beDir: string): Profile[] {
     const name = f.match(/^application-(\w+)\.properties$/)?.[1];
     if (!name) continue;
     const p = readProps(path.join(dir, f));
-    const url = p['db.url'] ?? '';
-    const m = url.match(/^jdbc:(?:log4jdbc:)?(\w+):\/\/([^:/]+)(?::(\d+))?\/([^?;]+)/);
+    const m = parseJdbcUrl(p['db.url'] ?? '');
+    const kind = m ? JDBC[m.driver] : undefined;
     profiles.push({
       name,
-      driver: m?.[1] ?? '알 수 없음',
-      host: m?.[2] ?? '',
-      port: m?.[3] ? Number(m[3]) : 5432,
-      database: m?.[4] ?? '',
+      driver: m?.driver ?? '알 수 없음',
+      dialect: kind?.dialect,
+      host: m?.host ?? '',
+      port: m?.port ?? kind?.port ?? 5432,
+      database: m?.database ?? '',
       user: p['db.username'] ?? '',
       // 운영 접속은 기본 읽기 전용 (설계 5장, 12장)
       readOnly: name === 'prod',
@@ -49,7 +72,7 @@ export function listProfiles(beDir: string): Profile[] {
 export function getProfile(beDir: string, name: string): Profile {
   const p = listProfiles(beDir).find(x => x.name === name);
   if (!p) throw new Error(`프로필이 없다: ${name}`);
-  if (p.driver !== 'postgresql') throw new Error(`아직 지원하지 않는 DB: ${p.driver} (STEP 7)`);
+  if (!p.dialect) throw new Error(`지원하지 않는 DB: ${p.driver} (${Object.values(DIALECT_LABEL).join(', ')} 만)`);
   return p;
 }
 

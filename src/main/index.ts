@@ -389,7 +389,7 @@ function createWindow() {
 async function manualScenario(beDir: string) {
   const p = getProfile(beDir, 'dev');
   const pw = passwordOf(p, beDir);
-  const base = { id: '', name: '시험 접속', driver: 'postgresql' as const, host: p.host, port: p.port, database: p.database, user: p.user, readOnly: true };
+  const base = { id: '', name: '시험 접속', driver: p.dialect ?? 'postgresql', host: p.host, port: p.port, database: p.database, user: p.user, readOnly: true };
   const secretsFile = path.join(app.getPath('userData'), 'secrets.json');
   const out: Record<string, unknown> = {};
 
