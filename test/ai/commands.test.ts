@@ -41,7 +41,7 @@ describe('AI 에게 주는 글', () => {
     ].join('\n'));
   });
   it('화면 배치: 격자 행, 고정 테이블은 가장 가까운 테이블 기준, 겹침 수', () => {
-    const d = { groups: { mdm: { rule: { cols: 2, gap: 40, origin: [0, 0] as [number, number] }, order: ['t1', 't3', 't2'] } }, pinned: { t2: [300, 0] as [number, number] } };
+    const d = { mode: 'grid' as const, groups: { mdm: { rule: { cols: 2, gap: 40, origin: [0, 0] as [number, number] }, order: ['t1', 't3', 't2'] } }, pinned: { t2: [300, 0] as [number, number] } };
     const boxes = new Map<string, Box>([['t1', { x: 0, y: 0, w: 200, h: 100 }], ['t3', { x: 0, y: 140, w: 200, h: 40 }], ['t2', { x: 300, y: 0, w: 200, h: 80 }]]);
     expect(viewStateText(model, d, boxes, 0.85, '전체')).toBe([
       '다이어그램 전체: 그룹 격자 배치, 확대 85%',

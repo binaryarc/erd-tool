@@ -72,7 +72,7 @@ function build(deps: McpDeps): McpServer {
   }, call('erd_undo'));
 
   s.registerTool('erd_export', {
-    description: '파일 내보내기. md: 그룹별 테이블 정의서와 색인을 마지막 MD 폴더에. flyway: conn 접속의 지금 구조를 지금 ERD 로 바꾸는 Flyway 파일을 마지막 Flyway 폴더에(파일만 만들고 DB 에 실행하지 않는다). 확정 대기 중이면 거부한다',
+    description: '파일 내보내기. md: 그룹별 테이블 정의서와 색인을 마지막 MD 폴더에(같은 이름은 덮어쓴다). flyway: conn 접속의 지금 구조를 지금 ERD 로 바꾸는 Flyway 파일을 마지막 Flyway 폴더에(파일만 만들고 DB 에 실행하지 않는다). 확정 대기 중이면 거부한다',
     inputSchema: z.object({
       kind: z.enum(['md', 'flyway']),
       conn: z.string().optional().describe('flyway 일 때 비교할 접속 이름 (예: dev)'),

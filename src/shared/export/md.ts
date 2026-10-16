@@ -1,11 +1,11 @@
 // 스키마 모델 → MD 문서 (STEP 7, 설계 8-1). 형식은 templates/*.md 에 있고 여기서는 값만 만든다.
-// 그룹 문서(그룹마다 하나), 색인, 메뉴 물리 테이블 목록 조각. 파일 이름에는 만든 시각을 붙여 기존 파일을 덮지 않는다.
+// 그룹 문서(그룹마다 하나), 색인, 메뉴 물리 테이블 목록 조각. 파일 이름에 시각을 붙이지 않고 같은 이름은 덮어쓴다(사용자 지정 2026-10-16).
+// 만든 시각은 문서 안 generated_at 에 남는다.
 
 import groupTpl from './templates/group-tables.md?raw';
 import overviewTpl from './templates/tables-overview.md?raw';
 import menuTpl from './templates/menu-tables.md?raw';
 import { cell, fillTemplate } from './template';
-import { stamp } from './flyway';
 import { groupOf } from '../model/erd-format';
 import type { SchemaModel, Table } from '../model/types';
 
@@ -36,12 +36,12 @@ function grouped(model: SchemaModel) {
     .filter(g => g.tables.length);
 }
 
-/** 그룹 문서들과 색인. 이름: {그룹}-tables_{시각}.md, 00-tables-overview_{시각}.md */
+/** 그룹 문서들과 색인. 이름: {그룹}-tables.md, 00-tables-overview.md */
 export function buildSchemaDocs(model: SchemaModel, now: Date): MdFile[] {
-  const at = generatedAt(now), s = stamp(now);
+  const at = generatedAt(now);
   const groups = grouped(model);
   const files = groups.map(({ rule, tables }) => ({
-    name: `${rule.name}-tables_${s}.md`,
+    name: `${rule.name}-tables.md`,
     content: fillTemplate(groupTpl, {
       group: rule.name, generatedAt: at, tableCount: tables.length,
       columnCount: tables.reduce((n, t) => n + t.columns.length, 0), fkCount: tables.reduce((n, t) => n + t.fks.length, 0),
@@ -56,7 +56,7 @@ export function buildSchemaDocs(model: SchemaModel, now: Date): MdFile[] {
       tables: numbered(tables.map(t => ({ name: t.name, comment: cell(t.comment) }))),
     }))),
   });
-  return [{ name: `00-tables-overview_${s}.md`, content: overview }, ...files];
+  return [{ name: '00-tables-overview.md', content: overview }, ...files];
 }
 
 /** 메뉴 설계 문서 「물리 테이블 목록」 절에 붙여 넣을 조각. 업무개념은 테이블 코멘트, 비고는 사람이 채운다 */
@@ -66,7 +66,7 @@ export function buildMenuTables(model: SchemaModel, menuCode: string, tableNames
   const tables = tableNames.map(n => model.tables.find(t => t.name === n) ?? (() => { throw new Error(`테이블 ${n} 이 없다`); })());
   const code = menuCode.toLowerCase();
   return {
-    name: `${code}-03-물리테이블목록_${stamp(now)}.md`,
+    name: `${code}-03-물리테이블목록.md`,
     content: fillTemplate(menuTpl, {
       menuCode: code, generatedAt: generatedAt(now),
       tables: numbered(tables.map(t => ({ concept: cell(t.comment) || t.name, upperName: t.name.toUpperCase() }))),

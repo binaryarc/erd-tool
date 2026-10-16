@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 내보내기 (STEP 7, 설계 8-1): 지금 ERD 모델로 허브 40-schema 모양 MD 와 메뉴 물리 테이블 목록 조각을 만든다.
-// 폴더는 내보낼 때마다 고르고 마지막 위치를 기억한다. 파일 이름에 시각을 붙여 새 파일로만 쓴다(허브 원본 문서를 고치지 않는다).
+// 폴더는 내보낼 때마다 고르고 마지막 위치를 기억한다. 파일 이름에 시각을 붙이지 않고 같은 이름은 덮어쓴다(사용자 지정 2026-10-16).
 // Flyway 파일은 DB 비교 탭의 「Flyway 파일 만들기」 에서 만든다(두 쪽 차이가 필요하다).
 import { ref } from 'vue';
 import { buildMenuTables, buildSchemaDocs, type MdFile } from '../../../shared/export/md';
@@ -11,14 +11,17 @@ const emit = defineEmits<{ compare: [] }>();
 
 const menuCode = ref('');
 const written = ref<string[]>([]);
+const replaced = ref(0);
 const error = ref('');
 
 const clean = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
 async function write(dir: string, files: MdFile[]) {
-  error.value = ''; written.value = [];
+  error.value = ''; written.value = []; replaced.value = 0;
   try {
-    written.value = (await window.erd.export.write(dir, files)).written;
+    const r = await window.erd.export.write(dir, files, undefined, { overwrite: true });
+    written.value = r.written;
+    replaced.value = r.replaced.length;
   } catch (e) { error.value = clean(e); }
   return written.value;
 }
@@ -60,7 +63,7 @@ defineExpose({
     <template v-else>
       <div class="box">
         <h4>스키마 문서 (MD)</h4>
-        <p class="muted">그룹마다 테이블 정의서 한 개(컬럼, PK, FK, UNIQUE, 인덱스)와 색인 00-tables-overview 를 만든다. 허브 40-schema 모양이고, 파일 이름에 시각이 붙는다.</p>
+        <p class="muted">그룹마다 테이블 정의서 한 개(컬럼, PK, FK, UNIQUE, 인덱스)와 색인 00-tables-overview 를 만든다. 허브 40-schema 모양이다. 같은 이름 파일이 있으면 덮어쓴다.</p>
         <p>그룹 {{ model.groups.length }}개, 테이블 {{ model.tables.length }}개</p>
         <button @click="run(schemaFiles)">폴더 골라 만들기</button>
       </div>
@@ -77,7 +80,7 @@ defineExpose({
         <button @click="emit('compare')">DB 비교 탭 열기</button>
       </div>
       <div v-if="written.length" class="ok">
-        <b>만든 파일 {{ written.length }}개</b>
+        <b>만든 파일 {{ written.length }}개<span v-if="replaced"> (그중 덮어쓴 파일 {{ replaced }}개)</span></b>
         <ul><li v-for="w in written" :key="w">{{ w }}</li></ul>
       </div>
       <p v-if="error" class="warn">{{ error }}</p>

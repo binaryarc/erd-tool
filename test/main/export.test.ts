@@ -23,6 +23,7 @@ describe('내보내기 파일 쓰기', () => {
     await fs.writeFile(hist, HISTORY);
     const r = await writeExport(path.join(dir, 'out'), [{ name: 'a.md', content: 'A\n' }], { file: hist, line: '| 2 | b |' });
     expect(r.written).toEqual([path.join(dir, 'out', 'a.md')]);
+    expect(r.replaced).toEqual([]);
     expect(await fs.readFile(r.written[0], 'utf8')).toBe('A\n');
     expect(await fs.readFile(hist, 'utf8')).toBe(HISTORY.replace('| 1 | a |\n', '| 1 | a |\n| 2 | b |\n'));
   });
@@ -33,6 +34,13 @@ describe('내보내기 파일 쓰기', () => {
     expect(await fs.readdir(dir)).toEqual(['b.md']);
     expect(await fs.readFile(path.join(dir, 'b.md'), 'utf8')).toBe('old');
     await expect(writeExport(dir, [{ name: '../x.md', content: '' }])).rejects.toThrow('폴더');
+  });
+
+  it('overwrite 면 같은 이름을 덮어쓰고 덮어쓴 이름을 알려준다 (MD)', async () => {
+    await fs.writeFile(path.join(dir, 'b.md'), 'old');
+    const r = await writeExport(dir, [{ name: 'a.md', content: 'A' }, { name: 'b.md', content: 'B' }], undefined, { overwrite: true });
+    expect(r.replaced).toEqual(['b.md']);
+    expect(await fs.readFile(path.join(dir, 'b.md'), 'utf8')).toBe('B');
   });
 
   it('이력 파일에 「변경 이력」 표가 없으면 새 파일도 쓰지 않는다', async () => {

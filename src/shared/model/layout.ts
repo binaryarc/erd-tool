@@ -10,7 +10,7 @@ export interface GroupPlacement {
 }
 
 export interface Diagram {
-  /** 배치 방식: grid 는 그룹별 격자, tree 는 FK 트리 (없으면 grid) */
+  /** 배치 방식: grid 는 그룹별 격자, tree 는 FK 트리 (없으면 tree, arrangeMode 로 읽는다) */
   mode?: 'grid' | 'tree';
   groups: Record<string, GroupPlacement>;
   /** 테이블 ID → 직접 지정한 좌표 */
@@ -21,6 +21,9 @@ export interface Layout {
   version: number;
   diagrams: Record<string, Diagram>;
 }
+
+/** 배치 방식을 읽는다. 적혀 있지 않으면 트리 (사용자 지정 2026-10-16. 처음에는 그룹 격자였다) */
+export const arrangeMode = (d: Pick<Diagram, 'mode'>): 'grid' | 'tree' => d.mode ?? 'tree';
 
 export const emptyLayout = (): Layout => ({ version: LAYOUT_VERSION, diagrams: {} });
 

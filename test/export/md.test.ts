@@ -31,8 +31,8 @@ describe('MD 템플릿', () => {
 
 describe('스키마 MD', () => {
   const files = buildSchemaDocs(model, now);
-  it('색인과 테이블 있는 그룹마다 한 파일, 이름에 시각', () => {
-    expect(files.map(f => f.name)).toEqual(['00-tables-overview_20261016_0905.md', 'mdm-tables_20261016_0905.md', 'sm-tables_20261016_0905.md']);
+  it('색인과 테이블 있는 그룹마다 한 파일, 이름에 시각을 붙이지 않는다', () => {
+    expect(files.map(f => f.name)).toEqual(['00-tables-overview.md', 'mdm-tables.md', 'sm-tables.md']);
   });
   it('그룹 문서: 테이블 목록, 컬럼 정의, FK, 인덱스. 표 칸의 | 와 줄바꿈을 지킨다', () => {
     const mdm = files[1].content;
@@ -47,7 +47,7 @@ describe('스키마 MD', () => {
   });
   it('색인: 그룹별 수와 문서 링크, 가운뎃점 없음, 같은 입력은 같은 출력', () => {
     const o = files[0].content;
-    expect(o).toContain('| 1 | mdm | `mst_` | 2 | [mdm-tables_20261016_0905.md](./mdm-tables_20261016_0905.md) |');
+    expect(o).toContain('| 1 | mdm | `mst_` | 2 | [mdm-tables.md](./mdm-tables.md) |');
     expect(o).toContain('테이블 3개, FK 1개, 시퀀스 1개, 함수 0개');
     for (const f of files) expect(f.content).not.toContain(String.fromCharCode(0xb7)); // 가운뎃점
     expect(buildSchemaDocs(model, now)).toEqual(files);
@@ -57,7 +57,7 @@ describe('스키마 MD', () => {
 describe('메뉴 물리 테이블 목록', () => {
   it('고른 순서대로, 업무개념은 코멘트(없으면 이름), 물리명은 대문자', () => {
     const f = buildMenuTables(model, 'MENU01', ['mst_wh', 'flyway_schema_history'], now);
-    expect(f.name).toBe('menu01-03-물리테이블목록_20261016_0905.md');
+    expect(f.name).toBe('menu01-03-물리테이블목록.md');
     expect(f.content).toContain('| 1 | 창고 | `MST_WH` |  |\n| 2 | flyway_schema_history | `FLYWAY_SCHEMA_HISTORY` |  |');
     expect(() => buildMenuTables(model, 'menu01', [], now)).toThrow('테이블을 고르세요');
   });

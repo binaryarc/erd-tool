@@ -14,7 +14,7 @@ import { buildCreateAll } from '../../shared/sql/create';
 import { diffModels } from '../../shared/model/diff';
 import { buildJoinSelect } from '../../shared/sql/join';
 import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
-import { emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
+import { arrangeMode, emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
 import type { ModelError, SchemaModel } from '../../shared/model/types';
 import type { ReverseResult, ShellKind } from '../../shared/ipc';
 import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
@@ -248,8 +248,8 @@ async function aiExport(args: { kind?: string; conn?: string; description?: stri
   if (args.kind === 'md') {
     const dir = s.exportDirs?.md;
     if (!dir) throw new Error('MD 폴더가 정해지지 않았다. 사람이 내보내기 탭에서 한 번 폴더를 골라야 한다');
-    const r = await window.erd.export.write(dir, buildSchemaDocs(m, new Date()));
-    return `만든 파일 ${r.written.length}개\n${r.written.join('\n')}`;
+    const r = await window.erd.export.write(dir, buildSchemaDocs(m, new Date()), undefined, { overwrite: true });
+    return `만든 파일 ${r.written.length}개 (덮어쓴 파일 ${r.replaced.length}개)\n${r.written.join('\n')}`;
   }
   const opts = await loadConnOptions();
   const o = opts.find(x => x.profile === args.conn || x.label.startsWith(`${args.conn} (`));
@@ -337,7 +337,7 @@ function autoArrange() {
 
 /** 정렬 방식(트리, 그룹 격자)은 layout.json 에 다이어그램별로 저장된다. 바꾸면 끌어 옮긴 위치는 지운다 */
 function setArrangeMode(mode: 'grid' | 'tree') {
-  if (!diagram.value || (diagram.value.mode ?? 'grid') === mode) return;
+  if (!diagram.value || arrangeMode(diagram.value) === mode) return;
   diagram.value.mode = mode;
   diagram.value.pinned = {};
   version.value++;
@@ -530,7 +530,7 @@ window.__erdView = async (opts: { mode?: 'grid' | 'tree'; edge?: ViewState['edge
     const a = boxes[i], b = boxes[j];
     if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) overlaps++;
   }
-  return { mode: diagram.value?.mode, edge: view.edgeKind, tables: boxes.length, overlaps };
+  return { mode: diagram.value && arrangeMode(diagram.value), edge: view.edgeKind, tables: boxes.length, overlaps };
 };
 /** 본 ERD 에서 이름으로 테이블 노드 화면 위치 (머리 부분). 먼저 그 테이블로 화면을 옮긴다 */
 window.__erdNodeRect = async (name: string) => {
@@ -689,6 +689,8 @@ async function step7Scenario(beDir: string, dir: string, exportDir: string) {
   await panel.value!.setBeDir(beDir);
   await openModel(dir);
   const out: Record<string, unknown> = {};
+  activeTab.value = 'erd';
+  out.arrange = await window.__erdView!({}); // 배치 방식이 적혀 있지 않은 모델은 트리로 열린다
   const probe = 'mst_erd_probe';
   edit(m => addTable(m, probe, { comment: 'ERD 도구 시험', withCommon: true }));
   edit(m => addColumn(m, probe, { name: 'probe_seq', type: 'int', notNull: false, pk: true }));
@@ -705,7 +707,7 @@ async function step7Scenario(beDir: string, dir: string, exportDir: string) {
   out.flyway = { first: f1 && { fileName: f1.fileName, history: !!f1.history, statements: f1.statements }, second: f2?.fileName };
   await nextTick(); await frames(5);
 
-  // MD: 스키마 문서, 같은 분 안에 다시 쓰면 거부, 메뉴 물리 테이블 목록
+  // MD: 스키마 문서, 다시 쓰면 같은 이름을 덮어쓴다, 메뉴 물리 테이블 목록
   openExport();
   await nextTick(); await frames(5);
   const md = await exporter.value!.writeSchema(`${exportDir}/md`);
@@ -855,7 +857,7 @@ window.__erdBench = async () => {
         </select>
       </label>
       <label>정렬
-        <select :value="diagram?.mode ?? 'grid'" :disabled="!model" @change="e => setArrangeMode((e.target as HTMLSelectElement).value as 'grid' | 'tree')">
+        <select :value="diagram ? arrangeMode(diagram) : 'tree'" :disabled="!model" @change="e => setArrangeMode((e.target as HTMLSelectElement).value as 'grid' | 'tree')">
           <option value="tree">트리 (FK 부모 위)</option>
           <option value="grid">그룹 격자</option>
         </select>
