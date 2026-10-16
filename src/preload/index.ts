@@ -13,6 +13,10 @@ const api: ErdApi = {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     set: patch => ipcRenderer.invoke(IPC.settingsSet, patch),
   },
+  session: {
+    get: () => ipcRenderer.invoke(IPC.sessionGet),
+    set: data => ipcRenderer.invoke(IPC.sessionSet, data),
+  },
   model: {
     load: dir => ipcRenderer.invoke(IPC.modelLoad, dir),
     save: (dir, model, layout) => ipcRenderer.invoke(IPC.modelSave, dir, model, layout),

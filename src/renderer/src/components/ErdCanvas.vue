@@ -31,6 +31,8 @@ const props = withDefaults(defineProps<{
   highlight?: Set<string>;
   /** 그룹 탭에서 그리지 않은 FK (테이블 ID → 설명). 테이블 머리에 「외부 FK n개」 배지 (STEP 10) */
   external?: Map<string, string[]>;
+  /** 처음 화면 위치. 있으면 전체 보기 대신 이 자리로 연다 (ERD 탭을 오가거나 다시 켤 때, STEP 10) */
+  initialViewport?: { x: number; y: number; zoom: number };
 }>(), { flowId: 'main', showMiniMap: true, fitOnResize: false });
 const emit = defineEmits<{
   pin: [id: string, x: number, y: number]; select: [names: string[]]; open: [name: string];
@@ -173,13 +175,13 @@ function boxes() {
   return m;
 }
 
-defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoom });
+defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoom, viewportNow: () => ({ ...viewport.value }) });
 </script>
 
 <template>
   <div ref="box" class="erd-box">
   <VueFlow :id="flowId" :nodes="nodes" :edges="edges" :min-zoom="0.05" :max-zoom="2" multi-selection-key-code="Control"
-           :zoom-on-double-click="false" :delete-key-code="null" fit-view-on-init @node-drag-stop="onDragStop" @node-double-click="onDoubleClick"
+           :zoom-on-double-click="false" :delete-key-code="null" :fit-view-on-init="!initialViewport" :default-viewport="initialViewport" @node-drag-stop="onDragStop" @node-double-click="onDoubleClick"
            @node-context-menu="onNodeMenu" @pane-context-menu="onPaneMenu">
     <template #node-table="{ data }">
       <TableNode :data="data" />

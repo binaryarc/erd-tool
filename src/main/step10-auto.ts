@@ -73,6 +73,31 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     out.newTableUndone = await probe('new_table');
   }
 
+  if (part === 'session1') {
+    // 마지막 화면 1회차: ERD 탭 1(model-g)에 Enter 로 컬럼 하나, 그룹 탭 만들어 보기. ERD 탭 2(model-h)는 저장된 상태로 열고 화면 이동.
+    // SQL 탭에 글자를 넣고 dev 에 접속. 보던 탭은 ERD 탭 1. 끝나면 메인이 그대로 닫는다(X 버튼과 같은 길로 마지막 화면을 쓴다)
+    const s = (step: string, arg?: string) => js(`window.__erdSession(${JSON.stringify(step)}, ${JSON.stringify(arg ?? null)})`);
+    const p = await nodeAt('mst_biz_wh');
+    await click(p!.x, p!.y);
+    await key('Enter');
+    await js(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
+    await clickText('.dtabs button', '+');
+    await sleep(600);
+    await s('addErd');
+    await s('open', process.env.ERD_MODEL_DIR2!);
+    await s('pan', 'mst_wh');
+    await s('addSql', 'select 1 as session_probe');
+    await s('activate', 'erd');
+    out.before = await s('flush');
+    // 저장(flush) 뒤에 SQL 탭으로 옮긴다. 다시 켰을 때 SQL 탭이 보이면 창 닫기 때 한 번 더 쓴 것이다
+    await s('activate', 'sql-1');
+  }
+  if (part === 'session2') {
+    // 다시 켠 뒤 ERD 탭 2 로 가면 저장해 둔 화면 위치로 열리고, ERD 탭 1 로 돌아오면 떠날 때 위치다
+    const s = (step: string, arg?: string) => js(`window.__erdSession(${JSON.stringify(step)}, ${JSON.stringify(arg ?? null)})`);
+    out.erd2 = await s('activate', 'erd-2');
+    out.erd1 = await s('activate', 'erd');
+  }
   if (part === 'groups') try {
     const dir = process.env.ERD_SAVE_DIR!;
     // 1. 빈 그룹 탭을 만들고 그 탭의 「테이블 추가」 로 기존 테이블 3개를 한 번에 넣는다 (다른 탭으로 가지 않는다)

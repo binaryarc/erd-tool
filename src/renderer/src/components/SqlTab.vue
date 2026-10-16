@@ -224,6 +224,9 @@ defineExpose({
   state: () => state.value,
   message: () => message.value,
   options: () => options.value.map(o => o.key),
+  /** 마지막 화면용 (STEP 10): 편집기 글자, 접속해 있으면 그 접속 */
+  text: () => editor?.getValue() ?? props.initialSql ?? '',
+  connKey: () => (state.value ? chosen.value : ''),
   /** 시험용 */
   editor: () => editor,
   catalogSize: () => catalog.value?.tables.length ?? 0,

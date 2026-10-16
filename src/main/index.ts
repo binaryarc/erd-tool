@@ -12,7 +12,7 @@ import { getProfile, listProfiles, passwordOf, toInfo } from './db/profiles';
 import { allowWrite, closeAll, closeSession, commitTx, dirtyTabs, fetchMore, openSession, rollbackTx, runSql } from './db/session';
 import { addHistory, listHistory, setHistoryDir } from './history';
 import { loadModel, saveModel } from './model-store';
-import { getSettings, setSettings } from './settings';
+import { getSession, getSettings, setSession, setSettings } from './settings';
 import { inputTerm, killTerm, resizeTerm, setTermEnv, spawnTerm } from './terminal';
 import { nextFlywayVersion, writeExport } from './export';
 import { startMcp } from './mcp/server';
@@ -125,6 +125,8 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.exportWrite, (_e, dir: string, files, history, opts) => writeExport(dir, files, history, opts));
   ipcMain.handle(IPC.settingsGet, () => getSettings());
   ipcMain.handle(IPC.settingsSet, (_e, patch) => setSettings(patch));
+  ipcMain.handle(IPC.sessionGet, () => getSession());
+  ipcMain.handle(IPC.sessionSet, (_e, data) => setSession(data));
   ipcMain.handle(IPC.modelLoad, (_e, dir: string) => loadModel(dir));
   ipcMain.handle(IPC.modelSave, (_e, dir, model, layout) => saveModel(dir, model, layout));
   ipcMain.handle(IPC.connList, (_e, beDir: string) => listProfiles(beDir).map(p => ({ ...toInfo(p), savedPassword: hasSavedPassword(profileKey(beDir, p.name)) })));
@@ -163,7 +165,8 @@ function registerIpc(win: BrowserWindow) {
 
   // 창 닫기: 커밋 안 한 탭이나 저장 안 한 ERD 변경이 있으면 화면에 묻는다 (설계 5장 6번)
   // 시험 모드(ERD_AUTO)는 끝에 app.quit() 으로 닫으므로 묻지 않는다 (물으면 시험이 멈춘다)
-  let closing = !!process.env.ERD_AUTO;
+  // 마지막 화면 시험(ERD_SESSION)은 X 버튼과 같은 길로 닫아 본다
+  let closing = !!process.env.ERD_AUTO && !process.env.ERD_SESSION;
   let modelDirty = false;
   ipcMain.on(IPC.modelDirty, (_e, d: boolean) => { modelDirty = d; });
   // X 버튼이 아닌 길(화면 안의 window.close(), 새로 고침 Ctrl+R)은 'close' 이벤트를 거치지 않는다.
@@ -178,14 +181,19 @@ function registerIpc(win: BrowserWindow) {
     });
     if (choice === 0) e.preventDefault();
   });
+  // 창을 닫을 때는 항상 화면에 먼저 알린다. 화면이 마지막 화면(session.json)을 쓰고, 커밋 안 한 SQL 탭이 있으면 묻는다 (STEP 10).
+  // 저장 안 한 ERD 변경은 마지막 화면에 담겨 다시 켜면 돌아오므로 묻지 않는다.
+  // 화면이 답하지 않으면(멈춤) 3초 뒤 다시 누른 X 는 그냥 닫는다
+  let askedAt = 0;
   win.on('close', e => {
     if (closing) return;
-    const dirty = dirtyTabs();
-    if (!dirty.length && !modelDirty) return;
+    if (askedAt && Date.now() - askedAt > 3000) return;
     e.preventDefault();
-    win.webContents.send(IPC.closeRequest, dirty, modelDirty);
+    askedAt = Date.now();
+    win.webContents.send(IPC.closeRequest, dirtyTabs(), modelDirty);
   });
   ipcMain.on(IPC.closeConfirm, (_e, ok: boolean) => {
+    askedAt = 0;
     if (!ok) return;
     closing = true;
     win.close();
@@ -240,7 +248,7 @@ function createWindow() {
     win.webContents.on('render-process-gone', (_e, d) => console.log('[renderer-gone]', d.reason, d.exitCode));
     win.webContents.once('did-finish-load', async () => {
       console.log('[loaded]');
-      const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR, exportDir: process.env.ERD_EXPORT_DIR, measure: process.env.ERD_MEASURE, dbms: process.env.ERD_DBMS };
+      const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR, exportDir: process.env.ERD_EXPORT_DIR, measure: process.env.ERD_MEASURE, dbms: process.env.ERD_DBMS, part: process.env.ERD_STEP10 };
       //   ERD_AUTO=step7  ERD_EXPORT_DIR(시험용 임시 폴더)에 Flyway, 이력, MD 파일을 만든다. 이력 파일은 허브 원본을 그 폴더로 복사해 쓴다
       if (auto === 'step7' && args.exportDir && args.beDir) {
         const be = args.beDir.replace(/[\\/]+$/, '');
@@ -266,7 +274,8 @@ function createWindow() {
           console.log('[step10]', JSON.stringify(await step10Inputs(win, process.env.ERD_STEP10 ?? 'enter')));
           const shot = process.env.ERD_SHOT;
           if (shot) fs.writeFileSync(`${shot}-step10.png`, (await win.webContents.capturePage()).toPNG());
-          app.quit();
+          if (process.env.ERD_STEP10 === 'session1') win.close(); // X 버튼과 같은 길: 화면이 마지막 화면을 쓰고 닫힌다
+          else app.quit();
           return;
         }
         //   ERD_AUTO=suggest  SQL 탭 자동완성 목록의 항목 글자와 색을 재고, ERD_SHOT 이면 화면을 남긴다
