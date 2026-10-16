@@ -332,13 +332,27 @@ function applyReverse(r: ReverseResult) {
   message.value = `DB 에서 불러옴: 테이블 ${r.model.tables.length}개 (저장 전)`;
 }
 
+/** 「ERD 저장」 버튼: 누를 때마다 저장할 폴더를 고른다 (2026-10-16 사용자 지정).
+ *  처음 위치는 DB 접속에 쓰는 BE 폴더의 docs/erd, 없으면 사용자 홈. 다른 모델이 든 폴더를 고르면 한 번 묻는다
+ *  (저장할 때 그 폴더에서 이 모델에 없는 그룹 파일을 지우기 때문) */
 async function save() {
-  if (!model.value || !modelDir.value) return;
+  if (!model.value) return;
   // 사람이 확정해야 모델 파일에 저장된다 (설계 10-4)
   if (aiBase.value) { message.value = '확정 대기 중인 AI 변경을 확정하거나 취소한 뒤 저장한다'; return; }
-  const r = await window.erd.model.save(modelDir.value, model.value, layout.value);
+  const picked = await window.erd.model.pickSaveDir();
+  if (!picked) return;
+  const same = picked.dir.replace(/\\/g, '/').toLowerCase() === modelDir.value.replace(/\\/g, '/').toLowerCase();
+  if (picked.hasModel && !same && !confirm(`${picked.dir}\n이 폴더에 다른 ERD 모델 파일(.erd)이 있다. 이 모델로 덮어쓰고, 이 모델에 없는 그룹 파일은 지운다. 계속할까요?`)) return;
+  await setModelDir(picked.dir);
+  return saveTo(picked.dir);
+}
+
+/** 고른 폴더에 저장 (시험 모드는 폴더 고르기 없이 이것을 부른다) */
+async function saveTo(dir: string) {
+  if (!model.value) return;
+  const r = await window.erd.model.save(dir, model.value, layout.value);
   dirty.value = false;
-  message.value = `저장: 바뀐 파일 ${r.written.length}개, 그대로 ${r.unchanged.length}개, 지운 파일 ${r.removed.length}개`;
+  message.value = `ERD 저장 (${dir}): 바뀐 파일 ${r.written.length}개, 그대로 ${r.unchanged.length}개, 지운 파일 ${r.removed.length}개`;
   return r;
 }
 
@@ -830,6 +844,33 @@ async function step8Scenario(beDir: string, dir: string, exportDir: string, meas
 /** STEP 8 시험 끝: 확정 대기를 취소해 원래 모델로 (저장하지 않음) */
 window.__erdAiCancel = () => { aiCancel(); return { pending: !!aiBase.value, tables: model.value?.tables.length, sortNo: !!model.value?.tables.find(t => t.name === 'mst_biz_wh')?.columns.some(c => c.name === 'sort_no') }; };
 
+/** 자동완성 목록 시험: dev 에 접속한 SQL 탭에서 글자를 쳐 목록을 띄우고, 항목 글자와 글자색, 배경색을 잰다 (화면은 메인이 캡처) */
+async function suggestScenario(beDir: string) {
+  await panel.value!.setSource('be');
+  await panel.value!.setBeDir(beDir);
+  const id = addSql();
+  await nextTick(); await frames(5);
+  const tab = tabRefs.get(id) as InstanceType<typeof SqlTab>;
+  await tab.loadOptions();
+  await tab.connect('be:dev');
+  await sleep(2000); // 접속한 DB 목록 읽기
+  const ed = tab.editor()!;
+  ed.setValue('');
+  ed.focus();
+  for (const ch of 'select * from mst_b') ed.trigger('keyboard', 'type', { text: ch });
+  await sleep(1200);
+  const rows = Array.from(document.querySelectorAll('.suggest-widget.visible .monaco-list-row')).slice(0, 5);
+  const style = (el: Element | null) => { if (!el) return null; const s = getComputedStyle(el); return { color: s.color, bg: s.backgroundColor, font: s.fontFamily.slice(0, 60), size: s.fontSize, opacity: s.opacity }; };
+  const widget = document.querySelector('.suggest-widget');
+  return {
+    catalogTables: tab.catalogSize(),
+    rows: rows.map(r => ({ aria: r.getAttribute('aria-label'), text: r.textContent?.trim().slice(0, 80), label: style(r.querySelector('.label-name') ?? r) })),
+    widget: style(widget), row0: style(rows[0] ?? null),
+    labelNameStyle: style(document.querySelector('.suggest-widget .monaco-list-row .label-name')),
+    highlight: style(document.querySelector('.suggest-widget .monaco-list-row .monaco-highlighted-label')),
+  };
+}
+
 /**
  * 비밀번호 창 시험: beDir 은 비밀번호를 자동으로 풀 수 없는 시험용 BE 폴더다.
  * 접속 시험 → 「자동으로 풀지 못했다」 창 → 틀린 비밀번호 → DB 거부 → 「틀렸다」 창 → 취소 → 접속 시험 결과에 취소가 나온다.
@@ -855,6 +896,7 @@ async function passwordScenario(beDir: string) {
 
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure }) => {
   if (scenario === 'password') return passwordScenario(beDir);
+  if (scenario === 'suggest') return suggestScenario(beDir);
   if (scenario === 'mcp') { // 시험용: 모델을 열고 기다린다. 그동안 밖에서 MCP 도구를 직접 부른다 (mcp-erd.json 의 주소와 토큰)
     await panel.value!.setSource('be'); await panel.value!.setBeDir(beDir); await openModel(dir);
     await sleep(Number(measure) || 60_000);
@@ -876,7 +918,7 @@ window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, 
     functions: r.model.functions.length, sequences: r.model.sequences.length, warnings: r.warnings, hadModel: r.hadModel,
     diff: { added: r.diff.added.length, removed: r.diff.removed.length, changed: r.diff.changed.length } };
   panel.value!.apply();
-  const saved = await save();
+  const saved = await saveTo(dir);
   await nextTick(); await frames(10); await new Promise(res => setTimeout(res, 1500));
   // 보기 모드마다 글자가 잘린 칸(이름, 논리명, 타입) 수를 센다
   const truncated: Record<string, number> = {};
@@ -900,14 +942,14 @@ window.__erdBench = async () => {
 <template>
   <div class="app">
     <header>
-      <button @click="openModel()">모델 폴더 열기</button>
-      <button :disabled="!model || !!aiBase" :title="aiBase ? 'AI 변경을 확정하거나 취소한 뒤 저장한다' : ''" @click="save">저장{{ dirty ? ' *' : '' }}</button>
+      <button title="저장해 둔 ERD 모델 폴더를 연다" @click="openModel()">ERD 폴더 열기</button>
+      <button :disabled="!model || !!aiBase" :title="aiBase ? 'AI 변경을 확정하거나 취소한 뒤 저장한다' : 'ERD 모델을 저장할 폴더를 골라 저장한다'" @click="save">ERD 저장{{ dirty ? ' *' : '' }}</button>
       <button :disabled="!model" title="새 테이블을 만들고 편집 패널을 연다" @click="newTable">테이블 추가</button>
       <button :disabled="!canUndo" title="Ctrl+Z" @click="undo">되돌리기</button>
       <button :disabled="!canRedo" title="Ctrl+Y" @click="redo">다시 하기</button>
       <button :disabled="!model" title="모델 전체 CREATE 문을 새 SQL 탭에 넣는다" @click="createAll">전체 CREATE</button>
       <button :disabled="!model" title="DB 비교 탭에서 지금 ERD 와 DB 를 비교한다. 적용은 그 탭의 「왼쪽 DB 에 적용」으로" @click="applyToDb">DB 에 적용</button>
-      <span class="dir" :title="modelDir">{{ modelDir || '모델 폴더 없음' }}</span>
+      <span class="dir" :title="modelDir">{{ modelDir || 'ERD 폴더 없음' }}</span>
       <span class="spacer" />
       <label>보기
         <select v-model="view.nameMode">
@@ -932,7 +974,7 @@ window.__erdBench = async () => {
       <button :disabled="!model" title="끌어 옮긴 위치를 지우고 고른 정렬 방식대로 다시 놓는다" @click="autoArrange">자동 정렬</button>
       <label><input v-model="view.compactOnZoomOut" type="checkbox" /> 축소하면 이름만 보기</label>
     </header>
-    <div class="body">
+    <div class="app-body">
       <!-- 왼쪽 접속 패널 | 오른쪽(위: ERD, SQL 탭 / 아래: 터미널). 경계선을 끌어 크기를 바꾼다 -->
       <SplitPane dir="row" fixed="first" :initial="300" :min="200" :max="700" storage-key="left">
         <template #first>
@@ -941,7 +983,7 @@ window.__erdBench = async () => {
         <template #second>
           <SplitPane dir="col" fixed="second" :initial="280" :min="100" storage-key="terminal" :hide-fixed="!termVisible">
             <template #first>
-              <main class="main main-top">
+              <main class="workarea main-top">
                 <nav class="tabs">
                   <button v-for="t in tabs" :key="t.id" :class="{ on: t.id === activeTab }" @click="activeTab = t.id">
                     {{ t.title }}<b v-if="t.dirty" class="warn"> *</b>
@@ -966,7 +1008,7 @@ window.__erdBench = async () => {
                     <template #first>
                       <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
                                  @pin="onPin" @select="n => (selected = n)" @open="n => { editId = ''; miniName = n; }" />
-                      <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 모델 폴더를 여세요.</p>
+                      <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 ERD 폴더를 여세요.</p>
                     </template>
                     <template #second>
                       <TableEditor v-if="model && editName" ref="editor" :model="model" :name="editName" @edit="edit" @close="editId = ''" />
@@ -1055,8 +1097,9 @@ header button, header label { white-space: nowrap; }
 footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px; color: var(--muted); }
 .spacer { flex: 1; }
 .dir { color: var(--muted); max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.body { flex: 1; display: flex; min-height: 0; }
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+/* 전역 클래스 이름은 Monaco(SQL 편집기) 안의 .main, .body 와 겹치지 않게 짓는다. 겹치면 자동완성 글자가 줄 밖으로 밀려 안 보였다 (2026-10-16) */
+.app-body { flex: 1; display: flex; min-height: 0; }
+.workarea { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 .tabs { display: flex; gap: 2px; align-items: flex-end; padding: 4px 6px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .tabs button { border: 1px solid var(--line); border-bottom: none; background: var(--panel-bg); color: var(--fg); padding: 4px 10px; cursor: pointer; }
 .tabs button.on { background: var(--bg); font-weight: bold; border-color: var(--accent); }

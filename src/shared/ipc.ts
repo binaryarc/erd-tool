@@ -11,6 +11,7 @@ export const IPC = {
   settingsSet: 'settings:set',
   modelLoad: 'model:load',
   modelSave: 'model:save',
+  modelPickSaveDir: 'model:pickSaveDir',
   connList: 'conn:list',
   connTest: 'conn:test',
   connTestDraft: 'conn:testDraft',
@@ -206,6 +207,8 @@ export interface ErdApi {
   model: {
     load(dir: string): Promise<LoadResult>;
     save(dir: string, model: SchemaModel, layout: Layout): Promise<SaveResult>;
+    /** 「ERD 저장」 폴더 고르기. 처음 위치는 BE 폴더의 docs/erd, 없으면 사용자 홈. hasModel: 고른 폴더에 모델 파일(.erd)이 이미 있다 */
+    pickSaveDir(): Promise<{ dir: string; hasModel: boolean } | null>;
   };
   conn: {
     /** BE 폴더 properties 로 만든 프로필 */
