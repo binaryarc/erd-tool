@@ -1,5 +1,6 @@
 // STEP 10 시험 모드 입력: 실제 키보드, 마우스 입력(sendInputEvent)으로 편집 편의 기능을 눌러 보고 화면 상태를 모은다.
 // 화면 쪽 준비(모델 열기)는 renderer 의 __erdAuto({ scenario: 'step10' }), 상태 읽기는 __erdProbe 가 한다.
+import fs from 'node:fs';
 import type { BrowserWindow } from 'electron';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -97,6 +98,46 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     const s = (step: string, arg?: string) => js(`window.__erdSession(${JSON.stringify(step)}, ${JSON.stringify(arg ?? null)})`);
     out.erd2 = await s('activate', 'erd-2');
     out.erd1 = await s('activate', 'erd');
+  }
+  if (part === 'connect') try {
+    // 완료 기준: 화면에서 선을 끌어 만든 FK 를 dev 에 적용하고 다시 읽으면 차이 0. 자식에 컬럼이 없던 경우도 같다
+    const c = (step: string, a?: string, b?: string) => js<Record<string, unknown> | { x: number; y: number } | null>(`window.__erdConnect(${JSON.stringify(step)}, ${JSON.stringify(a ?? null)}, ${JSON.stringify(b ?? null)})`);
+    const pt = async (step: string, a: string, b?: string) => { const p = await c(step, a, b) as { x: number; y: number } | null; if (!p) throw new Error(`위치를 못 찾았다: ${step} ${a} ${b ?? ''}`); return p; };
+    const dragTo = async (from: { x: number; y: number }, to: { x: number; y: number }) => drag(from, to.x - from.x, to.y - from.y);
+    out.prep = await c('prep', process.env.ERD_BE_DIR!);
+    // 1. 자식에 컬럼이 없는 경우: mst_biz 의 biz_seq 연결점에서 끌어 시험 테이블 몸통(연결점이 아닌 곳)에 놓는다 → 새 컬럼 biz_seq
+    await dragTo(await pt('handle', 'mst_biz', 's-biz_seq'), await pt('body', 'mst_erd_probe'));
+    out.askNew = await c('state');
+    await clickText('.dialog.conn button', '만들기');
+    out.afterNew = await c('state');
+    // 2. 자식에 컬럼이 있는 경우, 자식 쪽에서 부모 쪽으로: 시험 테이블 wh_seq 연결점 → mst_wh 의 wh_seq 연결점. ON DELETE CASCADE
+    await dragTo(await pt('handle', 'mst_erd_probe', 't-wh_seq'), await pt('handle', 'mst_wh', 't-wh_seq'));
+    out.askExisting = await c('state');
+    await c('answer', 'onDelete', 'cascade');
+    await clickText('.dialog.conn button', '만들기');
+    out.afterExisting = await c('state');
+    // 3. 복합 PK 테이블 머리에서 PK 없는 테이블로 끌면 오류로 안내하고 자식 쪽 편집 패널을 연다
+    await dragTo(await pt('handle', 'mst_erd_probe_cpk', 's-*'), await pt('body', 'mst_erd_probe_nopk'));
+    out.composite = await c('state');
+    await clickText('.editor header button', '×'); // 안내로 열린 편집 패널을 닫는다 (오른쪽 테이블을 가린다)
+    await sleep(1000); // 캔버스 폭이 돌아온 뒤 선 위치를 읽는다
+    // 4. 선을 눌러 고르고 Delete → FK 삭제, Ctrl+Z 로 되살림
+    const fk = ((out.afterExisting as { fks: { name: string }[] }).fks.at(-1))!.name;
+    const e = await pt('edge', 'mst_erd_probe', fk);
+    await click(e.x, e.y);
+    out.edgeSelected = await c('state');
+    await js(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
+    await key('Delete');
+    out.edgeDeleted = await c('state');
+    await key('Z', ['control']);
+    out.edgeRestored = await c('state');
+    // 5. dev 에 적용(커밋) → 다시 읽어 차이 0. 끝에 되돌리기로 처음 모델로 돌아가 같은 길로 시험 테이블을 지운다
+    out.apply = await c('apply', process.env.ERD_BE_DIR!);
+  } catch (e) {
+    out.error = (e as Error).message;
+    if (process.env.ERD_SHOT) fs.writeFileSync(`${process.env.ERD_SHOT}-fail.png`, (await wc.capturePage()).toPNG()); // 멈춘 화면
+  } finally {
+    if (part === 'connect' && out.prep) out.cleanup = await js(`window.__erdConnect('cleanup', ${JSON.stringify(process.env.ERD_BE_DIR)})`);
   }
   if (part === 'groups') try {
     const dir = process.env.ERD_SAVE_DIR!;
