@@ -113,6 +113,15 @@ function openEditor(name: string) {
   if (!t) return;
   miniName.value = '';
   editId.value = t.id;
+  pickId.value = t.id;
+}
+
+/** Enter 로 컬럼을 더할 테이블 ID: 마지막으로 하나만 고른 테이블이나 편집 패널에 연 테이블 중 나중 것 (STEP 10).
+ *  새 테이블을 만든 직후 캔버스에 다른 테이블이 골라져 있어도 새 테이블로 간다 */
+const pickId = ref('');
+function onSelect(names: string[]) {
+  selected.value = names;
+  pickId.value = names.length === 1 ? (model.value?.tables.find(t => t.name === names[0])?.id ?? '') : names.length ? '' : editId.value;
 }
 
 /** 새 테이블: 겹치지 않는 임시 이름으로 만들고 편집 패널을 연다. 공통 컬럼(reg_id 등)이 정의돼 있으면 넣는다 */
@@ -125,6 +134,13 @@ async function newTable() {
   openEditor(name);
   await nextTick();
   await canvas.value?.focusTable(name);
+}
+
+/** Enter 로 컬럼 추가 (STEP 10): 편집 패널을 열고 column_N 을 더해 그 이름 칸에 포커스 */
+async function enterColumn(name: string): Promise<string | undefined> {
+  if (editName.value !== name) openEditor(name);
+  await nextTick();
+  return editor.value?.addNext();
 }
 
 /** 모델 전체 CREATE 를 새 SQL 탭에 (바로 실행하지 않는다) */
@@ -444,9 +460,18 @@ function toggleTerm() {
 }
 window.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleTerm(); }
-  // 되돌리기, 다시 하기는 ERD 탭에서만. 입력 칸 안에서는 그 칸의 글자 되돌리기를 그대로 둔다
   const el = e.target as HTMLElement;
-  if (activeTab.value !== 'erd' || !e.ctrlKey || el.closest('input, textarea, select, [contenteditable]')) return;
+  if (activeTab.value !== 'erd' || pwAsk.value || closeAsk.value) return;
+  // Enter: 고른 테이블(없으면 편집 중인 테이블)에 컬럼을 더한다 (STEP 10). 입력 칸, 버튼 위의 Enter 는 그대로 둔다
+  if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing && !el.closest('input, textarea, select, button, [contenteditable]')) {
+    const name = model.value?.tables.find(t => t.id === pickId.value)?.name;
+    if (name) { e.preventDefault(); void enterColumn(name); }
+    return;
+  }
+  // 되돌리기, 다시 하기는 ERD 탭에서만. 입력 칸 안에서는 그 칸의 글자 되돌리기를 그대로 둔다.
+  // 단 Enter 로 막 더한 컬럼 이름 칸처럼 글자를 고치지 않은 칸(data-orig 와 같은 칸)은 모델 되돌리기로 넘긴다
+  const untouched = el instanceof HTMLInputElement && el.dataset.orig !== undefined && el.value === el.dataset.orig;
+  if (!e.ctrlKey || (!untouched && el.closest('input, textarea, select, [contenteditable]'))) return;
   const k = e.key.toLowerCase();
   if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
   else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
@@ -949,7 +974,26 @@ async function dbmsScenario(baseDir: string, list: { name: string; conn: ManualC
   return JSON.parse(JSON.stringify(out));
 }
 
+/** STEP 10 시험: 모델만 연다. 키보드, 마우스 입력은 메인이 실제 입력으로 보내고 __erdProbe 로 화면 상태를 읽는다 */
+async function step10Scenario(beDir: string, dir: string) {
+  await panel.value!.setSource('be');
+  await panel.value!.setBeDir(beDir);
+  await openModel(dir);
+  activeTab.value = 'erd';
+  await nextTick(); await frames(10); await sleep(800);
+  return { tables: model.value?.tables.length };
+}
+window.__erdProbe = (table?: string) => {
+  const t = table ? model.value?.tables.find(x => x.name === table) : undefined;
+  const a = document.activeElement as HTMLInputElement | null;
+  return JSON.parse(JSON.stringify({
+    selected: selected.value, editor: editName.value, canUndo: canUndo.value, canRedo: canRedo.value, message: message.value,
+    columns: t?.columns.map(c => `${c.name} ${c.type}${c.notNull ? ' NN' : ''}`), focused: a?.tagName === 'INPUT' ? a.value : a?.tagName,
+  }));
+};
+
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure, dbms }) => {
+  if (scenario === 'step10') return step10Scenario(beDir, dir);
   if (scenario === 'dbms') return dbmsScenario(dir, JSON.parse(dbms ?? '[]'));
   if (scenario === 'password') return passwordScenario(beDir);
   if (scenario === 'suggest') return suggestScenario(beDir);
@@ -1063,7 +1107,7 @@ window.__erdBench = async () => {
                   <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName">
                     <template #first>
                       <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
-                                 @pin="onPin" @select="n => (selected = n)" @open="n => { editId = ''; miniName = n; }" />
+                                 @pin="onPin" @select="onSelect" @open="n => { editId = ''; miniName = n; }" />
                       <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 ERD 폴더를 여세요.</p>
                     </template>
                     <template #second>

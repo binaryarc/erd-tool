@@ -2,8 +2,8 @@
 // 테이블 편집 패널 (STEP 6): 테이블 이름, 코멘트, 컬럼(이름, 타입, NN, PK, 기본값, 코멘트, 순서), FK 를 고친다.
 // 모델을 직접 고치지 않고 edit 이벤트로 수정 명령(shared/model/edit.ts)을 보낸다. App 이 되돌리기 기록을 남기고 적용한다.
 // 칸은 입력을 마칠 때(Enter, 칸 벗어남) 한 번 적용해 되돌리기 한 번이 칸 하나의 수정이 되게 한다.
-import { computed, ref, watch } from 'vue';
-import { addColumn as addCol, addFk as addFkCmd, defaultFkName, dropColumn, dropFk, dropTable as dropTableCmd, moveColumn, updateColumn, updateTable, type ColumnInput } from '../../../shared/model/edit';
+import { computed, nextTick, ref, watch } from 'vue';
+import { NEW_COLUMN_TYPE, addColumn as addCol, addFk as addFkCmd, defaultFkName, dropColumn, dropFk, dropTable as dropTableCmd, moveColumn, nextColumnName, updateColumn, updateTable, type ColumnInput } from '../../../shared/model/edit';
 import type { Column, SchemaModel } from '../../../shared/model/types';
 
 const props = defineProps<{ model: SchemaModel; name: string }>();
@@ -39,12 +39,40 @@ function dropTable() {
 }
 
 // ---------- 새 컬럼 ----------
-const blank = () => ({ name: '', type: 'varchar(50)', notNull: false, pk: false, default: '', comment: '' });
+const blank = () => ({ name: '', type: NEW_COLUMN_TYPE, notNull: false, pk: false, default: '', comment: '' });
 const draft = ref(blank());
 const nameBox = ref<HTMLInputElement>();
 function addColumn() {
   const d = draft.value;
   apply(m => addCol(m, props.name, { ...d }), ok => { if (ok) { draft.value = blank(); nameBox.value?.focus(); } });
+}
+
+// ---------- Enter 로 컬럼 이어서 추가 (STEP 10) ----------
+// column_N 이름, NULL 허용, 기본 타입으로 더하고 그 이름 칸에 포커스. 컬럼 하나가 되돌리기 한 번이다.
+const body = ref<HTMLDivElement>();
+async function focusColumn(name: string) {
+  await nextTick();
+  const el = body.value?.querySelector<HTMLInputElement>(`input[data-col="${CSS.escape(name)}"]`);
+  el?.focus();
+  el?.select();
+}
+/** after 를 주면 그 컬럼 뒤에, 없으면 공통 컬럼 앞에 */
+function addNext(after?: string): Promise<string | undefined> {
+  return new Promise(resolve => {
+    let name = '';
+    apply(m => { name = nextColumnName(m, props.name); return addCol(m, props.name, { name, type: NEW_COLUMN_TYPE, notNull: false }, after); },
+      ok => { if (!ok) return resolve(undefined); void focusColumn(name).then(() => resolve(name)); });
+  });
+}
+/** 컬럼 이름 칸에서 Enter: 칸을 벗어나 이름 바꾸기를 적용(change)한 뒤, 그 컬럼 뒤에 다음 컬럼을 더한다 */
+function nameEnter(e: KeyboardEvent, c: Column) {
+  if (e.isComposing) return; // 한글 조합 중 Enter 는 글자 확정이다
+  e.preventDefault();
+  const el = e.target as HTMLInputElement;
+  // blur 에서 change 가 나 이름 바꾸기가 바로(동기) 적용된다. 실패하면 칸이 원래 이름으로 돌아가므로 칸 글자가 지금 이름이다.
+  // props.model 은 다음 그리기 때 바뀌므로 여기서 보지 않는다
+  el.blur();
+  void addNext(el.value.trim() || c.name);
 }
 
 // ---------- 새 FK: 참조 테이블을 고르면 그 PK 컬럼마다 이 테이블 컬럼을 고른다 ----------
@@ -67,6 +95,7 @@ defineExpose({
   /** 시험용: 화면 칸과 같은 경로로 컬럼, FK 를 더한다 */
   addColumnDraft: (d: Partial<ReturnType<typeof blank>>) => { draft.value = { ...blank(), ...d }; addColumn(); },
   addFkDraft: (refTable: string, cols: string[]) => { fkRef.value = refTable; fkCols.value = cols; fkName.value = defaultFkName(props.model, props.name, refTable); addFk(); },
+  addNext,
 });
 </script>
 
@@ -78,7 +107,7 @@ defineExpose({
       <button class="danger" @click="dropTable">테이블 삭제</button>
       <button title="닫기" @click="emit('close')">×</button>
     </header>
-    <div class="ed-body">
+    <div ref="body" class="ed-body">
       <div class="grid2">
         <label>물리명</label><input :value="t.name" spellcheck="false" @change="renameTable" @keydown.enter="($event.target as HTMLInputElement).blur()" />
         <label>논리명</label><input :value="t.comment" @change="e => onText(e, t!.comment, v => m => updateTable(m, props.name, { comment: v }))" @keydown.enter="($event.target as HTMLInputElement).blur()" />
@@ -90,7 +119,8 @@ defineExpose({
         <tbody>
           <tr v-for="(c, i) in t.columns" :key="c.name">
             <td class="no">{{ i + 1 }}</td>
-            <td><input :value="c.name" spellcheck="false" @change="e => onText(e, c.name, v => m => updateColumn(m, props.name, c.name, { name: v.trim() }))" /></td>
+            <td><input :value="c.name" :data-col="c.name" :data-orig="c.name" spellcheck="false" title="Enter 를 치면 이 컬럼 뒤에 새 컬럼을 더한다"
+                       @change="e => onText(e, c.name, v => m => updateColumn(m, props.name, c.name, { name: v.trim() }))" @keydown.enter="e => nameEnter(e, c)" /></td>
             <td><input :value="c.type" spellcheck="false" class="type" @change="e => onText(e, c.type, v => m => updateColumn(m, props.name, c.name, { type: v }))" /></td>
             <td><input type="checkbox" :checked="c.notNull" :disabled="t.pk.includes(c.name)" :title="t.pk.includes(c.name) ? 'PK 는 NOT NULL 이다' : ''"
                        @change="e => setCol(c, { notNull: (e.target as HTMLInputElement).checked })" /></td>
@@ -115,7 +145,7 @@ defineExpose({
           </tr>
         </tbody>
       </table>
-      <p class="muted">새 컬럼은 공통 컬럼(reg_id 등) 앞에 들어간다. Enter 로 추가.</p>
+      <p class="muted">새 컬럼은 공통 컬럼(reg_id 등) 앞에 들어간다. Enter 로 추가. 컬럼 이름 칸에서 Enter 를 치면 그 뒤에 column_N 이 이어서 생긴다.</p>
 
       <h4>FK {{ t.fks.length }}개</h4>
       <table v-if="t.fks.length" class="fks">

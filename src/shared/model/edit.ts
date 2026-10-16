@@ -137,6 +137,18 @@ export function addColumn(m: SchemaModel, tableName: string, input: ColumnInput,
   }));
 }
 
+/** 새 컬럼 기본 타입 (편집 패널의 새 컬럼 줄, Enter 로 더하는 컬럼 공통) */
+export const NEW_COLUMN_TYPE = 'varchar(50)';
+
+/** Enter 로 더할 컬럼 이름: 그 테이블에 없는 첫 column_N (N 은 1부터, STEP 10). Oracle 은 대문자 */
+export function nextColumnName(m: SchemaModel, tableName: string): string {
+  const t = table(m, tableRef(m, tableName));
+  const taken = new Set(t.columns.map(c => c.name.toLowerCase()));
+  let i = 1;
+  while (taken.has(`column_${i}`)) i++;
+  return newName(m, `column_${i}`);
+}
+
 /** 테이블 끝에 공통 컬럼이 정의 순서대로 모두 있으면 그 시작 위치, 아니면 끝 */
 function commonStart(m: SchemaModel, t: Table): number {
   const n = m.common.length;

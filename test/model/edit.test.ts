@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  EditError, EditHistory, addColumn, addFk, addTable, dropColumn, dropFk, dropTable, moveColumn, normalizeType, updateColumn, updateTable,
+  EditError, EditHistory, NEW_COLUMN_TYPE, addColumn, addFk, addTable, dropColumn, dropFk, dropTable, moveColumn, nextColumnName, normalizeType, updateColumn, updateTable,
 } from '../../src/shared/model/edit';
 import { diffModels } from '../../src/shared/model/diff';
 import { serializeModel, parseModel } from '../../src/shared/model/erd-format';
@@ -160,5 +160,29 @@ describe('Oracle 이름 대소문자 (STEP 9)', () => {
     expect(m.tables[0].columns[1]).toMatchObject({ name: 'mixed', comment: '혼합' });
     const pg = addTable({ ...ora(), dialect: undefined }, 'erd_c');
     expect(pg.tables.map(t => t.name)).toEqual(['ERD_P', 'erd_c']);
+  });
+});
+
+describe('Enter 로 컬럼 추가 (STEP 10)', () => {
+  it('column_N 은 그 테이블에 없는 첫 번호, NULL 허용 기본 타입으로 공통 컬럼 앞에 들어가고 하나가 되돌리기 한 번이다', () => {
+    const h = new EditHistory();
+    let m = base;
+    for (let i = 0; i < 3; i++) {
+      const name = nextColumnName(m, 'mst_biz');
+      h.push(m);
+      m = addColumn(m, 'mst_biz', { name, type: NEW_COLUMN_TYPE, notNull: false });
+    }
+    expect(T(m, 'mst_biz').columns.map(c => `${c.name} ${c.type}${c.notNull ? ' NN' : ''}`)).toEqual([
+      'biz_seq integer NN', 'biz_nm varchar(100)', 'column_1 varchar(50)', 'column_2 varchar(50)', 'column_3 varchar(50)', 'reg_id varchar(20) NN', 'reg_dt timestamp NN']);
+    for (let i = 0; i < 3; i++) m = h.undo(m)!;
+    expect(m).toBe(base);
+  });
+  it('빈 번호를 채우고, 이름 칸 Enter 는 그 컬럼 뒤에 넣는다. Oracle 은 대문자', () => {
+    const m = addColumn(base, 'mst_biz', { name: 'column_2', type: 'int', notNull: false });
+    expect(nextColumnName(m, 'mst_biz')).toBe('column_1');
+    const m2 = addColumn(m, 'mst_biz', { name: nextColumnName(m, 'mst_biz'), type: NEW_COLUMN_TYPE, notNull: false }, 'biz_seq');
+    expect(T(m2, 'mst_biz').columns.map(c => c.name).slice(0, 3)).toEqual(['biz_seq', 'column_1', 'biz_nm']);
+    const ora: SchemaModel = { ...base, version: 2, dialect: 'oracle', schema: 'ERD' };
+    expect(nextColumnName(ora, 'mst_biz')).toBe('COLUMN_1');
   });
 });
