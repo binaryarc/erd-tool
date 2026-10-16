@@ -239,7 +239,7 @@ function createWindow() {
     win.webContents.on('render-process-gone', (_e, d) => console.log('[renderer-gone]', d.reason, d.exitCode));
     win.webContents.once('did-finish-load', async () => {
       console.log('[loaded]');
-      const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR, exportDir: process.env.ERD_EXPORT_DIR, measure: process.env.ERD_MEASURE };
+      const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR, exportDir: process.env.ERD_EXPORT_DIR, measure: process.env.ERD_MEASURE, dbms: process.env.ERD_DBMS };
       //   ERD_AUTO=step7  ERD_EXPORT_DIR(시험용 임시 폴더)에 Flyway, 이력, MD 파일을 만든다. 이력 파일은 허브 원본을 그 폴더로 복사해 쓴다
       if (auto === 'step7' && args.exportDir && args.beDir) {
         const be = args.beDir.replace(/[\\/]+$/, '');
@@ -253,6 +253,13 @@ function createWindow() {
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
         //   ERD_AUTO=step5  DB 비교, ERD 차이 적용(전체 실행 후 롤백). ERD_SHOT 을 주면 비교 탭과 적용 탭 화면을 남긴다
         //   ERD_AUTO=step6  ERD 수정 → dev 적용(커밋) → 다시 읽어 차이 0 → 되돌리기로 시험 테이블 지움. ERD_SHOT 을 주면 편집 화면을 남긴다
+        //   ERD_AUTO=dbms  ERD_DBMS(JSON 배열: 직접 입력 접속과 비밀번호, 시험 SQL)마다 접속 시험 → 리버스 → 저장 → 캔버스 → SQL 탭 조회. ERD_SHOT 이면 DB 마다 화면을 남긴다
+        if (auto === 'dbms') {
+          const shot = process.env.ERD_SHOT;
+          if (shot) fs.writeFileSync(`${shot}-dbms.png`, (await win.webContents.capturePage()).toPNG());
+          app.quit();
+          return;
+        }
         //   ERD_AUTO=suggest  SQL 탭 자동완성 목록의 항목 글자와 색을 재고, ERD_SHOT 이면 화면을 남긴다
         if (auto === 'suggest') {
           const shot = process.env.ERD_SHOT;
