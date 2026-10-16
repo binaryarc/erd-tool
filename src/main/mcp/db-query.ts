@@ -5,7 +5,7 @@
 import Cursor from 'pg-cursor';
 import pg from 'pg';
 import type { ConnRef } from '../../shared/ipc';
-import { connect, resolve } from '../db/connect';
+import { connectRef } from '../db/connect';
 
 export interface QueryOptions { show?: number; count?: number; timeoutMs?: number }
 
@@ -22,7 +22,7 @@ function read(cursor: Cursor, n: number): Promise<{ rows: unknown[][]; result: p
 export async function dbQuery(ref: ConnRef, sql: string, { show = 50, count = 1000, timeoutMs = 30_000 }: QueryOptions = {}): Promise<string> {
   const text = sql.trim().replace(/;\s*$/, '');
   if (!text) throw new Error('SQL 이 비었다');
-  const client = await connect(await resolve(ref), true);
+  const { client } = await connectRef(ref, true);
   try {
     await client.query(`set statement_timeout = ${Math.max(1000, Math.floor(timeoutMs))}`);
     await client.query('BEGIN READ ONLY');

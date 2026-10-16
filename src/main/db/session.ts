@@ -6,7 +6,7 @@
 import pg from 'pg';
 import Cursor from 'pg-cursor';
 import type { ConnRef, SqlResult, SqlState } from '../../shared/ipc';
-import { connect, connKey, resolve, type Target } from './connect';
+import { connectRef, connKey, resolve, type Target } from './connect';
 
 export const FETCH_SIZE = 1000;
 
@@ -140,8 +140,7 @@ const get = (tabId: string) => {
 /** 탭에 접속한다. 이미 접속돼 있으면 닫고 새로 연다 (커밋 안 한 변경이 있으면 화면이 먼저 물어본다) */
 export async function openSession(tabId: string, ref: ConnRef, label: string, resolver: (r: ConnRef) => Promise<Target> = resolve): Promise<SqlState> {
   await closeSession(tabId);
-  const t = await resolver(ref);
-  const client = await connect(t, t.readOnly);
+  const { client, target: t } = await connectRef(ref, undefined, resolver);
   const s = new Session(client, label, connKey(ref), t.readOnly);
   sessions.set(tabId, s);
   return s.state();

@@ -9,17 +9,17 @@ import { emptyLayout } from '../../shared/model/layout';
 import { MODEL_VERSION, type GroupRule, type SchemaModel } from '../../shared/model/types';
 import type { ConnRef, ConnTestResult, ManualConn, ReverseResult } from '../../shared/ipc';
 import { loadModel } from '../model-store';
-import { connect, resolve, type Target } from './connect';
+import { connect, connectRef } from './connect';
 import { countPg, reversePg } from './pg-reverse';
 
-export const testConnection = async (ref: ConnRef) => test(() => resolve(ref));
-export const testDraft = async (c: ManualConn, password: string) => test(async () => ({ ...c, password }));
+// 리버스와 접속 시험은 읽기만 한다
+export const testConnection = async (ref: ConnRef) => test(async () => (await connectRef(ref, true)).client);
+export const testDraft = async (c: ManualConn, password: string) => test(() => connect({ ...c, password }, true));
 
-async function test(target: () => Promise<Target>): Promise<ConnTestResult> {
+async function test(open: () => Promise<pg.Client>): Promise<ConnTestResult> {
   let client: pg.Client | undefined;
   try {
-    // 리버스와 접속 시험은 읽기만 한다
-    client = await connect(await target(), true);
+    client = await open();
     const c = await countPg(client);
     const v = await client.query('select current_database() db, version() ver');
     return { ok: true, message: `${v.rows[0].db} 접속 성공`, tables: c.tables, fks: c.fks, server: String(v.rows[0].ver).split(',')[0] };
@@ -44,7 +44,7 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
   const beDir = ref.source === 'be' ? ref.beDir : hubBeDir;
   const loaded = fs.existsSync(path.join(modelDir, '_index.erd')) ? await loadModel(modelDir) : null;
   const prev = loaded?.model ?? null;
-  const client = await connect(await resolve(ref), true);
+  const { client } = await connectRef(ref, true);
   try {
     const raw = await reversePg(client);
     const counts = await countPg(client);
@@ -65,7 +65,7 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
 
 /** DB 구조를 읽기만 한다 (DB 비교 화면용). 읽기 전용 연결, 모델 폴더와 맞추지 않는다 */
 export async function readDb(ref: ConnRef): Promise<{ model: SchemaModel; warnings: string[] }> {
-  const client = await connect(await resolve(ref), true);
+  const { client } = await connectRef(ref, true);
   try {
     const raw = await reversePg(client);
     return { model: { version: MODEL_VERSION, groups: [], common: [], tables: raw.tables, sequences: raw.sequences, functions: raw.functions }, warnings: raw.warnings };

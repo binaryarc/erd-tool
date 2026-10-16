@@ -2,7 +2,9 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { IPC, type ConnRef, type ManualConn, type ShellKind } from '../shared/ipc';
-import { forgetSessionPasswords, listManual, removeManual, saveManual } from './db/manual';
+import { forgetSessionPasswords, listManual, profileSecretStore, removeManual, saveManual } from './db/manual';
+import { forgetPassword, hasSavedPassword, setPasswordAsker, setSecretStore } from './db/passwords';
+import { profileKey } from './db/connect';
 import { readDb, reverse, testConnection, testDraft } from './db/reverse';
 import { loadCatalog } from './db/catalog';
 import { getProfile, listProfiles, passwordOf, toInfo } from './db/profiles';
@@ -15,6 +17,22 @@ import { nextFlywayVersion, writeExport } from './export';
 import { startMcp } from './mcp/server';
 import { dbQuery } from './mcp/db-query';
 import type { ConnRef as Ref, McpInfo, McpReply } from '../shared/ipc';
+
+// ---------- BE 프로필 비밀번호 (2026-10-16) ----------
+// properties 에서 자동으로 풀지 못하거나 DB 가 거부하면 화면에 묻는다 (passwords.ts). 답이 올 때까지 기다린다(사람이 입력)
+const pwWaits = new Map<number, (a: { password: string; save: boolean } | null) => void>();
+let pwSeq = 0;
+setSecretStore(profileSecretStore);
+setPasswordAsker(req => new Promise(ok => {
+  if (!mainWin || mainWin.isDestroyed()) { ok(null); return; }
+  const id = ++pwSeq;
+  pwWaits.set(id, ok);
+  mainWin.webContents.send(IPC.pwAsk, id, { label: req.label, reason: req.reason });
+}));
+ipcMain.on(IPC.pwReply, (_e, id: number, answer: { password: string; save: boolean } | null) => {
+  pwWaits.get(id)?.(answer);
+  pwWaits.delete(id);
+});
 
 // ---------- AI 연결 (STEP 8) ----------
 let mainWin: BrowserWindow | null = null;
@@ -78,7 +96,8 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.settingsSet, (_e, patch) => setSettings(patch));
   ipcMain.handle(IPC.modelLoad, (_e, dir: string) => loadModel(dir));
   ipcMain.handle(IPC.modelSave, (_e, dir, model, layout) => saveModel(dir, model, layout));
-  ipcMain.handle(IPC.connList, (_e, beDir: string) => listProfiles(beDir).map(toInfo));
+  ipcMain.handle(IPC.connList, (_e, beDir: string) => listProfiles(beDir).map(p => ({ ...toInfo(p), savedPassword: hasSavedPassword(profileKey(beDir, p.name)) })));
+  ipcMain.handle(IPC.connForgetPassword, (_e, beDir: string, name: string) => forgetPassword(profileKey(beDir, name)));
   ipcMain.handle(IPC.connTest, (_e, ref: ConnRef) => testConnection(ref));
   ipcMain.handle(IPC.connTestDraft, (_e, conn: ManualConn, password: string) => testDraft(conn, password));
   ipcMain.handle(IPC.manualList, () => listManual());
@@ -182,6 +201,17 @@ function createWindow() {
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
         //   ERD_AUTO=step5  DB 비교, ERD 차이 적용(전체 실행 후 롤백). ERD_SHOT 을 주면 비교 탭과 적용 탭 화면을 남긴다
         //   ERD_AUTO=step6  ERD 수정 → dev 적용(커밋) → 다시 읽어 차이 0 → 되돌리기로 시험 테이블 지움. ERD_SHOT 을 주면 편집 화면을 남긴다
+        //   ERD_AUTO=password  비밀번호 창(자동 실패, 틀림, 취소). 끝에 비밀번호 저장소(Windows 계정 암호화)에 시험 값을 넣고 읽고 지운다
+        if (auto === 'password') {
+          const k = 'be:erd-tool-store-probe:dev';
+          await profileSecretStore.save(k, 'probe-value');
+          const secretsText = fs.readFileSync(path.join(app.getPath('userData'), 'secrets.json'), 'utf8');
+          const store = { plainInFile: secretsText.includes('probe-value'), has: profileSecretStore.has(k), loaded: (await profileSecretStore.load(k)) === 'probe-value' };
+          await profileSecretStore.remove(k);
+          console.log('[store]', JSON.stringify({ ...store, removed: !profileSecretStore.has(k) }));
+          app.quit();
+          return;
+        }
         //   ERD_AUTO=step8  실제 claude 로 AI 변경 → 강조, 다른 테이블 위치 그대로 확인. ERD_SHOT 이면 확정 대기 화면을 남기고, 끝에 취소한다
         if (auto === 'step8') {
           const shot = process.env.ERD_SHOT;

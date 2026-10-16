@@ -71,9 +71,17 @@ async function run<T>(label: string, f: () => Promise<T>): Promise<T | undefined
   finally { busy.value = ''; }
 }
 
-const doTest = () => run('접속 시험 중', async () => { test.value = await window.erd.conn.test(ref_()); });
+/** 비밀번호를 입력해 저장했는지 표시를 다시 읽는다 */
+async function refreshProfiles() { if (beDir.value) profiles.value = await window.erd.conn.list(beDir.value); }
+async function forgetPw(name: string) {
+  await window.erd.conn.forgetPassword(beDir.value, name);
+  await refreshProfiles();
+}
+
+const doTest = () => run('접속 시험 중', async () => { test.value = await window.erd.conn.test(ref_()); await refreshProfiles(); });
 const doReverse = () => run('DB 구조 읽는 중', async () => {
   pending.value = await window.erd.db.reverse(ref_(), props.modelDir);
+  await refreshProfiles();
   const d = pending.value.diff;
   picked.value = new Set([...d.added, ...d.removed, ...d.changed]); // 기본은 모두 받기
   takeRoutines.value = true;
@@ -131,6 +139,8 @@ defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v),
         <li v-for="p in profiles" :key="p.name" :class="{ on: p.name === selected }" @click="selected = p.name; test = null">
           <b>{{ p.name }}</b> <span>{{ p.database }} @ {{ p.host }}:{{ p.port }}</span>
           <em v-if="p.readOnly">읽기 전용</em>
+          <span v-if="p.savedPassword" class="saved">입력한 비밀번호 저장됨
+            <a href="#" title="지우면 다음 접속은 다시 BE 폴더 설정에서 자동으로 읽는다" @click.stop.prevent="forgetPw(p.name)">지우기</a></span>
         </li>
       </ul>
     </template>
@@ -202,6 +212,7 @@ label { font-size: 12px; color: var(--muted); }
 .profiles li.on { border-color: var(--accent); background: var(--sel-bg); }
 .profiles span { color: var(--muted); }
 .profiles em { color: var(--key); font-style: normal; margin-left: 4px; }
+.profiles .saved { display: block; margin-top: 2px; }
 .acts { float: right; } .acts a { margin-left: 6px; color: var(--accent); cursor: pointer; }
 .pending { border-top: 1px solid var(--line); margin-top: 8px; font-size: 12px; }
 .pending ul { margin: 2px 0; padding-left: 18px; max-height: 160px; overflow: auto; }

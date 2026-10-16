@@ -42,6 +42,9 @@ export const IPC = {
   mcpInfo: 'mcp:info',
   mcpCall: 'mcp:call',
   mcpReply: 'mcp:reply',
+  pwAsk: 'pw:ask',
+  pwReply: 'pw:reply',
+  connForgetPassword: 'conn:forgetPassword',
 } as const;
 
 /** 접속 정보를 어디서 가져올지: BE 폴더 properties 자동 매핑, 또는 직접 입력 */
@@ -116,7 +119,12 @@ export interface ProfileInfo {
   database: string;
   user: string;
   readOnly: boolean;
+  /** 사용자가 입력해 저장한 비밀번호가 있다 (없으면 properties 에서 자동으로 읽는다) */
+  savedPassword?: boolean;
 }
+
+/** 비밀번호를 물을 때 화면에 보이는 것 */
+export interface PasswordAsk { label: string; reason: string }
 
 export interface ConnTestResult {
   ok: boolean;
@@ -205,6 +213,13 @@ export interface ErdApi {
     test(ref: ConnRef): Promise<ConnTestResult>;
     /** 저장 전 입력값으로 접속 시험 */
     testDraft(conn: ManualConn, password: string): Promise<ConnTestResult>;
+    /** BE 프로필에 저장한 비밀번호를 지운다 (다음 접속은 다시 properties 자동부터) */
+    forgetPassword(beDir: string, name: string): Promise<void>;
+  };
+  /** 접속할 비밀번호를 물으면 화면이 답한다. null 은 취소 */
+  password: {
+    onAsk(cb: (id: number, req: PasswordAsk) => void): void;
+    reply(id: number, answer: { password: string; save: boolean } | null): void;
   };
   manual: {
     list(): Promise<ManualConnInfo[]>;
