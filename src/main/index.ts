@@ -11,12 +11,19 @@ import { addHistory, listHistory, setHistoryDir } from './history';
 import { loadModel, saveModel } from './model-store';
 import { getSettings, setSettings } from './settings';
 import { inputTerm, killTerm, resizeTerm, spawnTerm } from './terminal';
+import { nextFlywayVersion, writeExport } from './export';
 
 function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.pickFolder, async (_e, defaultPath?: string) => {
     const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
+  ipcMain.handle(IPC.pickFile, async (_e, defaultPath?: string) => {
+    const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md'] }] });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle(IPC.exportNextVersion, (_e, dir: string) => nextFlywayVersion(dir));
+  ipcMain.handle(IPC.exportWrite, (_e, dir: string, files, history) => writeExport(dir, files, history));
   ipcMain.handle(IPC.settingsGet, () => getSettings());
   ipcMain.handle(IPC.settingsSet, (_e, patch) => setSettings(patch));
   ipcMain.handle(IPC.modelLoad, (_e, dir: string) => loadModel(dir));
@@ -110,13 +117,31 @@ function createWindow() {
     win.webContents.on('render-process-gone', (_e, d) => console.log('[renderer-gone]', d.reason, d.exitCode));
     win.webContents.once('did-finish-load', async () => {
       console.log('[loaded]');
-      const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR };
+      const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR, exportDir: process.env.ERD_EXPORT_DIR };
+      //   ERD_AUTO=step7  ERD_EXPORT_DIR(시험용 임시 폴더)에 Flyway, 이력, MD 파일을 만든다. 이력 파일은 허브 원본을 그 폴더로 복사해 쓴다
+      if (auto === 'step7' && args.exportDir && args.beDir) {
+        const be = args.beDir.replace(/[\\/]+$/, '');
+        const hub = path.join(path.dirname(be), 'docs-hub', 'spec', path.basename(be).replace(/-be$/, ''), '_knowledge/patterns/20-database/40-schema/99-migration-history.md');
+        fs.mkdirSync(args.exportDir, { recursive: true });
+        fs.copyFileSync(hub, path.join(args.exportDir, '99-migration-history.md'));
+      }
       try {
         const out = await win.webContents.executeJavaScript(`window.__erdAuto(${JSON.stringify(args)})`);
         console.log('[auto]', JSON.stringify(out));
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
         //   ERD_AUTO=step5  DB 비교, ERD 차이 적용(전체 실행 후 롤백). ERD_SHOT 을 주면 비교 탭과 적용 탭 화면을 남긴다
         //   ERD_AUTO=step6  ERD 수정 → dev 적용(커밋) → 다시 읽어 차이 0 → 되돌리기로 시험 테이블 지움. ERD_SHOT 을 주면 편집 화면을 남긴다
+        if (auto === 'step7') {
+          const shot = process.env.ERD_SHOT;
+          if (shot) {
+            for (const id of ['compare', 'export']) {
+              await win.webContents.executeJavaScript(`window.__erdActivate(${JSON.stringify(id)})`);
+              fs.writeFileSync(`${shot}-${id}.png`, (await win.webContents.capturePage()).toPNG());
+            }
+          }
+          app.quit();
+          return;
+        }
         if (auto === 'step6') {
           const shot = process.env.ERD_SHOT;
           if (shot) {

@@ -8,7 +8,8 @@ import CompareTab from './components/CompareTab.vue';
 import TerminalPanel from './components/TerminalPanel.vue';
 import SplitPane from './components/SplitPane.vue';
 import TableEditor from './components/TableEditor.vue';
-import { EditHistory, addTable, updateTable } from '../../shared/model/edit';
+import ExportTab from './components/ExportTab.vue';
+import { EditHistory, addColumn, addFk, addTable, updateTable } from '../../shared/model/edit';
 import { buildCreateAll } from '../../shared/sql/create';
 import { diffModels } from '../../shared/model/diff';
 import { buildJoinSelect } from '../../shared/sql/join';
@@ -199,7 +200,7 @@ const compare = ref<InstanceType<typeof CompareTab>>();
 const editor = ref<InstanceType<typeof TableEditor>>();
 
 // ---------- 위 영역 탭: ERD, SQL / 아래 영역: 터미널 ----------
-interface Tab { id: string; kind: 'erd' | 'sql' | 'compare'; title: string; dirty: boolean; initialSql?: string; initialConn?: string }
+interface Tab { id: string; kind: 'erd' | 'sql' | 'compare' | 'export'; title: string; dirty: boolean; initialSql?: string; initialConn?: string }
 const tabs = ref<Tab[]>([{ id: 'erd', kind: 'erd', title: 'ERD', dirty: false }]);
 const activeTab = ref('erd');
 const selected = ref<string[]>([]);
@@ -212,6 +213,13 @@ function openCompare() {
   if (!tabs.value.some(t => t.id === 'compare')) tabs.value.splice(1, 0, { id: 'compare', kind: 'compare', title: 'DB 비교', dirty: false });
   activeTab.value = 'compare';
 }
+
+/** 내보내기 탭도 하나만 연다 (STEP 7) */
+function openExport() {
+  if (!tabs.value.some(t => t.id === 'export')) tabs.value.push({ id: 'export', kind: 'export', title: '내보내기', dirty: false });
+  activeTab.value = 'export';
+}
+const exporter = ref<InstanceType<typeof ExportTab>>();
 
 function addSql(initialSql = '', initialConn?: string) {
   const id = `sql-${++seq}`;
@@ -519,7 +527,47 @@ window.__erdStep6Shot = async () => {
   return { redos, editor: editName.value };
 };
 
-window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir }) => {
+/**
+ * STEP 7 시험: ERD 를 고친 뒤 dev 와 비교해 Flyway 파일과 이력 한 줄을 만들고, MD 문서와 메뉴 물리 테이블 목록을 만든다.
+ * 파일은 모두 exportDir(시험용 임시 폴더)에 쓴다. BE 의 db/migration 은 다음 번호만 읽는다. DB 는 읽기만 한다.
+ */
+async function step7Scenario(beDir: string, dir: string, exportDir: string) {
+  await panel.value!.setSource('be');
+  await panel.value!.setBeDir(beDir);
+  await openModel(dir);
+  const out: Record<string, unknown> = {};
+  const probe = 'mst_erd_probe';
+  edit(m => addTable(m, probe, { comment: 'ERD 도구 시험', withCommon: true }));
+  edit(m => addColumn(m, probe, { name: 'probe_seq', type: 'int', notNull: false, pk: true }));
+  edit(m => addColumn(m, probe, { name: 'biz_seq', type: 'integer', notNull: false, comment: '사업장' }));
+  edit(m => addFk(m, probe, { name: 'fk_mst_erd_probe_mst_biz', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] }));
+
+  // Flyway: 왼쪽 dev, 오른쪽 지금 ERD
+  await applyToDb();
+  out.compare = compare.value!.items().map(i => `${i.kind} ${i.change} ${i.table ?? ''}.${i.name}`);
+  out.beNextVersion = await window.erd.export.nextVersion(`${beDir}/src/main/resource/db/migration`);
+  compare.value!.setFlyway({ menuCode: 'menu01' });
+  const f1 = await compare.value!.writeFlyway(`${exportDir}/migration`, `${exportDir}/99-migration-history.md`);
+  const f2 = await compare.value!.writeFlyway(`${exportDir}/migration`); // 같은 폴더에 다시: 번호가 올라간다
+  out.flyway = { first: f1 && { fileName: f1.fileName, history: !!f1.history, statements: f1.statements }, second: f2?.fileName };
+  await nextTick(); await frames(5);
+
+  // MD: 스키마 문서, 같은 분 안에 다시 쓰면 거부, 메뉴 물리 테이블 목록
+  openExport();
+  await nextTick(); await frames(5);
+  const md = await exporter.value!.writeSchema(`${exportDir}/md`);
+  const again = await exporter.value!.writeSchema(`${exportDir}/md`);
+  const menu = await exporter.value!.writeMenu(`${exportDir}/md`, 'MENU01', ['mst_biz', probe]);
+  out.md = { files: md.map(p => p.split(/[\\/]/).pop()), againWritten: again.length, menu: menu.map(p => p.split(/[\\/]/).pop()),
+    error: document.querySelector('.export .warn')?.textContent ?? '' };
+
+  while (canUndo.value) undo();
+  out.undone = model.value!.tables.every(t => t.name !== probe);
+  return JSON.parse(JSON.stringify(out));
+}
+
+window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir }) => {
+  if (scenario === 'step7') return step7Scenario(beDir, dir, exportDir!);
   if (scenario === 'step6') return step6Scenario(beDir, dir);
   if (scenario === 'step5') return step5Scenario(beDir, dir);
   if (scenario === 'sql') return sqlScenario(beDir, dir);
@@ -607,6 +655,7 @@ window.__erdBench = async () => {
                   </button>
                   <button class="add" @click="addSql()">+ SQL</button>
                   <button class="add" @click="openCompare">DB 비교</button>
+                  <button class="add" title="MD 문서, 메뉴 물리 테이블 목록. Flyway 파일은 DB 비교 탭에서" @click="openExport">내보내기</button>
                   <button v-if="selected.length" class="add" @click="addSql(buildJoinSelect(model!, selected))">SELECT 만들기 ({{ selected.length }})</button>
                   <button v-if="selected.length === 1" class="add" @click="openEditor(selected[0])">테이블 편집</button>
                   <span class="spacer" />
@@ -643,6 +692,9 @@ window.__erdBench = async () => {
                 </div>
                 <div v-if="tabs.some(x => x.kind === 'compare')" v-show="activeTab === 'compare'" class="pane">
                   <CompareTab ref="compare" :model="model" @open-sql="p => addSql(p.sql, p.conn)" />
+                </div>
+                <div v-if="tabs.some(x => x.kind === 'export')" v-show="activeTab === 'export'" class="pane">
+                  <ExportTab ref="exporter" :model="model" :selected="selected" @compare="openCompare" />
                 </div>
               </main>
             </template>

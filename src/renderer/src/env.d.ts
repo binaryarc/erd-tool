@@ -5,7 +5,7 @@ declare global {
   interface Window {
     erd: ErdApi;
     /** 시험 모드용: 메인이 executeJavaScript 로 부른다 */
-    __erdAuto?: (args: { scenario: string; beDir: string; profile: string; modelDir: string }) => Promise<unknown>;
+    __erdAuto?: (args: { scenario: string; beDir: string; profile: string; modelDir: string; exportDir?: string }) => Promise<unknown>;
     __erdBench?: () => Promise<unknown>;
     __erdActivate?: (tabId: string) => Promise<void>;
     __erdView?: (opts: { mode?: 'grid' | 'tree'; edge?: 'smoothstep' | 'straight' | 'default' }) => Promise<unknown>;
