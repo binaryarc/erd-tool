@@ -22,12 +22,12 @@ const tableRef = (m: SchemaModel, n: string) => refName(m, m.tables.map(t => t.n
 const colRef = (m: SchemaModel, tableName: string, n: string) => refName(m, m.tables.find(t => t.name === tableName)?.columns.map(c => c.name) ?? [], n);
 
 function table(m: SchemaModel, name: string): Table {
-  return m.tables.find(t => t.name === name) ?? fail(`테이블 ${name} 이 없다`);
+  return m.tables.find(t => t.name === name) ?? fail(`테이블 ${name} 이(가) 없습니다`);
 }
 
 function checkName(kind: string, name: string) {
-  if (!name.trim()) fail(`${kind} 이름이 비었다`);
-  if (/\s/.test(name)) fail(`${kind} 이름 ${name} 에 공백이 있다`);
+  if (!name.trim()) fail(`${kind} 이름이 비었습니다`);
+  if (/\s/.test(name)) fail(`${kind} 이름 ${name} 에 공백이 있습니다`);
 }
 
 /** 테이블 하나를 바꾼 새 모델 */
@@ -43,7 +43,7 @@ export function nextTableId(m: SchemaModel): string {
 export function addTable(m: SchemaModel, name: string, opts: { comment?: string; withCommon?: boolean } = {}): SchemaModel {
   name = newName(m, name);
   checkName('테이블', name);
-  if (m.tables.some(t => t.name === name)) fail(`테이블 ${name} 이 이미 있다`);
+  if (m.tables.some(t => t.name === name)) fail(`테이블 ${name} 이(가) 이미 있습니다`);
   const t: Table = {
     id: nextTableId(m), name, comment: opts.comment ?? '', columns: opts.withCommon ? m.common.map(c => ({ ...c })) : [],
     pk: [], fks: [], uniques: [], indexes: [],
@@ -58,7 +58,7 @@ export function updateTable(m: SchemaModel, name: string, patch: { name?: string
   const to = patch.name !== undefined ? newName(m, patch.name) : name;
   if (to !== name) {
     checkName('테이블', to);
-    if (m.tables.some(t => t.name === to)) fail(`테이블 ${to} 이 이미 있다`);
+    if (m.tables.some(t => t.name === to)) fail(`테이블 ${to} 이(가) 이미 있습니다`);
   }
   return {
     ...m,
@@ -125,14 +125,14 @@ export function addColumn(m: SchemaModel, tableName: string, input: ColumnInput,
   input = { ...input, name: newName(m, input.name) };
   const t = table(m, tableName);
   checkName('컬럼', input.name);
-  if (t.columns.some(c => c.name === input.name)) fail(`${tableName} 에 컬럼 ${input.name} 이 이미 있다`);
+  if (t.columns.some(c => c.name === input.name)) fail(`${tableName} 에 컬럼 ${input.name} 이(가) 이미 있습니다`);
   const { pk, ...rest } = input;
   // 도메인을 주면 타입은 그 도메인 타입이다 (AI 가 %도메인 으로 줄 때도 같다)
   if (rest.domain !== undefined) rest.type = domainOf(m, rest.domain).type;
   const col: Column = clean({ ...rest, type: normalizeTypeFor(dialectOf(m), rest.type), notNull: rest.notNull || !!pk });
-  if (!col.type) fail('타입이 비었다');
+  if (!col.type) fail('타입이 비었습니다');
   let at = t.columns.length;
-  if (after !== undefined) at = t.columns.findIndex(c => c.name === after) + 1 || fail(`${tableName} 에 컬럼 ${after} 이 없다`);
+  if (after !== undefined) at = t.columns.findIndex(c => c.name === after) + 1 || fail(`${tableName} 에 컬럼 ${after} 이(가) 없습니다`);
   else at = commonStart(m, t);
   return withTable(m, tableName, x => ({
     ...x, columns: [...x.columns.slice(0, at), col, ...x.columns.slice(at)], pk: pk ? [...x.pk, col.name] : x.pk,
@@ -178,24 +178,24 @@ export function updateColumn(m: SchemaModel, tableName: string, colName: string,
   tableName = tableRef(m, tableName);
   colName = colRef(m, tableName, colName);
   const t = table(m, tableName);
-  const old = t.columns.find(c => c.name === colName) ?? fail(`${tableName} 에 컬럼 ${colName} 이 없다`);
+  const old = t.columns.find(c => c.name === colName) ?? fail(`${tableName} 에 컬럼 ${colName} 이(가) 없습니다`);
   const to = patch.name !== undefined ? newName(m, patch.name) : colName;
   if (to !== colName) {
     checkName('컬럼', to);
-    if (t.columns.some(c => c.name === to)) fail(`${tableName} 에 컬럼 ${to} 이 이미 있다`);
+    if (t.columns.some(c => c.name === to)) fail(`${tableName} 에 컬럼 ${to} 이(가) 이미 있습니다`);
   }
   // 도메인을 쓰는 컬럼의 타입을 고치면 그 도메인을 고친다: 같은 도메인을 쓰는 모든 컬럼이 같은 타입이 된다 (결정 3)
   if (patch.type !== undefined && old.domain !== undefined) {
     const { type, ...others } = patch;
-    const nextType = normalizeTypeFor(dialectOf(m), type) || fail('타입이 비었다');
+    const nextType = normalizeTypeFor(dialectOf(m), type) || fail('타입이 비었습니다');
     const after = Object.keys(others).length ? updateColumn(m, tableName, colName, others) : m;
     return nextType === domainOf(after, old.domain).type ? after : updateDomain(after, old.domain, { type: nextType });
   }
-  if (patch.domain !== undefined) fail('컬럼의 도메인은 setColumnDomain 으로 바꾼다');
+  if (patch.domain !== undefined) fail('컬럼의 도메인은 setColumnDomain 으로 바꿉니다');
   const isPk = patch.pk ?? t.pk.includes(colName);
   const { pk: _pk, ...rest } = patch;
   const merged: Column = { ...old, ...rest, name: to };
-  if (rest.type !== undefined) merged.type = normalizeTypeFor(dialectOf(m), rest.type) || fail('타입이 비었다');
+  if (rest.type !== undefined) merged.type = normalizeTypeFor(dialectOf(m), rest.type) || fail('타입이 비었습니다');
   if (isPk) merged.notNull = true;
   const col = clean(to === colName ? merged : withRenamed(merged, old.renamedFrom ?? colName));
   const ren = (xs: string[]) => xs.map(x => (x === colName ? to : x));
@@ -225,7 +225,7 @@ export function dropColumn(m: SchemaModel, tableName: string, colName: string): 
   tableName = tableRef(m, tableName);
   colName = colRef(m, tableName, colName);
   const t = table(m, tableName);
-  if (!t.columns.some(c => c.name === colName)) fail(`${tableName} 에 컬럼 ${colName} 이 없다`);
+  if (!t.columns.some(c => c.name === colName)) fail(`${tableName} 에 컬럼 ${colName} 이(가) 없습니다`);
   return {
     ...m,
     tables: m.tables.map(x => {
@@ -251,7 +251,7 @@ export function moveColumn(m: SchemaModel, tableName: string, colName: string, d
   colName = colRef(m, tableName, colName);
   const t = table(m, tableName);
   const i = t.columns.findIndex(c => c.name === colName);
-  if (i < 0) fail(`${tableName} 에 컬럼 ${colName} 이 없다`);
+  if (i < 0) fail(`${tableName} 에 컬럼 ${colName} 이(가) 없습니다`);
   const j = i + delta;
   if (j < 0 || j >= t.columns.length) return m;
   const columns = [...t.columns];
@@ -275,17 +275,17 @@ export function addFk(m: SchemaModel, tableName: string, fk: ForeignKey): Schema
   fk = { ...fk, name: newName(m, fk.name), refTable, columns: fk.columns.map(c => colRef(m, tableName, c)), refColumns: fk.refColumns.map(c => colRef(m, refTable, c)) };
   const t = table(m, tableName);
   checkName('FK', fk.name);
-  if (m.tables.some(x => x.fks.some(f => f.name === fk.name))) fail(`FK 이름 ${fk.name} 이 이미 있다`);
+  if (m.tables.some(x => x.fks.some(f => f.name === fk.name))) fail(`FK 이름 ${fk.name} 이(가) 이미 있습니다`);
   if (!fk.columns.length) fail('FK 컬럼을 고르세요');
-  if (fk.columns.length !== fk.refColumns.length) fail('FK 컬럼 수와 참조 컬럼 수가 다르다');
-  for (const c of fk.columns) if (!t.columns.some(x => x.name === c)) fail(`${tableName} 에 컬럼 ${c} 이 없다`);
+  if (fk.columns.length !== fk.refColumns.length) fail('FK 컬럼 수와 참조 컬럼 수가 다릅니다');
+  for (const c of fk.columns) if (!t.columns.some(x => x.name === c)) fail(`${tableName} 에 컬럼 ${c} 이(가) 없습니다`);
   const ref = table(m, fk.refTable);
-  for (const c of fk.refColumns) if (!ref.columns.some(x => x.name === c)) fail(`${fk.refTable} 에 컬럼 ${c} 이 없다`);
+  for (const c of fk.refColumns) if (!ref.columns.some(x => x.name === c)) fail(`${fk.refTable} 에 컬럼 ${c} 이(가) 없습니다`);
   // PostgreSQL 은 참조 컬럼이 PK 나 UNIQUE 여야 FK 를 만든다
   const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every(x => b.includes(x));
   const keyed = sameSet(ref.pk, fk.refColumns) || ref.uniques.some(u => sameSet(u.columns, fk.refColumns))
     || ref.indexes.some(i => i.unique && sameSet(i.columns, fk.refColumns));
-  if (!keyed) fail(`${fk.refTable}(${fk.refColumns.join(', ')}) 가 PK 나 UNIQUE 가 아니라 FK 로 가리킬 수 없다`);
+  if (!keyed) fail(`${fk.refTable}(${fk.refColumns.join(', ')}) 가 PK 나 UNIQUE 가 아니라 FK 로 가리킬 수 없습니다`);
   const cleanFk: ForeignKey = { name: fk.name, columns: [...fk.columns], refTable: fk.refTable, refColumns: [...fk.refColumns] };
   if (fk.onDelete) cleanFk.onDelete = fk.onDelete;
   if (fk.onUpdate) cleanFk.onUpdate = fk.onUpdate;
@@ -297,7 +297,7 @@ export function dropFk(m: SchemaModel, tableName: string, fkName: string): Schem
   tableName = tableRef(m, tableName);
   fkName = refName(m, m.tables.find(t => t.name === tableName)?.fks.map(f => f.name) ?? [], fkName);
   const t = table(m, tableName);
-  if (!t.fks.some(f => f.name === fkName)) fail(`${tableName} 에 FK ${fkName} 이 없다`);
+  if (!t.fks.some(f => f.name === fkName)) fail(`${tableName} 에 FK ${fkName} 이(가) 없습니다`);
   return withTable(m, tableName, x => ({ ...x, fks: x.fks.filter(f => f.name !== fkName) }));
 }
 
@@ -327,7 +327,7 @@ export function pasteColumns(m: SchemaModel, target: string, cols: Column[]): { 
 // 도메인은 타입만 정한다(결정 2). 연결한 컬럼의 타입은 늘 도메인 타입과 같게 둔다. 그래서 DDL, 차이 계산, MD 는 지금처럼 컬럼 타입만 본다.
 
 function domainOf(m: SchemaModel, name: string): Domain {
-  return (m.domains ?? []).find(d => d.name === name) ?? fail(`도메인 ${name} 이 없다`);
+  return (m.domains ?? []).find(d => d.name === name) ?? fail(`도메인 ${name} 이(가) 없습니다`);
 }
 
 /** 테이블 컬럼과 공통 컬럼 정의 모두에 f 를 적용한 새 모델 (바뀐 것이 없으면 같은 객체를 둔다) */
@@ -346,14 +346,14 @@ export function domainUsage(m: SchemaModel, name: string): { table: string; colu
 
 const checkDomainName = (m: SchemaModel, name: string, except?: string) => {
   checkName('도메인', name);
-  if (name.startsWith('%')) fail('도메인 이름은 % 로 시작할 수 없다');
-  if (name !== except && (m.domains ?? []).some(d => d.name === name)) fail(`도메인 ${name} 이 이미 있다`);
+  if (name.startsWith('%')) fail('도메인 이름은 % 로 시작할 수 없습니다');
+  if (name !== except && (m.domains ?? []).some(d => d.name === name)) fail(`도메인 ${name} 이(가) 이미 있습니다`);
 };
 
 export function addDomain(m: SchemaModel, name: string, type: string): SchemaModel {
   name = name.trim();
   checkDomainName(m, name);
-  const t = normalizeTypeFor(dialectOf(m), type) || fail('타입이 비었다');
+  const t = normalizeTypeFor(dialectOf(m), type) || fail('타입이 비었습니다');
   return { ...m, domains: [...(m.domains ?? []), { name, type: t }] };
 }
 
@@ -362,7 +362,7 @@ export function updateDomain(m: SchemaModel, name: string, patch: { name?: strin
   const d = domainOf(m, name);
   const to = patch.name !== undefined ? patch.name.trim() : name;
   if (to !== name) checkDomainName(m, to, name);
-  const type = patch.type !== undefined ? (normalizeTypeFor(dialectOf(m), patch.type) || fail('타입이 비었다')) : d.type;
+  const type = patch.type !== undefined ? (normalizeTypeFor(dialectOf(m), patch.type) || fail('타입이 비었습니다')) : d.type;
   if (to === name && type === d.type) return m;
   const next = { ...m, domains: (m.domains ?? []).map(x => (x.name === name ? { name: to, type } : x)) };
   return mapColumns(next, c => (c.domain === name ? { ...c, domain: to, type } : c));
@@ -380,7 +380,7 @@ export function setColumnDomain(m: SchemaModel, tableName: string, colName: stri
   tableName = tableRef(m, tableName);
   colName = colRef(m, tableName, colName);
   const t = table(m, tableName);
-  const c = t.columns.find(x => x.name === colName) ?? fail(`${tableName} 에 컬럼 ${colName} 이 없다`);
+  const c = t.columns.find(x => x.name === colName) ?? fail(`${tableName} 에 컬럼 ${colName} 이(가) 없습니다`);
   if ((c.domain ?? null) === domain) return m;
   const col = domain === null ? clean({ ...c, domain: undefined }) : { ...c, domain, type: domainOf(m, domain).type };
   return withTable(m, tableName, x => ({ ...x, columns: x.columns.map(y => (y.name === colName ? col : y)) }));

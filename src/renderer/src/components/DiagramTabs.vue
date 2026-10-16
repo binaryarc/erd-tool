@@ -31,13 +31,13 @@ function endRename(e: Event, commit: boolean) {
     <template v-for="t in props.tabs" :key="t">
       <input v-if="editing === t" ref="box" class="rename" :value="t" spellcheck="false"
              @keydown.enter="e => endRename(e, true)" @keydown.esc="e => endRename(e, false)" @blur="e => endRename(e, true)" />
-      <button v-else :class="{ on: active === t }" :data-tab="t" title="더블클릭: 이름 바꾸기, 우클릭: 탭 삭제 (테이블은 모델에 남는다)"
+      <button v-else :class="{ on: active === t }" :data-tab="t" title="더블클릭: 이름 바꾸기, 우클릭: 탭 삭제 (테이블은 모델에 남습니다)"
               @click="emit('select', t)" @dblclick="startRename(t)" @contextmenu.prevent="emit('remove', t)">{{ t }}</button>
     </template>
-    <button class="add" title="빈 그룹 탭을 만든다" @click="emit('add')">+</button>
-    <button v-if="canPrefix" class="add" title="모델의 접두어 그룹(mdm, wms 등)마다 그 그룹 테이블을 넣은 탭을 만든다" @click="emit('prefix')">접두어 그룹으로 탭 만들기</button>
+    <button class="add" title="빈 그룹 탭을 만듭니다" @click="emit('add')">+</button>
+    <button v-if="canPrefix" class="add" title="모델의 접두어 그룹(mdm, wms 등)마다 그 그룹 테이블을 넣은 탭을 만듭니다" @click="emit('prefix')">접두어 그룹으로 탭 만들기</button>
     <span class="spacer" />
-    <button v-if="active !== all" class="add pick" title="이 그룹에 없는 테이블을 골라 넣는다 (빈 곳 우클릭과 같다)" @click="emit('pick')">테이블 추가</button>
+    <button v-if="active !== all" class="add pick" title="이 그룹에 없는 테이블을 골라 넣습니다 (빈 곳 우클릭과 같습니다)" @click="emit('pick')">테이블 추가</button>
   </nav>
 </template>
 

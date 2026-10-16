@@ -33,13 +33,13 @@ const clean = (e: unknown) => (e as Error).message.replace(/^Error invoking remo
 
 async function doTest() {
   error.value = ''; test.value = null;
-  if (!password.value) { error.value = '접속 시험에는 비밀번호를 입력해야 한다'; return; }
+  if (!password.value) { error.value = '접속 시험에는 비밀번호를 입력하세요'; return; }
   test.value = await window.erd.conn.testDraft(plain(), password.value);
 }
 
 async function save() {
   error.value = '';
-  if (!form.name || !form.host || !form.database || !form.user) { error.value = '이름, 호스트, DB, 사용자는 꼭 넣어야 한다'; return; }
+  if (!form.name || !form.host || !form.database || !form.user) { error.value = '이름, 호스트, DB, 사용자를 입력하세요'; return; }
   try {
     // 편집 때 비밀번호 칸을 비워 두면 기존 비밀번호를 그대로 쓴다
     emit('saved', await window.erd.manual.save(plain(), password.value || undefined));
@@ -66,7 +66,7 @@ async function save() {
     <label class="check"><input v-model="form.savePassword" type="checkbox" /> 비밀번호 저장 (Windows 계정으로 암호화)</label>
     <label v-if="form.driver === 'sqlserver'" class="check"><input v-model="form.trustCert" type="checkbox" /> 서버 인증서 믿기 (자체 서명 인증서)</label>
     <label class="check"><input v-model="form.readOnly" type="checkbox" /> 읽기 전용</label>
-    <p v-if="byAccount && form.readOnly" class="warn">{{ DIALECT_LABEL[form.driver] }} 는 서버가 읽기 전용을 막지 못한다. 읽기 권한만 있는 DB 계정으로 접속한다</p>
+    <p v-if="byAccount && form.readOnly" class="warn">{{ DIALECT_LABEL[form.driver] }} 는 서버가 읽기 전용을 막지 못합니다. 읽기 권한만 있는 DB 계정으로 접속하세요</p>
     <div class="row">
       <button @click="doTest">접속 시험</button>
       <button @click="save">저장</button>

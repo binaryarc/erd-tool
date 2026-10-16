@@ -32,10 +32,10 @@ const usedBy = (d: string) => domainUsage(props.model, d).length;
 function setDomain(c: Column, e: Event) {
   const v = (e.target as HTMLSelectElement).value;
   apply(m => setColumnDomain(m, props.name, c.name, v || null), ok => { if (!ok) (e.target as HTMLSelectElement).value = c.domain ?? ''; },
-    v ? `${c.name} 에 도메인 ${v} 를 지정함: 타입이 도메인 타입이 된다 (저장 전)` : `${c.name} 의 도메인 연결을 풂: 타입은 그대로 (저장 전)`);
+    v ? `${c.name} 에 도메인 ${v} 을(를) 지정했습니다. 타입이 도메인 타입으로 바뀝니다 (저장 전)` : `${c.name} 의 도메인 연결을 풀었습니다. 타입은 그대로입니다 (저장 전)`);
 }
 /** 도메인 컬럼의 타입 칸을 고치면 도메인을 고친다는 것을 알린다 (결정 3) */
-const typeNote = (c: Column) => (c.domain ? (v: string) => `도메인 ${c.domain} 타입을 ${v} 로 바꿈: 이 도메인을 쓰는 컬럼 ${usedBy(c.domain!)}개가 함께 바뀜 (저장 전)` : undefined);
+const typeNote = (c: Column) => (c.domain ? (v: string) => `도메인 ${c.domain} 타입을 ${v}(으)로 바꿨습니다. 이 도메인을 쓰는 컬럼 ${usedBy(c.domain!)}개가 함께 바뀌었습니다 (저장 전)` : undefined);
 
 function renameTable(e: Event) {
   const el = e.target as HTMLInputElement;
@@ -46,7 +46,7 @@ function renameTable(e: Event) {
 const setCol = (c: Column, patch: Partial<ColumnInput>) => apply(m => updateColumn(m, props.name, c.name, patch));
 
 function dropTable() {
-  if (!confirm(`${props.name} 테이블을 지울까요? 이 테이블을 가리키는 FK 도 함께 지운다 (되돌리기 가능)`)) return;
+  if (!confirm(`${props.name} 테이블을 지울까요? 이 테이블을 가리키는 FK 도 함께 지웁니다 (되돌릴 수 있습니다)`)) return;
   apply(m => dropTableCmd(m, props.name), ok => { if (ok) emit('close'); });
 }
 
@@ -131,20 +131,20 @@ defineExpose({
 
       <h4>컬럼 {{ t.columns.length }}개</h4>
       <table class="cols">
-        <thead><tr><th>No.</th><th>이름</th><th>타입</th><th title="타입만 정하는 도메인. 고르면 타입이 도메인 타입이 된다">도메인</th><th title="NOT NULL">NN</th><th>PK</th><th>기본값</th><th>코멘트</th><th></th></tr></thead>
+        <thead><tr><th>No.</th><th>이름</th><th>타입</th><th title="타입만 정하는 도메인입니다. 고르면 타입이 도메인 타입으로 바뀝니다">도메인</th><th title="NOT NULL">NN</th><th>PK</th><th>기본값</th><th>코멘트</th><th></th></tr></thead>
         <tbody>
           <tr v-for="(c, i) in t.columns" :key="c.name">
             <td class="no">{{ i + 1 }}</td>
-            <td><input :value="c.name" :data-col="c.name" :data-orig="c.name" spellcheck="false" title="Enter 를 치면 이 컬럼 뒤에 새 컬럼을 더한다"
+            <td><input :value="c.name" :data-col="c.name" :data-orig="c.name" spellcheck="false" title="Enter 를 누르면 이 컬럼 뒤에 새 컬럼을 더합니다"
                        @change="e => onText(e, c.name, v => m => updateColumn(m, props.name, c.name, { name: v.trim() }))" @keydown.enter="e => nameEnter(e, c)" /></td>
             <td><input :value="c.type" spellcheck="false" class="type" :class="{ dom: c.domain }"
-                       :title="c.domain ? `도메인 ${c.domain}: 이 타입을 고치면 이 도메인을 쓰는 컬럼 ${usedBy(c.domain)}개가 함께 바뀐다` : ''"
+                       :title="c.domain ? `도메인 ${c.domain}: 이 타입을 고치면 이 도메인을 쓰는 컬럼 ${usedBy(c.domain)}개가 함께 바뀝니다` : ''"
                        @change="e => onText(e, c.type, v => m => updateColumn(m, props.name, c.name, { type: v }), typeNote(c))" /></td>
             <td><select class="domain" :value="c.domain ?? ''" :data-domain-col="c.name" @change="e => setDomain(c, e)">
               <option value="">{{ domains.length ? '없음' : '(도메인 없음)' }}</option>
               <option v-for="d in domains" :key="d.name" :value="d.name">{{ d.name }}</option>
             </select></td>
-            <td><input type="checkbox" :checked="c.notNull" :disabled="t.pk.includes(c.name)" :title="t.pk.includes(c.name) ? 'PK 는 NOT NULL 이다' : ''"
+            <td><input type="checkbox" :checked="c.notNull" :disabled="t.pk.includes(c.name)" :title="t.pk.includes(c.name) ? 'PK 는 NOT NULL 입니다' : ''"
                        @change="e => setCol(c, { notNull: (e.target as HTMLInputElement).checked })" /></td>
             <td><input type="checkbox" :checked="t.pk.includes(c.name)" @change="e => setCol(c, { pk: (e.target as HTMLInputElement).checked })" /></td>
             <td><input :value="c.default ?? ''" spellcheck="false" @change="e => onText(e, c.default ?? '', v => m => updateColumn(m, props.name, c.name, { default: v }))" /></td>
@@ -152,7 +152,7 @@ defineExpose({
             <td class="act">
               <button title="위로" :disabled="i === 0" @click="apply(m => moveColumn(m, props.name, c.name, -1))">↑</button>
               <button title="아래로" :disabled="i === t.columns.length - 1" @click="apply(m => moveColumn(m, props.name, c.name, 1))">↓</button>
-              <button title="컬럼 삭제 (이 컬럼이 든 키도 지운다)" class="danger" @click="apply(m => dropColumn(m, props.name, c.name))">×</button>
+              <button title="컬럼 삭제 (이 컬럼이 든 키도 지웁니다)" class="danger" @click="apply(m => dropColumn(m, props.name, c.name))">×</button>
             </td>
           </tr>
           <tr class="new" @keydown.enter="addColumn">
@@ -168,7 +168,7 @@ defineExpose({
           </tr>
         </tbody>
       </table>
-      <p class="muted">새 컬럼은 공통 컬럼(reg_id 등) 앞에 들어간다. Enter 로 추가. 컬럼 이름 칸에서 Enter 를 치면 그 뒤에 column_N 이 이어서 생긴다.</p>
+      <p class="muted">이 줄로 추가한 컬럼은 공통 컬럼(reg_id 등) 앞에 들어갑니다. ERD 에서 테이블을 고르고 Enter 를 누르면 맨 아래에 column_N 이 생기고, 컬럼 이름 칸에서 Enter 를 누르면 그 뒤에 이어서 생깁니다.</p>
 
       <h4>FK {{ t.fks.length }}개</h4>
       <table v-if="t.fks.length" class="fks">
@@ -188,7 +188,7 @@ defineExpose({
           </select>
         </label>
         <template v-if="fkRef">
-          <p v-if="!refPk.length" class="warn">{{ fkRef }} 에 PK 가 없어 FK 로 가리킬 수 없다</p>
+          <p v-if="!refPk.length" class="warn">{{ fkRef }} 에 PK 가 없어 FK 로 가리킬 수 없습니다</p>
           <template v-else>
             <label v-for="(p, i) in refPk" :key="p">{{ fkRef }}.{{ p }} ←
               <select v-model="fkCols[i]">

@@ -37,7 +37,7 @@ export async function saveManual(conn: ManualConn, password?: string): Promise<M
   if (password !== undefined) memory.set(c.id, password);
   const pw = memory.get(c.id);
   if (c.savePassword && pw !== undefined) {
-    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('이 PC 에서는 비밀번호 암호화를 쓸 수 없다. 저장하지 않고 쓰세요');
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('이 PC 에서는 비밀번호 암호화를 쓸 수 없습니다. 저장하지 않고 쓰세요');
     s[c.id] = (await safeStorage.encryptStringAsync(pw)).toString('base64');
   } else if (!c.savePassword) {
     delete s[c.id];
@@ -61,7 +61,7 @@ export const profileSecretStore: SecretStore = {
     return enc ? (await safeStorage.decryptStringAsync(Buffer.from(enc, 'base64'))).result : undefined;
   },
   async save(key, password) {
-    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('이 PC 에서는 비밀번호 암호화를 쓸 수 없다. 저장하지 않고 쓰세요');
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('이 PC 에서는 비밀번호 암호화를 쓸 수 없습니다. 저장하지 않고 쓰세요');
     writeJson('secrets.json', { ...secrets(), [key]: (await safeStorage.encryptStringAsync(password)).toString('base64') });
   },
   async remove(key) {
@@ -78,13 +78,13 @@ export const forgetSessionPasswords = () => memory.clear();
 
 export async function resolveManual(id: string): Promise<{ conn: ManualConn; password: string }> {
   const conn = conns().find(c => c.id === id);
-  if (!conn) throw new Error('접속 정보가 없다');
+  if (!conn) throw new Error('접속 정보가 없습니다');
   let password = memory.get(id);
   const enc = secrets()[id];
   if (password === undefined && enc) {
     password = (await safeStorage.decryptStringAsync(Buffer.from(enc, 'base64'))).result;
     memory.set(id, password);
   }
-  if (password === undefined) throw new Error(`「${conn.name}」 비밀번호가 없다. 편집에서 비밀번호를 입력하세요`);
+  if (password === undefined) throw new Error(`「${conn.name}」 비밀번호가 없습니다. 편집에서 비밀번호를 입력하세요`);
   return { conn, password };
 }

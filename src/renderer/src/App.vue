@@ -135,11 +135,11 @@ function edit(fn: (m: SchemaModel) => SchemaModel, done?: (ok: boolean) => void,
   if (!model.value) { done?.(false); return false; }
   let next: SchemaModel;
   try { next = fn(model.value); }
-  catch (e) { message.value = `수정 안 됨: ${(e as Error).message}`; done?.(false); return false; }
+  catch (e) { message.value = `수정하지 못했습니다: ${(e as Error).message}`; done?.(false); return false; }
   if (next !== model.value) {
     history.push(model.value);
     setModel(next);
-    message.value = note ?? '수정함 (저장 전)';
+    message.value = note ?? '수정했습니다 (저장 전)';
   }
   done?.(true);
   return true;
@@ -153,11 +153,11 @@ function restore(s: Snap) {
 }
 function undo() {
   const s = model.value && history.undo(model.value);
-  if (s) { restore(s); message.value = '되돌림'; }
+  if (s) { restore(s); message.value = '되돌렸습니다'; }
 }
 function redo() {
   const s = model.value && history.redo(model.value);
-  if (s) { restore(s); message.value = '다시 함'; }
+  if (s) { restore(s); message.value = '다시 실행했습니다'; }
 }
 
 function openEditor(name: string) {
@@ -280,7 +280,7 @@ async function aiApply(lines: string[]): Promise<string> {
   if (!aiBase.value) aiBase.value = { model: before, pinned: beforePinned };
   aiStepsOf().push({ before, beforePinned, after: model.value! });
   version.value++;
-  message.value = 'AI 가 고침 (확정 대기)';
+  message.value = 'AI 가 수정했습니다 (확정 대기)';
   return [
     `적용함: 명령 ${r.done.length}줄`,
     ...placed,
@@ -306,7 +306,7 @@ function aiConfirm() {
   aiBase.value = null;
   aiStepsOf().length = 0;
   version.value++;
-  message.value = 'AI 변경을 확정함 (저장 전)';
+  message.value = 'AI 변경을 확정했습니다 (저장 전)';
 }
 /** 사람의 「취소」: AI 가 고치기 전 모습으로 */
 function aiCancel() {
@@ -317,7 +317,7 @@ function aiCancel() {
   setPins(base.pinned);
   aiBase.value = null;
   aiStepsOf().length = 0;
-  message.value = 'AI 변경을 취소함';
+  message.value = 'AI 변경을 취소했습니다';
 }
 
 async function aiExport(args: { kind?: string; conn?: string; description?: string }): Promise<string> {
@@ -394,7 +394,7 @@ async function onBeDir(be: string) {
 /** 저장 안 한 ERD 변경(확정 대기 중인 AI 변경 포함)이 있으면 버려도 되는지 묻는다. 없으면 바로 true */
 function discardOk(what: string): boolean {
   if (!dirty.value && !aiBase.value) return true;
-  return confirm(`저장하지 않은 ERD 변경이 있다${aiBase.value ? ' (확정 대기 중인 AI 변경 포함)' : ''}.\n${what} 이 변경은 사라진다. 계속할까요?`);
+  return confirm(`저장하지 않은 ERD 변경이 있습니다${aiBase.value ? ' (확정 대기 중인 AI 변경 포함)' : ''}.\n${what} 이 변경은 사라집니다. 계속할까요?`);
 }
 // X 버튼이 아닌 길(window.close(), 새로 고침)로 화면이 내려가려 하면 막는다. 막으면 메인이 창으로 묻는다(will-prevent-unload).
 // X 버튼은 메인이 먼저 묻고 확인하면 여기서 막아도 메인이 통과시킨다.
@@ -409,19 +409,19 @@ async function openModel(dir?: string) {
     // 폴더 안 파일이 모두 보이는 창에서 파일 하나를 고르면 그 폴더를 연다 (2026-10-16 사용자 지정)
     const picked = await window.erd.model.pickOpen(modelDir.value || undefined);
     if (!picked) return;
-    if (!picked.hasModel) { message.value = `${picked.dir} 에 _index.erd 가 없어 ERD 모델 폴더가 아니다`; return; }
+    if (!picked.hasModel) { message.value = `ERD 모델 폴더가 아닙니다 (_index.erd 없음): ${picked.dir}`; return; }
     d = picked.dir;
   }
   // 다른 ERD 탭에 이미 열린 폴더면 그 탭으로 간다 (한 폴더를 두 탭에서 고치면 저장할 때 서로 덮어쓴다)
   const other = [...docs.values()].find(x => x !== cur.value && sameDir(x.modelDir.value, d) && x.model.value);
-  if (other) { activeTab.value = other.id; message.value = `이미 ${titleOf(other.id)} 탭에 열려 있어 그 탭으로 옮김`; return; }
+  if (other) { activeTab.value = other.id; message.value = `이미 ${titleOf(other.id)} 탭에 열려 있어 그 탭으로 이동했습니다`; return; }
   if (!discardOk('다른 ERD 를 열면')) return;
   await setModelDir(d);
   const r = await window.erd.model.load(d);
   errors.value = r.errors;
   show(r.model, r.layout);
   dirty.value = false;
-  message.value = `불러옴: 테이블 ${r.model.tables.length}개`;
+  message.value = `불러왔습니다: 테이블 ${r.model.tables.length}개`;
 }
 
 function applyReverse(r: ReverseResult) {
@@ -429,7 +429,7 @@ function applyReverse(r: ReverseResult) {
   // 모델 폴더의 기존 배치를 쓴다 (화면에 띄운 배치가 아니라). 끌어 옮긴 위치를 지키기 위해서다
   show(r.model, r.layout);
   dirty.value = true;
-  message.value = `DB 에서 불러옴: 테이블 ${r.model.tables.length}개 (저장 전)`;
+  message.value = `DB 에서 불러왔습니다: 테이블 ${r.model.tables.length}개 (저장 전)`;
 }
 
 /** 「ERD 저장」 버튼: 누를 때마다 저장할 폴더를 고른다 (2026-10-16 사용자 지정).
@@ -438,7 +438,7 @@ function applyReverse(r: ReverseResult) {
 async function save() {
   if (!model.value) return;
   // 사람이 확정해야 모델 파일에 저장된다 (설계 10-4)
-  if (aiBase.value) { message.value = '확정 대기 중인 AI 변경을 확정하거나 취소한 뒤 저장한다'; return; }
+  if (aiBase.value) { message.value = '확정 대기 중인 AI 변경을 확정하거나 취소한 뒤 저장하세요'; return; }
   const picked = await window.erd.model.pickSaveDir();
   if (!picked) return;
   return saveWithPreview(picked);
@@ -449,7 +449,7 @@ async function saveWithPreview(picked: { dir: string; hasModel: boolean }) {
   if (!model.value) return;
   keepViewport(); // 확대, 화면 위치도 layout.json 에 함께 저장한다 (2026-10-16 사용자 요청)
   const other = [...docs.values()].find(x => x !== cur.value && sameDir(x.modelDir.value, picked.dir));
-  if (other) { message.value = `그 폴더는 ${titleOf(other.id)} 탭에 열려 있어 저장하지 않았다`; return; }
+  if (other) { message.value = `${titleOf(other.id)} 탭에 열려 있는 폴더라 저장하지 않았습니다`; return; }
   const same = sameDir(picked.dir, modelDir.value);
   // 저장하면 바뀔 파일을 먼저 보여 주고 확인을 받는다 (2026-10-16 사용자 지정). 쓰기 전 소속 정리도 복사본으로 미리 해 본다
   const l = structuredClone(layout.value);
@@ -473,7 +473,7 @@ async function saveTo(dir: string) {
   pruneMembers(layout.value, model.value); // 지운 테이블을 그룹 소속에서 정리한다 (화면에서는 되돌리기를 위해 남겨 둔다)
   const r = await window.erd.model.save(dir, model.value, layout.value);
   dirty.value = false;
-  message.value = `ERD 저장 (${dir}): 바뀐 파일 ${r.written.length}개, 그대로 ${r.unchanged.length}개, 지운 파일 ${r.removed.length}개`;
+  message.value = `저장했습니다 (${dir}): 바뀐 파일 ${r.written.length}개, 그대로 ${r.unchanged.length}개, 지운 파일 ${r.removed.length}개`;
   return r;
 }
 
@@ -527,7 +527,7 @@ function selectTab(name: string) {
 function tabOp(f: () => void, done: string): boolean {
   const before = snapNow(); // 그룹 탭 조작도 되돌린다
   try { f(); }
-  catch (e) { if (!(e instanceof TabError)) throw e; message.value = `안 됨: ${e.message}`; return false; }
+  catch (e) { if (!(e instanceof TabError)) throw e; message.value = `할 수 없습니다: ${e.message}`; return false; }
   history.pushSnap(before);
   refreshDiagram();
   version.value++;
@@ -539,35 +539,35 @@ const idsOf = (names: string[]) => names.map(n => model.value!.tables.find(t => 
 
 function addTab() {
   const name = newTabName(layout.value);
-  if (tabOp(() => createTab(layout.value, name), `그룹 탭 ${name} 을 만듦 (저장 전). 테이블 우클릭이나 「테이블 추가」 로 넣는다`)) selectTab(name);
+  if (tabOp(() => createTab(layout.value, name), `그룹 탭 ${name} 을(를) 만들었습니다 (저장 전). 테이블 우클릭이나 「테이블 추가」로 넣으세요`)) selectTab(name);
 }
 function onRenameTab(from: string, to: string) {
-  if (tabOp(() => renameTab(layout.value, from, to), `탭 이름을 ${to} 로 바꿈 (저장 전)`) && tab.value === from) tab.value = to;
+  if (tabOp(() => renameTab(layout.value, from, to), `탭 이름을 ${to}(으)로 바꿨습니다 (저장 전)`) && tab.value === from) tab.value = to;
 }
 async function onRemoveTab(name: string) {
   const n = membersOf(name)?.length ?? 0;
-  if (await askDlg(`그룹 탭 「${name}」 을 지울까요?\n탭만 지우고 테이블 ${n}개는 모델에 그대로 남는다.`, [{ label: '탭 지우기', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
+  if (await askDlg(`그룹 탭 「${name}」을(를) 지울까요?\n탭만 지우고 테이블 ${n}개는 모델에 그대로 남습니다.`, [{ label: '탭 지우기', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
   if (tab.value === name) selectTab(DEFAULT_DIAGRAM);
-  tabOp(() => deleteTab(layout.value, name), `그룹 탭 ${name} 을 지움 (저장 전)`);
+  tabOp(() => deleteTab(layout.value, name), `그룹 탭 ${name} 을(를) 지웠습니다 (저장 전)`);
 }
 function onPrefixTabs() {
   let made: string[] = [];
   if (tabOp(() => { made = prefixTabs(layout.value, model.value!); }, '') ) {
-    message.value = made.length ? `접두어 그룹 탭 ${made.length}개를 만듦 (${made.join(', ')}, 저장 전)` : '새로 만들 접두어 그룹 탭이 없다';
+    message.value = made.length ? `접두어 그룹 탭 ${made.length}개를 만들었습니다 (${made.join(', ')}, 저장 전)` : '새로 만들 접두어 그룹 탭이 없습니다';
     if (made.length) selectTab(made[0]);
   }
 }
 function addToGroup(names: string[], group: string) {
   let added: string[] = [];
   tabOp(() => { added = addMembers(layout.value, group, idsOf(names)); }, '');
-  message.value = `「${group}」 탭에 ${added.length}개 넣음 (저장 전)`;
+  message.value = `「${group}」 탭에 ${added.length}개를 넣었습니다 (저장 전)`;
 }
 function newGroupWith(names: string[]) {
   const name = newTabName(layout.value);
-  tabOp(() => createTab(layout.value, name, idsOf(names)), `「${name}」 탭을 만들어 ${names.length}개를 넣음 (저장 전)`);
+  tabOp(() => createTab(layout.value, name, idsOf(names)), `「${name}」 탭을 만들어 ${names.length}개를 넣었습니다 (저장 전)`);
 }
 function removeFromGroup(names: string[]) {
-  tabOp(() => removeMembers(layout.value, tab.value, idsOf(names)), `「${tab.value}」 탭에서 ${names.length}개를 뺌. 모델에는 남아 있다 (저장 전)`);
+  tabOp(() => removeMembers(layout.value, tab.value, idsOf(names)), `「${tab.value}」 탭에서 ${names.length}개를 뺐습니다. 모델에는 남아 있습니다 (저장 전)`);
 }
 
 /** 모델에서 테이블 지우기 (Delete 키, 우클릭 메뉴). 항상 확인 창에 함께 지워지는 FK 수를 보인다 (결정 13) */
@@ -577,11 +577,11 @@ async function deleteTables(names: string[]) {
   const gone = new Set(names);
   const pointing = m.tables.filter(t => !gone.has(t.name)).reduce((n, t) => n + t.fks.filter(f => gone.has(f.refTable)).length, 0);
   const own = m.tables.filter(t => gone.has(t.name)).reduce((n, t) => n + t.fks.length, 0);
-  const inGroup = membersOf(tab.value) ? `\n이 그룹에서만 빼려면 취소하고 우클릭 메뉴의 「이 그룹에서 빼기」 를 쓴다.` : '';
-  const text = `${names.length === 1 ? names[0] : `테이블 ${names.length}개`} 를 모델에서 지울까요? (모든 탭에서 없어진다, 되돌리기 가능)\n`
-    + `이 테이블을 가리키는 다른 테이블의 FK ${pointing}개, 이 테이블의 FK ${own}개도 함께 지운다.${inGroup}`;
+  const inGroup = membersOf(tab.value) ? `\n이 그룹에서만 빼려면 취소하고 우클릭 메뉴의 「이 그룹에서 빼기」를 쓰세요.` : '';
+  const text = `${names.length === 1 ? names[0] : `테이블 ${names.length}개`}을(를) 모델에서 지울까요? (모든 탭에서 없어지며 되돌릴 수 있습니다)\n`
+    + `이 테이블을 가리키는 다른 테이블의 FK ${pointing}개, 이 테이블의 FK ${own}개도 함께 지웁니다.${inGroup}`;
   if (await askDlg(text, [{ label: '모델에서 삭제', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
-  if (edit(x => names.reduce((acc, n) => dropTable(acc, n), x))) message.value = `${names.join(', ')} 를 모델에서 지움 (저장 전)`;
+  if (edit(x => names.reduce((acc, n) => dropTable(acc, n), x))) message.value = `모델에서 지웠습니다: ${names.join(', ')} (저장 전)`;
 }
 
 // 확인 창 (window.confirm 대신: 시험 모드에서 막히지 않고 버튼을 여러 개 둘 수 있다)
@@ -617,7 +617,7 @@ function onConnectTables(a: End, b: End) {
   if (!model.value) return;
   const plan = planConnect(model.value, a, b);
   if (!plan.ok) {
-    message.value = `선 연결 안 됨: ${plan.error}`;
+    message.value = `선으로 연결할 수 없습니다: ${plan.error}`;
     // 복합 PK 부모는 자식 쪽 편집 패널로 안내한다 (결정 9)
     if (plan.composite) {
       const ta = model.value.tables.find(t => t.name === a.table);
@@ -633,12 +633,12 @@ function answerConnect(ok: boolean) {
   connectAsk.value = null;
   if (!ok || !c) return;
   const choice = { fkName: c.fkName.trim(), childColumn: c.childColumn === NEW_COL ? null : c.childColumn, ...(c.onDelete ? { onDelete: c.onDelete } : {}) };
-  if (edit(m => applyConnect(m, c.plan, choice))) message.value = `FK ${choice.fkName} 를 만듦: ${c.plan.child} → ${c.plan.parent} (저장 전, 되돌리기 가능)`;
+  if (edit(m => applyConnect(m, c.plan, choice))) message.value = `FK ${choice.fkName} 을(를) 만들었습니다: ${c.plan.child} → ${c.plan.parent} (저장 전)`;
 }
 /** 고른 FK 선 (Delete 로 지운다) */
 const selectedFks = ref<{ table: string; fk: string }[]>([]);
 function deleteFks(fks: { table: string; fk: string }[]) {
-  if (edit(m => fks.reduce((acc, f) => dropFk(acc, f.table, f.fk), m))) message.value = `FK ${fks.map(f => f.fk).join(', ')} 를 지움 (저장 전, 되돌리기 가능)`;
+  if (edit(m => fks.reduce((acc, f) => dropFk(acc, f.table, f.fk), m))) message.value = `FK 를 지웠습니다: ${fks.map(f => f.fk).join(', ')} (저장 전)`;
 }
 
 // ---------- 컬럼 고르기, 복사, 붙여넣기 (2026-10-16 사용자 요청) ----------
@@ -686,9 +686,9 @@ function openDomains() { editId.value = ''; miniName.value = ''; domainOpen.valu
 /** 도메인 삭제: 쓰는 컬럼 수를 보이고 먼저 묻는다. 지우면 연결만 풀고 타입은 남는다 (결정 4) */
 async function removeDomain(name: string) {
   const n = model.value ? domainUsage(model.value, name).length : 0;
-  if (await askDlg(`도메인 ${name} 를 지울까요?` + NL + `이 도메인을 쓰는 컬럼 ${n}개는 연결만 풀리고 지금 타입은 그대로 남는다 (되돌리기 가능).`,
+  if (await askDlg(`도메인 ${name} 을(를) 지울까요?` + NL + `이 도메인을 쓰는 컬럼 ${n}개는 연결만 풀리고 지금 타입은 그대로 남습니다.`,
     [{ label: '지우기', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
-  edit(m => dropDomain(m, name), undefined, `도메인 ${name} 를 지움: 컬럼 ${n}개는 연결만 풀림 (저장 전)`);
+  edit(m => dropDomain(m, name), undefined, `도메인 ${name} 을(를) 지웠습니다. 컬럼 ${n}개는 연결만 풀렸습니다 (저장 전)`);
 }
 
 // 그룹 탭에 기존 테이블 가져오기
@@ -835,7 +835,7 @@ async function closeTab(t: Tab) {
   if (t.kind === 'erd') {
     const d = docs.get(t.id)!;
     if (tabs.value.filter(x => x.kind === 'erd').length < 2) return; // ERD 탭은 하나는 남긴다
-    if ((d.dirty.value || d.aiBase.value) && await askDlg(`${titleOf(t.id)} 탭에 저장하지 않은 ERD 변경이 있다${d.aiBase.value ? ' (확정 대기 중인 AI 변경 포함)' : ''}.` + NL + '탭을 닫으면 이 변경은 사라진다.',
+    if ((d.dirty.value || d.aiBase.value) && await askDlg(`${titleOf(t.id)} 탭에 저장하지 않은 ERD 변경이 있습니다${d.aiBase.value ? ' (확정 대기 중인 AI 변경 포함)' : ''}.` + NL + '탭을 닫으면 이 변경은 사라집니다.',
       [{ label: '닫기', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
     if (cur.value === d) { // 닫는 탭이 지금 ERD 탭이면 다른 ERD 탭을 먼저 지금 탭으로
       const next = tabs.value.filter(x => x.kind === 'erd' && x.id !== t.id).at(-1)!;
@@ -906,7 +906,7 @@ async function saveSession() {
   if (key === lastSession) return;
   lastSession = key;
   try { await window.erd.session.set(JSON.parse(JSON.stringify(data))); }
-  catch (e) { message.value = `마지막 화면을 저장하지 못함: ${cleanError(e)}`; }
+  catch (e) { message.value = `마지막 화면을 저장하지 못했습니다: ${cleanError(e)}`; }
 }
 setInterval(() => void saveSession(), 2000);
 
@@ -954,7 +954,7 @@ async function restoreSession() {
     const first = kept.find(t => t.kind === 'erd')!;
     cur.value = docs.get(kept.some(t => t.id === s.active && isErd(t.id)) ? s.active : first.id)!;
     activeTab.value = kept.some(t => t.id === s.active) ? s.active : first.id;
-    message.value = notes.length ? `마지막 화면을 열었지만 못 연 것: ${notes.join(', ')}` : '마지막 화면을 열었다';
+    message.value = notes.length ? `마지막 화면을 열었습니다. 열지 못한 것: ${notes.join(', ')}` : '마지막 화면을 열었습니다';
   } finally {
     restoring = false;
   }
@@ -1762,14 +1762,14 @@ window.__erdBench = async () => {
 <template>
   <div class="app">
     <header>
-      <button title="저장해 둔 ERD 모델 폴더를 연다" @click="openModel()">ERD 폴더 열기</button>
-      <button :disabled="!model || !!aiBase" :title="aiBase ? 'AI 변경을 확정하거나 취소한 뒤 저장한다' : 'ERD 모델을 저장할 폴더를 골라 저장한다'" @click="save">ERD 저장{{ dirty ? ' *' : '' }}</button>
-      <button :disabled="!model" title="새 테이블을 만들고 편집 패널을 연다. 그룹 탭에서 만들면 그 그룹에도 들어간다" @click="newTable">새 테이블</button>
+      <button title="저장한 ERD 모델 폴더를 엽니다. 폴더 안 파일을 하나 고르세요" @click="openModel()">ERD 폴더 열기</button>
+      <button :disabled="!model || !!aiBase" :title="aiBase ? 'AI 변경을 확정하거나 취소한 뒤 저장하세요' : '저장할 폴더를 고르면 바뀔 파일을 먼저 보여 줍니다'" @click="save">ERD 저장{{ dirty ? ' *' : '' }}</button>
+      <button :disabled="!model" title="새 테이블을 만들고 편집 패널을 엽니다. 그룹 탭에서 만들면 그 그룹에도 들어갑니다" @click="newTable">새 테이블</button>
       <button :disabled="!canUndo" title="Ctrl+Z" @click="undo">되돌리기</button>
       <button :disabled="!canRedo" title="Ctrl+Y" @click="redo">다시 하기</button>
-      <button :disabled="!model" title="모델 전체 CREATE 문을 새 SQL 탭에 넣는다" @click="createAll">전체 CREATE</button>
-      <button :disabled="!model" title="DB 비교 탭에서 지금 ERD 와 DB 를 비교한다. 적용은 그 탭의 「왼쪽 DB 에 적용」으로" @click="applyToDb">DB 에 적용</button>
-      <button :disabled="!model" title="타입만 정하는 도메인 목록. 도메인 타입을 고치면 쓰는 컬럼이 모두 바뀐다" @click="openDomains">도메인</button>
+      <button :disabled="!model" title="모델 전체 CREATE 문을 새 SQL 탭에 넣습니다" @click="createAll">전체 CREATE</button>
+      <button :disabled="!model" title="DB 비교 탭에서 지금 ERD 와 DB 를 비교합니다. 적용은 그 탭의 「왼쪽 DB 에 적용」으로 합니다" @click="applyToDb">DB 에 적용</button>
+      <button :disabled="!model" title="타입만 정하는 도메인 목록입니다. 도메인 타입을 고치면 쓰는 컬럼이 모두 바뀝니다" @click="openDomains">도메인</button>
       <span class="dir" :title="modelDir">{{ modelDir || 'ERD 폴더 없음' }}</span>
       <span class="spacer" />
       <label>보기
@@ -1792,7 +1792,7 @@ window.__erdBench = async () => {
           <option value="grid">그룹 격자</option>
         </select>
       </label>
-      <button :disabled="!model" title="끌어 옮긴 위치를 지우고 고른 정렬 방식대로 다시 놓는다" @click="autoArrange">자동 정렬</button>
+      <button :disabled="!model" title="끌어 옮긴 위치를 지우고 고른 정렬 방식대로 다시 놓습니다" @click="autoArrange">자동 정렬</button>
       <label><input v-model="view.compactOnZoomOut" type="checkbox" /> 축소하면 이름만 보기</label>
     </header>
     <div class="app-body">
@@ -1812,10 +1812,10 @@ window.__erdBench = async () => {
                     <template v-else>{{ t.title }}<b v-if="t.dirty" class="warn"> *</b></template>
                     <span v-if="t.kind !== 'erd' || tabs.filter(x => x.kind === 'erd').length > 1" class="x" title="닫기" @click.stop="closeTab(t)">×</span>
                   </button>
-                  <button class="add" title="새 ERD 탭 (다른 모델 폴더를 열거나 DB 에서 불러온다)" @click="addErd()">+ ERD</button>
+                  <button class="add" title="새 ERD 탭 (다른 모델 폴더를 열거나 DB 에서 불러옵니다)" @click="addErd()">+ ERD</button>
                   <button class="add" @click="addSql()">+ SQL</button>
                   <button class="add" @click="openCompare">DB 비교</button>
-                  <button class="add" title="MD 문서, 메뉴 물리 테이블 목록. Flyway 파일은 DB 비교 탭에서" @click="openExport">내보내기</button>
+                  <button class="add" title="MD 문서, 메뉴 물리 테이블 목록을 만듭니다. Flyway 파일은 DB 비교 탭에서 만듭니다" @click="openExport">내보내기</button>
                   <button v-if="selected.length" class="add" @click="addSql(buildJoinSelect(model!, selected))">SELECT 만들기 ({{ selected.length }})</button>
                   <button v-if="selected.length === 1" class="add" @click="openEditor(selected[0])">테이블 편집</button>
                   <span class="spacer" />
@@ -1842,7 +1842,7 @@ window.__erdBench = async () => {
                       <section v-else-if="model && miniName" class="mini">
                         <header>
                           <b>{{ miniName }}</b>
-                          <span class="muted">와 바로 이어진 테이블 {{ miniModel!.tables.length - 1 }}개, 더블클릭하면 그 테이블 기준으로 바뀐다</span>
+                          <span class="muted">와 바로 이어진 테이블 {{ miniModel!.tables.length - 1 }}개. 더블클릭하면 그 테이블 기준으로 바뀝니다</span>
                           <span class="spacer" />
                           <button title="닫기" @click="miniName = ''">×</button>
                         </header>
@@ -1932,12 +1932,12 @@ window.__erdBench = async () => {
     <div v-if="savePreview" class="modal" @keydown.esc="answerSave(false)">
       <div class="dialog save-preview">
         <p><b>ERD 저장</b> <span class="muted">{{ savePreview.dir }}</span></p>
-        <p v-if="savePreview.otherModel" class="warn">이 폴더에는 다른 ERD 모델이 있다. 이 모델로 덮어쓴다.</p>
-        <p v-if="!savePreview.plan.added.length && !savePreview.plan.changed.length && !savePreview.plan.removed.length">바뀌는 파일이 없다 (그대로 {{ savePreview.plan.unchanged.length }}개).</p>
+        <p v-if="savePreview.otherModel" class="warn">이 폴더에는 다른 ERD 모델이 있습니다. 이 모델로 덮어씁니다.</p>
+        <p v-if="!savePreview.plan.added.length && !savePreview.plan.changed.length && !savePreview.plan.removed.length">바뀌는 파일이 없습니다 (그대로 {{ savePreview.plan.unchanged.length }}개).</p>
         <template v-for="g in [
-          { key: 'added', label: '새로 씀', cls: 'ok' },
+          { key: 'added', label: '새로 만듦', cls: 'ok' },
           { key: 'changed', label: '바뀜', cls: '' },
-          { key: 'removed', label: '지움 (이 모델에 없는 모델 파일)', cls: 'warn' },
+          { key: 'removed', label: '삭제 (이 모델에 없는 모델 파일)', cls: 'warn' },
           { key: 'unchanged', label: '그대로', cls: 'muted' },
         ] as const" :key="g.key">
           <div v-if="savePreview.plan[g.key].length" class="sp-group" :data-kind="g.key">
@@ -1961,7 +1961,7 @@ window.__erdBench = async () => {
     </div>
     <div v-if="closeAsk" class="modal">
       <div class="dialog">
-        <p>커밋하지 않은 변경이 있다: <b>{{ closeAsk.labels.join(', ') }}</b></p>
+        <p>커밋하지 않은 변경이 있습니다: <b>{{ closeAsk.labels.join(', ') }}</b></p>
         <div class="row">
           <button @click="answerClose('commit')">커밋하고 닫기</button>
           <button @click="answerClose('rollback')">롤백하고 닫기</button>

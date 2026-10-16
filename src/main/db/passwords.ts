@@ -32,7 +32,7 @@ export const setSecretStore = (s: SecretStore | null) => { store = s; };
 
 /** auto: properties 에서 비밀번호를 읽어 오는 함수 (풀지 못하면 오류를 던진다) */
 export async function passwordFor(key: string, label: string, auto?: () => string): Promise<string> {
-  let reason = '비밀번호가 틀렸다 (DB 가 거부함). 다시 입력하세요';
+  let reason = '비밀번호가 틀렸습니다 (DB 가 거부). 다시 입력하세요';
   if (!wrong.has(key)) {
     const m = memory.get(key);
     if (m !== undefined) return m;
@@ -40,15 +40,15 @@ export async function passwordFor(key: string, label: string, auto?: () => strin
     if (s !== undefined) { memory.set(key, s); return s; }
     if (auto) {
       try { const v = auto(); memory.set(key, v); return v; }
-      catch (e) { reason = `BE 폴더 설정에서 비밀번호를 자동으로 풀지 못했다: ${(e as Error).message}`; }
-    } else reason = '저장된 비밀번호가 없다';
+      catch (e) { reason = `BE 폴더 설정에서 비밀번호를 자동으로 풀지 못했습니다: ${(e as Error).message}`; }
+    } else reason = '저장된 비밀번호가 없습니다';
   }
   const pending = asking.get(key);
   if (pending) return pending;
   const p = (async () => {
     if (!asker) throw new Error(`${label}: ${reason}`);
     const a = await asker({ key, label, reason });
-    if (!a) throw new Error(`${label} 비밀번호 입력을 취소했다`);
+    if (!a) throw new Error(`${label} 비밀번호 입력을 취소했습니다`);
     wrong.delete(key);
     memory.set(key, a.password);
     if (a.save) await store?.save(key, a.password);

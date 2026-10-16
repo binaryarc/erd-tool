@@ -71,8 +71,8 @@ export function listProfiles(beDir: string): Profile[] {
 
 export function getProfile(beDir: string, name: string): Profile {
   const p = listProfiles(beDir).find(x => x.name === name);
-  if (!p) throw new Error(`프로필이 없다: ${name}`);
-  if (!p.dialect) throw new Error(`지원하지 않는 DB: ${p.driver} (${Object.values(DIALECT_LABEL).join(', ')} 만)`);
+  if (!p) throw new Error(`프로필이 없습니다: ${name}`);
+  if (!p.dialect) throw new Error(`지원하지 않는 DB 입니다: ${p.driver} (${Object.values(DIALECT_LABEL).join(', ')} 만 지원)`);
   return p;
 }
 

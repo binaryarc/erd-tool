@@ -134,15 +134,15 @@ defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v),
     </div>
 
     <template v-if="source === 'be'">
-      <label>BE 폴더 (application-*.properties 를 읽는다)</label>
+      <label>BE 폴더 (application-*.properties 를 읽습니다)</label>
       <div class="row"><input :value="beDir" readonly placeholder="BE 레포 폴더" /><button @click="pickBe">찾기</button></div>
-      <p v-if="beDir && !profiles.length" class="warn">application-*.properties 를 찾지 못했다</p>
+      <p v-if="beDir && !profiles.length" class="warn">application-*.properties 를 찾지 못했습니다</p>
       <ul class="profiles">
         <li v-for="p in profiles" :key="p.name" :class="{ on: p.name === selected }" @click="selected = p.name; test = null">
           <b>{{ p.name }}</b> <span>{{ p.database }} @ {{ p.host }}:{{ p.port }}</span>
           <em v-if="p.readOnly">읽기 전용</em>
           <span v-if="p.savedPassword" class="saved">입력한 비밀번호 저장됨
-            <a href="#" title="지우면 다음 접속은 다시 BE 폴더 설정에서 자동으로 읽는다" @click.stop.prevent="forgetPw(p.name)">지우기</a></span>
+            <a href="#" title="지우면 다음 접속부터 BE 폴더 설정에서 다시 자동으로 읽습니다" @click.stop.prevent="forgetPw(p.name)">지우기</a></span>
         </li>
       </ul>
     </template>
@@ -159,7 +159,7 @@ defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v),
           </span>
         </li>
       </ul>
-      <p v-if="!manuals.length && !editing" class="muted">저장한 접속이 없다</p>
+      <p v-if="!manuals.length && !editing" class="muted">저장한 접속이 없습니다</p>
       <ManualConnForm v-if="editing" :key="editing === 'new' ? 'new' : editing.id" :conn="editing === 'new' ? undefined : editing"
                       @saved="onSaved" @cancel="editing = null" />
       <button v-else @click="editing = 'new'">+ 접속 추가</button>
@@ -180,10 +180,10 @@ defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v),
       <h4>불러온 결과</h4>
       <p>DB 직접 집계: 테이블 {{ pending.counts.tables }}, FK {{ pending.counts.fks }}</p>
       <p>모델: 테이블 {{ pending.model.tables.length }}, FK {{ pending.model.tables.reduce((n, t) => n + t.fks.length, 0) }}, 함수 {{ pending.model.functions.length }}, 시퀀스 {{ pending.model.sequences.length }}</p>
-      <p v-if="!pending.hadModel">모델 폴더에 기존 모델이 없어 새로 만든다</p>
-      <p v-else-if="isEmptyDiff(pending.diff)">기존 모델과 같다</p>
+      <p v-if="!pending.hadModel">모델 폴더에 기존 모델이 없어 새로 만듭니다</p>
+      <p v-else-if="isEmptyDiff(pending.diff)">기존 모델과 같습니다</p>
       <template v-if="pending.hadModel && changedNames.length">
-        <p class="muted">받을 테이블을 고른다. 고르지 않은 테이블은 지금 모델 그대로 둔다.
+        <p class="muted">받을 테이블을 고르세요. 고르지 않은 테이블은 지금 모델 그대로 둡니다.
           <a @click="pickAll(true)">모두 고르기</a> <a @click="pickAll(false)">모두 풀기</a></p>
         <details v-for="[label, list] in tableRows" :key="label" open>
           <summary>{{ label }} {{ list.length }}개</summary>

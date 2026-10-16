@@ -15,11 +15,11 @@ const exists = (p: string) => fs.access(p).then(() => true, () => false);
 
 export async function writeExport(dir: string, files: ExportFile[], history?: HistoryAppend, opts: ExportOptions = {}): Promise<ExportResult> {
   for (const f of files) {
-    if (!f.name || f.name !== path.basename(f.name)) throw new Error(`파일 이름에 폴더가 들어 있다: ${f.name}`);
+    if (!f.name || f.name !== path.basename(f.name)) throw new Error(`파일 이름에 폴더가 들어 있습니다: ${f.name}`);
   }
   const taken = [];
   for (const f of files) if (await exists(path.join(dir, f.name))) taken.push(f.name);
-  if (taken.length && !opts.overwrite) throw new Error(`같은 이름 파일이 있어 쓰지 않았다: ${taken.join(', ')}`);
+  if (taken.length && !opts.overwrite) throw new Error(`같은 이름의 파일이 있어 쓰지 않았습니다: ${taken.join(', ')}`);
   // 이력 파일을 먼저 읽고 고쳐 본다. 표를 못 찾으면 새 파일도 쓰지 않는다
   const historyText = history ? appendHistoryLine(await fs.readFile(history.file, 'utf8'), history.line) : undefined;
 

@@ -48,7 +48,7 @@ export function findShell(kind: ShellKind, env: NodeJS.ProcessEnv = process.env,
       if (exists(p)) return { ...c, path: p };
     }
   }
-  throw new Error(kind === 'powershell' ? 'PowerShell 을 찾지 못했다' : 'Git Bash 를 찾지 못했다. Git for Windows 를 설치하세요');
+  throw new Error(kind === 'powershell' ? 'PowerShell 을 찾지 못했습니다' : 'Git Bash 를 찾지 못했습니다. Git for Windows 를 설치하세요');
 }
 
 const terms = new Map<string, pty.IPty>();

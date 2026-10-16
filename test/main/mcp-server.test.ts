@@ -6,7 +6,7 @@ const asked: { tool: string; args: unknown }[] = [];
 beforeAll(async () => {
   mcp = await startMcp({
     ask: async (tool, args) => {
-      structuredClone(args); // 화면으로 보낼 수 있는 값이어야 한다 (IPC)
+      structuredClone(args); // 화면으로 보낼 수 있는 값이어야 합니다 (IPC)
       asked.push({ tool, args });
       if (tool === 'erd_apply') throw new Error('1줄 「x」: 모르는 명령: x');
       return `${tool} 응답`;

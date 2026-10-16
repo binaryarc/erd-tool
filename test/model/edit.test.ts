@@ -41,7 +41,7 @@ describe('ERD 수정 명령', () => {
     expect(T(m, 'mst_biz').columns[2]).toEqual({ name: 'sort_no', type: 'integer', notNull: true, default: '0' });
     expect(serializeModel(m)['tables.erd']).toContain('mst_biz @t1 +common');
     expect(addColumn(base, 'mst_wh', { name: 'x', type: 'text', notNull: false }, 'wh_seq').tables[1].columns.map(c => c.name)).toEqual(['wh_seq', 'x', 'biz_seq']);
-    expect(() => addColumn(base, 'mst_biz', { name: 'biz_nm', type: 'text', notNull: false })).toThrow('이미 있다');
+    expect(() => addColumn(base, 'mst_biz', { name: 'biz_nm', type: 'text', notNull: false })).toThrow('이미 있습니다');
   });
 
   it('PK 로 고르면 NOT NULL 도 켠다', () => {
@@ -73,7 +73,7 @@ describe('ERD 수정 명령', () => {
     const m = updateTable(base, 'mst_biz', { name: 'mst_company', comment: '회사' });
     expect(T(m, 'mst_company')).toMatchObject({ id: 't1', comment: '회사' });
     expect(T(m, 'mst_wh').fks[0].refTable).toBe('mst_company');
-    expect(() => updateTable(base, 'mst_biz', { name: 'mst_wh' })).toThrow('이미 있다');
+    expect(() => updateTable(base, 'mst_biz', { name: 'mst_wh' })).toThrow('이미 있습니다');
   });
 
   it('지우기는 그 대상을 가리키는 키를 함께 지운다', () => {
@@ -91,9 +91,9 @@ describe('ERD 수정 명령', () => {
     let m = addColumn(base, 'mst_wh', { name: 'owner_seq', type: 'integer', notNull: false });
     m = addFk(m, 'mst_wh', { name: 'fk_wh_owner', columns: ['owner_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] });
     expect(T(m, 'mst_wh').fks.map(f => f.name)).toEqual(['fk_wh_biz', 'fk_wh_owner']);
-    expect(() => addFk(m, 'mst_wh', { name: 'fk_wh_owner', columns: ['owner_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] })).toThrow('이미 있다');
+    expect(() => addFk(m, 'mst_wh', { name: 'fk_wh_owner', columns: ['owner_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] })).toThrow('이미 있습니다');
     expect(() => addFk(m, 'mst_wh', { name: 'fk_x', columns: ['owner_seq'], refTable: 'mst_biz', refColumns: ['biz_nm'] })).toThrow('PK 나 UNIQUE');
-    expect(() => addFk(m, 'mst_wh', { name: 'fk_x', columns: ['nope'], refTable: 'mst_biz', refColumns: ['biz_seq'] })).toThrow('없다');
+    expect(() => addFk(m, 'mst_wh', { name: 'fk_x', columns: ['nope'], refTable: 'mst_biz', refColumns: ['biz_seq'] })).toThrow('없습니다');
     expect(T(dropFk(m, 'mst_wh', 'fk_wh_owner'), 'mst_wh').fks.map(f => f.name)).toEqual(['fk_wh_biz']);
   });
 

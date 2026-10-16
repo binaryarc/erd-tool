@@ -35,16 +35,16 @@ function keyOf(t: Table, column?: string): string | 'composite' | null {
 
 export function planConnect(m: SchemaModel, a: End, b: End): ConnectPlan {
   const ta = m.tables.find(t => t.name === a.table), tb = m.tables.find(t => t.name === b.table);
-  if (!ta || !tb) return { ok: false, error: '테이블을 찾지 못했다' };
-  if (ta === tb && (!a.column || !b.column || a.column === b.column)) return { ok: false, error: '같은 테이블 안에서는 서로 다른 두 컬럼을 이어야 한다 (자기 참조 FK)' };
+  if (!ta || !tb) return { ok: false, error: '테이블을 찾지 못했습니다' };
+  if (ta === tb && (!a.column || !b.column || a.column === b.column)) return { ok: false, error: '같은 테이블 안에서는 서로 다른 두 컬럼을 이어야 합니다 (자기 참조 FK)' };
   const ka = keyOf(ta, a.column), kb = keyOf(tb, b.column);
   let parent: Table, key: string, child: Table, childEnd: End;
   if (ka && ka !== 'composite') { parent = ta; key = ka; child = tb; childEnd = b; }
   else if (kb && kb !== 'composite') { parent = tb; key = kb; child = ta; childEnd = a; }
   else if (ka === 'composite' || kb === 'composite') {
     const p = ka === 'composite' ? ta : tb;
-    return { ok: false, composite: true, error: `${p.name} 의 PK 가 복합 키(${p.pk.join(', ')})라 선으로는 만들 수 없다. 자식 테이블의 편집 패널에서 FK 를 추가하세요` };
-  } else return { ok: false, error: `${ta.name}, ${tb.name} 둘 다 이 컬럼이 PK 나 UNIQUE 가 아니라 FK 로 가리킬 수 없다` };
+    return { ok: false, composite: true, error: `${p.name} 의 PK 가 복합 키(${p.pk.join(', ')})라 선으로는 만들 수 없습니다. 자식 테이블의 편집 패널에서 FK 를 추가하세요` };
+  } else return { ok: false, error: `${ta.name}, ${tb.name} 둘 다 이 컬럼이 PK 나 UNIQUE 가 아니라 FK 로 가리킬 수 없습니다` };
 
   const pcol = parent.columns.find(c => c.name === key)!;
   const options = child.columns.filter(c => !(child === parent && c.name === key)).map(c => ({ name: c.name, type: c.type }));

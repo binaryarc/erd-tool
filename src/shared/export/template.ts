@@ -8,7 +8,7 @@ type Scope = Record<string, unknown>;
 
 const lookup = (scopes: Scope[], key: string): unknown => {
   for (let i = scopes.length - 1; i >= 0; i--) if (key in scopes[i]) return scopes[i][key];
-  throw new Error(`템플릿 값 ${key} 이 없다`);
+  throw new Error(`템플릿 값 ${key} 이(가) 없습니다`);
 };
 
 const BLOCK = /\{\{#(\w+)\}\}\n?([\s\S]*?)\{\{\/\1\}\}\n?/g;

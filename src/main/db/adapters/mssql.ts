@@ -167,7 +167,7 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
     }
     if (c.gen !== null) {
       col.generated = stripParens(c.gen);
-      if (!c.persisted) warnings.push(`컬럼 ${c.t}.${c.col}: 저장하지 않는 계산 컬럼이다. 다시 만들면 PERSISTED 가 된다`);
+      if (!c.persisted) warnings.push(`컬럼 ${c.t}.${c.col}: 저장하지 않는 계산 컬럼입니다. 다시 만들면 PERSISTED 가 됩니다`);
     } else if (c.def !== null) col.default = c.def;
     if (c.cmt) col.comment = c.cmt;
     byName.get(c.t)?.columns.push(col);
@@ -195,11 +195,11 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
   for (const g of group(indexes)) {
     const keyCols = g.filter(x => !x.incl);
     const notes = [g.some(x => x.incl) && '포함 컬럼(INCLUDE)', g[0].filt && '필터', g.some(x => x.descd) && '내림차순'].filter(Boolean);
-    if (notes.length) warnings.push(`인덱스 ${g[0].name}: ${notes.join(', ')} 정보는 모델에 담지 않았다`);
+    if (notes.length) warnings.push(`인덱스 ${g[0].name}: ${notes.join(', ')} 정보는 모델에 담지 않았습니다`);
     byName.get(g[0].t)?.indexes.push({ name: g[0].name, columns: keyCols.map(x => x.col), unique: g[0].uniq });
   }
   const KIND: Record<string, string> = { V: '뷰', TR: '트리거', P: '프로시저', FN: '함수', IF: '함수', TF: '함수' };
-  for (const o of others) warnings.push(`${KIND[o.kind.trim()]} ${o.t && o.kind.trim() === 'TR' ? `${o.t}.` : ''}${o.name}: 모델에 담지 않는다`);
+  for (const o of others) warnings.push(`${KIND[o.kind.trim()]} ${o.t && o.kind.trim() === 'TR' ? `${o.t}.` : ''}${o.name}: 모델에 담지 않습니다`);
   return {
     tables: [...byName.values()],
     sequences: seqs.map(s => ({ name: s.name, start: Number(s.start), inc: Number(s.inc) })),

@@ -28,7 +28,7 @@ async function test(open: () => Promise<{ conn: DbConn; adapter: DbAdapter; targ
     conn = o.conn;
     const c = await o.adapter.count(conn, o.adapter.defaultSchema(o.target));
     const v = await o.adapter.serverInfo(conn);
-    return { ok: true, message: `${v.database} 접속 성공`, tables: c.tables, fks: c.fks, server: v.version };
+    return { ok: true, message: `${v.database} 에 접속했습니다`, tables: c.tables, fks: c.fks, server: v.version };
   } catch (e) {
     return { ok: false, message: (e as Error).message };
   } finally {
@@ -54,7 +54,7 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
   try {
     // 다른 DB 종류의 모델 폴더에 덮어쓰지 않는다
     if (prev && (prev.dialect ?? 'postgresql') !== adapter.dialect) {
-      throw new Error(`모델 폴더는 ${DIALECT_LABEL[prev.dialect ?? 'postgresql']} 모델이다. ${DIALECT_LABEL[adapter.dialect]} 접속은 다른 폴더로 불러온다`);
+      throw new Error(`이 모델 폴더는 ${DIALECT_LABEL[prev.dialect ?? 'postgresql']} 모델입니다. ${DIALECT_LABEL[adapter.dialect]} 접속은 다른 폴더로 불러오세요`);
     }
     const schema = adapter.defaultSchema(target);
     const raw = await adapter.reverse(conn, schema);

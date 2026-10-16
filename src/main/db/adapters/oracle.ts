@@ -165,11 +165,11 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
   for (const g of group(indexes)) {
     const t = byName.get(g[0].t);
     if (!t) continue;
-    if (!/^(NORMAL|FUNCTION-BASED NORMAL)$/.test(g[0].typ)) warnings.push(`인덱스 ${g[0].name}: ${g[0].typ} 정보는 모델에 담지 않았다`);
+    if (!/^(NORMAL|FUNCTION-BASED NORMAL)$/.test(g[0].typ)) warnings.push(`인덱스 ${g[0].name}: ${g[0].typ} 정보는 모델에 담지 않았습니다`);
     t.indexes.push({ name: g[0].name, columns: g.map(x => x.expr?.trim() || x.col), unique: g[0].uniq === 'UNIQUE' });
   }
   const KIND: Record<string, string> = { VIEW: '뷰', TRIGGER: '트리거', PROCEDURE: '프로시저', FUNCTION: '함수', PACKAGE: '패키지', 'MATERIALIZED VIEW': '구체화 뷰' };
-  for (const o of others) warnings.push(`${KIND[o.kind] ?? o.kind} ${o.name}: 모델에 담지 않는다`);
+  for (const o of others) warnings.push(`${KIND[o.kind] ?? o.kind} ${o.name}: 모델에 담지 않습니다`);
   return {
     tables: [...byName.values()],
     sequences: seqs.map(s => ({ name: s.name, start: Number(s.start), inc: Number(s.inc) })),

@@ -187,10 +187,10 @@ function registerIpc(win: BrowserWindow) {
   win.webContents.on('will-prevent-unload', e => {
     if (closing) { e.preventDefault(); return; } // 이미 X 버튼 확인을 거쳤다
     const sql = dirtyTabs().map(d => d.label);
-    const what = [modelDirty ? '저장하지 않은 ERD 변경' : '', sql.length ? `커밋 안 한 SQL 탭(${sql.join(', ')}, 롤백된다)` : ''].filter(Boolean).join(', ');
+    const what = [modelDirty ? '저장하지 않은 ERD 변경' : '', sql.length ? `커밋하지 않은 SQL 탭(${sql.join(', ')}, 롤백됩니다)` : ''].filter(Boolean).join(', ');
     const choice = dialog.showMessageBoxSync(win, {
       type: 'warning', buttons: ['나가기', '머무르기'], defaultId: 1, cancelId: 1, title: 'ERD 도구',
-      message: `${what || '저장하지 않은 변경'}이 있다. 화면을 닫거나 새로 고치면 사라진다. 계속할까요?`,
+      message: `${what || '저장하지 않은 변경'}이 있습니다. 화면을 닫거나 새로 고치면 사라집니다. 계속할까요?`,
     });
     if (choice === 0) e.preventDefault();
   });

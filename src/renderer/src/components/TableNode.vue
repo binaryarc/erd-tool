@@ -25,7 +25,7 @@ const view = inject(VIEW_KEY) as ViewState;
 
 const title = (d: TableNodeData) =>
   view.nameMode === 'physical' ? d.name : view.nameMode === 'logical' ? d.comment || d.name : d.name;
-const extTitle = (xs: string[]) => ['이 그룹 밖 테이블과 이어진 FK (선은 그리지 않음)', ...xs].join(String.fromCharCode(10));
+const extTitle = (xs: string[]) => ['이 그룹 밖 테이블과 이어진 FK (선은 그리지 않습니다)', ...xs].join(String.fromCharCode(10));
 const colName = (c: TableNodeData['columns'][number]) =>
   view.nameMode === 'logical' ? c.comment || c.name : c.name;
 </script>

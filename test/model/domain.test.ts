@@ -95,7 +95,7 @@ describe('도메인 (STEP 10)', () => {
     expect(p.model.domains).toBeUndefined();
     const bad = parseModel({ '_index.erd': 'erd-model 3\ndomain code varchar(10)\n', 'mdm.erd': 'mst_a @t1\n  a varchar(20) %code\n  b text %none\n' });
     expect(validateModel(bad).map(e => e.message)).toEqual([
-      'mst_a: 컬럼 a 의 타입 varchar(20) 이 도메인 code 의 타입 varchar(10) 과 다르다', 'mst_a: 컬럼 b 의 도메인 none 이 없다']);
+      'mst_a: 컬럼 a 의 타입 varchar(20) 이 도메인 code 의 타입 varchar(10) 와(과) 다릅니다', 'mst_a: 컬럼 b 의 도메인 none 이(가) 없습니다']);
   });
 
   it('공통 컬럼과 도메인이 다르면 +common 으로 줄이지 않는다 (줄이면 도메인이 사라진다)', () => {
@@ -114,7 +114,7 @@ describe('도메인 (STEP 10)', () => {
     const { model, diff, warnings } = mergeModel(prev, { ...db, domains: prev.domains });
     expect(C(model, 'mst_biz', 'biz_cd').domain).toBe('code');
     expect(C(model, 'mst_wh', 'wh_cd').domain).toBeUndefined();
-    expect(warnings).toEqual(['mst_wh.wh_cd: DB 타입 varchar(12) 이 도메인 code 의 타입 varchar(10) 과 달라 도메인 연결을 풀었다']);
+    expect(warnings).toEqual(['mst_wh.wh_cd: DB 타입 varchar(12) 이 도메인 code 의 타입 varchar(10) 과 달라 도메인 연결을 풀었습니다']);
     expect(diff.changed).toEqual(['mst_wh']);
     // 같은 DB 를 한 번 더: 바뀐 것 없음
     expect(mergeModel(model, { ...db, domains: model.domains }).diff.changed).toEqual([]);

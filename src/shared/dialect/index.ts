@@ -74,7 +74,7 @@ const registry = (): Record<Dialect, DialectRules> => ({ postgresql, sqlserver, 
 
 export function rulesFor(d: Dialect = 'postgresql'): DialectRules {
   const r = registry()[d];
-  if (!r) throw new Error(`아직 지원하지 않는 DB: ${DIALECT_LABEL[d] ?? d}`);
+  if (!r) throw new Error(`아직 지원하지 않는 DB 입니다: ${DIALECT_LABEL[d] ?? d}`);
   return r;
 }
 

@@ -37,9 +37,9 @@ describe('차이 계산', () => {
 
   it('테이블, 컬럼, 키, 인덱스, 시퀀스, 함수의 추가, 삭제, 변경을 찾는다', () => {
     expect(find('table', 'add', 'mst_center')).toBeTruthy();
-    expect(find('table', 'drop', 'old_log')?.danger).toContain('데이터가 사라진다');
+    expect(find('table', 'drop', 'old_log')?.danger).toContain('데이터가 사라집니다');
     expect(find('column', 'add', 'sort_no')).toBeTruthy();
-    expect(find('column', 'drop', 'memo')?.danger).toContain('사라진다');
+    expect(find('column', 'drop', 'memo')?.danger).toContain('사라집니다');
     expect(find('table', 'alter', 'mst_biz')?.detail).toBe('테이블 코멘트');
     expect(find('unique', 'add', 'uq_wh')).toBeTruthy();
     expect(find('index', 'drop', 'ix_wh_biz')).toBeTruthy();
@@ -51,15 +51,15 @@ describe('차이 계산', () => {
   it('타입 축소와 NOT NULL 로 바꾸기는 위험으로 표시한다', () => {
     const c = find('column', 'alter', 'biz_nm')!;
     expect(c.detail).toBe('타입 varchar(100) → varchar(50), NULL 허용 → NOT NULL');
-    expect(c.danger).toBe('길이를 100 에서 50 로 줄인다');
+    expect(c.danger).toBe('길이를 100 에서 50 로 줄입니다');
   });
 
   it('넓히는 타입 변경은 위험이 아니다', () => {
     expect(narrowing('integer', 'bigint')).toBeUndefined();
     expect(narrowing('varchar(50)', 'varchar(100)')).toBeUndefined();
     expect(narrowing('varchar(50)', 'text')).toBeUndefined();
-    expect(narrowing('numeric(10,2)', 'numeric(10,0)')).toBe('소수 자리를 2 에서 0 로 줄인다');
-    expect(narrowing('varchar(10)', 'integer')).toContain('변환이 실패할 수 있다');
+    expect(narrowing('numeric(10,2)', 'numeric(10,0)')).toBe('소수 자리를 2 에서 0 로 줄입니다');
+    expect(narrowing('varchar(10)', 'integer')).toContain('변환이 실패할 수 있습니다');
   });
 
   it('같은 모델은 차이가 없고, 함수 정의의 공백 차이는 무시한다', () => {
@@ -84,8 +84,8 @@ describe('ALTER 만들기', () => {
   });
 
   it('위험 문장 위에 [위험] 주석을 달고 개수를 센다', () => {
-    expect(r.sql).toContain('-- [위험] old_log: 테이블과 데이터가 사라진다\nDROP TABLE old_log;');
-    expect(r.sql).toContain('-- [위험] mst_biz.biz_nm: 길이를 100 에서 50 로 줄인다');
+    expect(r.sql).toContain('-- [위험] old_log: 테이블과 데이터가 사라집니다\nDROP TABLE old_log;');
+    expect(r.sql).toContain('-- [위험] mst_biz.biz_nm: 길이를 100 에서 50 로 줄입니다');
     expect(r.dangers).toBe(4); // 테이블 삭제, 컬럼 삭제, 타입 축소, 함수 삭제
   });
 

@@ -30,9 +30,9 @@ export function groupView(m: SchemaModel, members: string[]): { model: SchemaMod
 }
 
 function checkTabName(l: Layout, name: string, except?: string) {
-  if (!name.trim()) throw new TabError('탭 이름이 비었다');
-  if (name === DEFAULT_DIAGRAM) throw new TabError(`「${DEFAULT_DIAGRAM}」 은 쓸 수 없는 이름이다`);
-  if (name !== except && l.diagrams[name]) throw new TabError(`탭 ${name} 이 이미 있다`);
+  if (!name.trim()) throw new TabError('탭 이름이 비었습니다');
+  if (name === DEFAULT_DIAGRAM) throw new TabError(`「${DEFAULT_DIAGRAM}」 은(는) 쓸 수 없는 이름입니다`);
+  if (name !== except && l.diagrams[name]) throw new TabError(`탭 ${name} 이(가) 이미 있습니다`);
 }
 
 /** 새 그룹 탭. 배치는 트리로 시작한다 */
@@ -53,7 +53,7 @@ export function newTabName(l: Layout): string {
 export function renameTab(l: Layout, from: string, to: string): void {
   to = to.trim();
   if (to === from) return;
-  if (!l.diagrams[from]?.members) throw new TabError(`그룹 탭 ${from} 이 없다`);
+  if (!l.diagrams[from]?.members) throw new TabError(`그룹 탭 ${from} 이(가) 없습니다`);
   checkTabName(l, to, from);
   l.diagrams[to] = l.diagrams[from];
   delete l.diagrams[from];
@@ -62,7 +62,7 @@ export function renameTab(l: Layout, from: string, to: string): void {
 
 /** 탭만 지운다. 테이블은 모델에 남는다 */
 export function deleteTab(l: Layout, name: string): void {
-  if (!l.diagrams[name]?.members) throw new TabError(`그룹 탭 ${name} 이 없다`);
+  if (!l.diagrams[name]?.members) throw new TabError(`그룹 탭 ${name} 이(가) 없습니다`);
   delete l.diagrams[name];
   l.tabs = (l.tabs ?? []).filter(n => n !== name);
   if (!l.tabs.length) delete l.tabs;
@@ -71,7 +71,7 @@ export function deleteTab(l: Layout, name: string): void {
 /** 소속에 넣는다. 새로 들어간 ID 만 돌려준다 */
 export function addMembers(l: Layout, tab: string, ids: string[]): string[] {
   const d = l.diagrams[tab];
-  if (!d?.members) throw new TabError(`그룹 탭 ${tab} 이 없다`);
+  if (!d?.members) throw new TabError(`그룹 탭 ${tab} 이(가) 없습니다`);
   const added = [...new Set(ids)].filter(id => !d.members!.includes(id));
   d.members = [...d.members, ...added];
   return added;
@@ -80,7 +80,7 @@ export function addMembers(l: Layout, tab: string, ids: string[]): string[] {
 /** 이 그룹에서 빼기 (모델에서 지우지 않는다). 그 탭의 고정 위치도 지운다 */
 export function removeMembers(l: Layout, tab: string, ids: string[]): void {
   const d = l.diagrams[tab];
-  if (!d?.members) throw new TabError(`그룹 탭 ${tab} 이 없다`);
+  if (!d?.members) throw new TabError(`그룹 탭 ${tab} 이(가) 없습니다`);
   const out = new Set(ids);
   d.members = d.members.filter(id => !out.has(id));
   for (const id of ids) delete d.pinned[id];

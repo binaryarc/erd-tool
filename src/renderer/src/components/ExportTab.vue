@@ -35,11 +35,11 @@ async function pickDir(): Promise<string | null> {
 }
 
 function schemaFiles() {
-  if (!props.model) throw new Error('ERD 에 열린 모델이 없다');
+  if (!props.model) throw new Error('ERD 에 열린 모델이 없습니다');
   return buildSchemaDocs(props.model, new Date());
 }
 function menuFile(code = menuCode.value, tables = props.selected) {
-  if (!props.model) throw new Error('ERD 에 열린 모델이 없다');
+  if (!props.model) throw new Error('ERD 에 열린 모델이 없습니다');
   return buildMenuTables(props.model, code.trim(), tables, new Date());
 }
 
@@ -63,20 +63,20 @@ defineExpose({
     <template v-else>
       <div class="box">
         <h4>스키마 문서 (MD)</h4>
-        <p class="muted">그룹마다 테이블 정의서 한 개(컬럼, PK, FK, UNIQUE, 인덱스)와 색인 00-tables-overview 를 만든다. 허브 40-schema 모양이다. 같은 이름 파일이 있으면 덮어쓴다.</p>
+        <p class="muted">그룹마다 테이블 정의서 한 개(컬럼, PK, FK, UNIQUE, 인덱스)와 색인 00-tables-overview 를 만듭니다. 허브 40-schema 모양입니다. 같은 이름 파일이 있으면 덮어씁니다.</p>
         <p>그룹 {{ model.groups.length }}개, 테이블 {{ model.tables.length }}개</p>
         <button @click="run(schemaFiles)">폴더 골라 만들기</button>
       </div>
       <div class="box">
         <h4>메뉴 물리 테이블 목록</h4>
-        <p class="muted">{메뉴코드}-03-data-model.md 「물리 테이블 목록」 절에 붙여 넣을 조각. ERD 에서 Ctrl+클릭으로 고른 테이블을 고른 순서대로 넣는다.</p>
+        <p class="muted">{메뉴코드}-03-data-model.md 「물리 테이블 목록」 절에 붙여 넣을 조각입니다. ERD 에서 Ctrl+클릭으로 고른 테이블을 고른 순서대로 넣습니다.</p>
         <label>메뉴코드 <input v-model="menuCode" spellcheck="false" placeholder="menu01" /></label>
         <p>고른 테이블 {{ selected.length }}개<span v-if="selected.length">: {{ selected.join(', ') }}</span></p>
         <button :disabled="!selected.length || !menuCode.trim()" @click="run(() => [menuFile()])">폴더 골라 만들기</button>
       </div>
       <div class="box">
         <h4>Flyway 파일</h4>
-        <p class="muted">두 쪽 차이로 만들기 때문에 DB 비교 탭에서 비교한 뒤 「Flyway 파일 만들기」 를 누른다. 파일만 만들고 DB 에는 실행하지 않는다.</p>
+        <p class="muted">두 쪽 차이로 만들기 때문에 DB 비교 탭에서 비교한 뒤 「Flyway 파일 만들기」를 누르세요. 파일만 만들고 DB 에는 실행하지 않습니다.</p>
         <button @click="emit('compare')">DB 비교 탭 열기</button>
       </div>
       <div v-if="written.length" class="ok">
