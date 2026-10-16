@@ -185,4 +185,26 @@ describe('UNIQUE 제약과 함수', () => {
     const t = table('t1', 'mst_a', { renamedFrom: 'mst_old', columns: [{ name: 'seq', type: 'integer', notNull: true, renamedFrom: 'id' }] });
     expect(serializeModel(model([t]))['mdm.erd']).toBe(serializeModel(model([table('t1', 'mst_a')]))['mdm.erd']);
   });
+
+  it('FK 참조 동작과 DEFERRABLE 을 저장하고 그대로 읽는다 (없으면 줄이 전과 같다)', () => {
+    const a = table('t1', 'mst_a');
+    const fks = [
+      { name: 'fk_1', columns: ['seq'], refTable: 'mst_a', refColumns: ['seq'] },
+      { name: 'fk_2', columns: ['seq'], refTable: 'mst_a', refColumns: ['seq'], onDelete: 'cascade' as const, onUpdate: 'set null' as const },
+      { name: 'fk_3', columns: ['seq'], refTable: 'mst_a', refColumns: ['seq'], deferrable: 'immediate' as const },
+      { name: 'fk_4', columns: ['seq'], refTable: 'mst_a', refColumns: ['seq'], onDelete: 'restrict' as const, deferrable: 'deferred' as const },
+    ];
+    const r = roundTrip(model([{ ...a, fks }]));
+    const text = r.first['mdm.erd'];
+    expect(text).toContain('  FK fk_1 (seq) > mst_a(seq)\n');
+    expect(text).toContain('  FK fk_2 (seq) > mst_a(seq) ON DELETE CASCADE ON UPDATE SET NULL\n');
+    expect(text).toContain('  FK fk_3 (seq) > mst_a(seq) DEFERRABLE\n');
+    expect(text).toContain('  FK fk_4 (seq) > mst_a(seq) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED\n');
+    expect(r.parsed.errors).toEqual([]);
+    expect(r.parsed.model.tables[0].fks).toEqual(fks);
+    expect(r.second).toEqual(r.first);
+    // 모르는 꼬리 글자는 형식 오류로 알린다
+    expect(parseModel({ '_index.erd': 'erd-model 1\n', 'x.erd': 'mst_a @t1\n  seq integer PK\n  FK f (seq) > mst_a(seq) ON DELETE BOOM\n' }).errors.map(e => e.message))
+      .toEqual(['FK 줄 형식이 아니다: FK f (seq) > mst_a(seq) ON DELETE BOOM']);
+  });
 });

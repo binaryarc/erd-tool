@@ -6,6 +6,7 @@
 //   (IF NOT EXISTS, IF EXISTS, 제약 추가는 pg_constraint 를 확인하는 DO 블록).
 
 import { diffModels, isProcedure, type DiffItem } from '../model/diff';
+import { fkOptions } from '../model/erd-format';
 import type { Check, Column, ForeignKey, FunctionDef, Index, SchemaModel, Sequence, Table, Unique } from '../model/types';
 
 const RESERVED = new Set(['user', 'order', 'group', 'table', 'select', 'from', 'where', 'desc', 'asc', 'limit', 'offset', 'check', 'default', 'primary', 'references', 'column', 'end', 'type', 'key']);
@@ -52,7 +53,7 @@ function writer(o: AlterOptions) {
       ...t.columns.filter(c => c.comment).map(c => `COMMENT ON COLUMN ${n(t.name)}.${q(c.name)} IS ${lit(c.comment!)};`),
     ],
     addFk: (t: string, k: ForeignKey) => guard(t,
-      `ALTER TABLE ${n(t)} ADD CONSTRAINT ${q(k.name)} FOREIGN KEY (${cols(k.columns)}) REFERENCES ${n(k.refTable)} (${cols(k.refColumns)});`,
+      `ALTER TABLE ${n(t)} ADD CONSTRAINT ${q(k.name)} FOREIGN KEY (${cols(k.columns)}) REFERENCES ${n(k.refTable)} (${cols(k.refColumns)})${fkOptions(k)};`,
       `conname = ${lit(k.name)}`),
     addUq: (t: string, u: Unique) => guard(t, `ALTER TABLE ${n(t)} ADD CONSTRAINT ${q(u.name)} UNIQUE (${cols(u.columns)});`, `conname = ${lit(u.name)}`),
     addCk: (t: string, c: Check) => guard(t, `ALTER TABLE ${n(t)} ADD CONSTRAINT ${q(c.name)} ${c.definition};`, `conname = ${lit(c.name)}`),

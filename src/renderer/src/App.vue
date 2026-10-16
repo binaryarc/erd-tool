@@ -321,6 +321,11 @@ function discardOk(what: string): boolean {
 }
 // 창 닫기 확인은 메인이 하므로 상태를 알려 둔다
 watch([dirty, aiBase], () => window.erd.setModelDirty(dirty.value || !!aiBase.value), { immediate: true });
+// X 버튼이 아닌 길(window.close(), 새로 고침)로 화면이 내려가려 하면 막는다. 막으면 메인이 창으로 묻는다(will-prevent-unload).
+// X 버튼은 메인이 먼저 묻고 확인하면 여기서 막아도 메인이 통과시킨다
+window.addEventListener('beforeunload', e => {
+  if (dirty.value || aiBase.value || tabs.value.some(t => t.dirty)) e.returnValue = false;
+});
 
 async function openModel(dir?: string) {
   const d = dir ?? await window.erd.pickFolder(modelDir.value || undefined);
