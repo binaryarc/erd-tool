@@ -154,6 +154,19 @@ describe.skipIf(!!skip)('MySQL 어댑터 (도커 erdtest)', () => {
     await commitTx('y1');
     await closeSession('y1');
 
+    // 큰 결과를 다 받기 전에 다음 문장을 실행하면 앞 문장만 멈추고(KILL QUERY) 트랜잭션은 남는다
+    await openSession('y3', ref, 'mysql', async () => T);
+    await runSql('y3', 'SET SESSION cte_max_recursion_depth = 5000');
+    await runSql('y3', "INSERT INTO erd_code (grp_cd, cd, cd_nm) VALUES ('K', 'K1', 'kept')");
+    const big = await runSql('y3', 'WITH RECURSIVE g (n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM g WHERE n < 2000) SELECT a.n, b.n m, LPAD(a.n, 200, 0) pad FROM g a CROSS JOIN g b');
+    expect([big.rows.length, big.state.more]).toEqual([1000, true]);
+    const t0 = Date.now();
+    const next = await runSql('y3', "SELECT cd_nm FROM erd_code WHERE grp_cd = 'K'");
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect([next.rows, next.state.inTx]).toEqual([[['kept']], true]);
+    await rollbackTx('y3');
+    await closeSession('y3');
+
     // 읽기 전용 접속은 서버가 쓰기와 DDL 을 막고, 쓰기 허용 뒤에는 된다
     await openSession('y2', ref, 'mysql ro', async () => ({ ...T, readOnly: true }));
     expect((await runSql('y2', "INSERT INTO erd_code (grp_cd, cd) VALUES ('R', 'R1')")).error?.code).toBe('ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION');
