@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  EditError, EditHistory, NEW_COLUMN_TYPE, addColumn, addFk, addTable, dropColumn, dropFk, dropTable, moveColumn, nextColumnName, normalizeType, updateColumn, updateTable,
+  EditError, EditHistory, NEW_COLUMN_TYPE, addColumn, addFk, addTable, dropColumn, dropFk, dropTable, moveColumn, nextColumnName, normalizeType, pasteColumns, updateColumn, updateTable,
 } from '../../src/shared/model/edit';
 import { diffModels } from '../../src/shared/model/diff';
 import { serializeModel, parseModel } from '../../src/shared/model/erd-format';
@@ -41,7 +41,7 @@ describe('ERD 수정 명령', () => {
     expect(T(m, 'mst_biz').columns[2]).toEqual({ name: 'sort_no', type: 'integer', notNull: true, default: '0' });
     expect(serializeModel(m)['tables.erd']).toContain('mst_biz @t1 +common');
     expect(addColumn(base, 'mst_wh', { name: 'x', type: 'text', notNull: false }, 'wh_seq').tables[1].columns.map(c => c.name)).toEqual(['wh_seq', 'x', 'biz_seq']);
-    expect(() => addColumn(base, 'mst_biz', { name: 'biz_nm', type: 'text', notNull: false })).toThrow('이미 있다');
+    expect(() => addColumn(base, 'mst_biz', { name: 'biz_nm', type: 'text', notNull: false })).toThrow('이미 있습니다');
   });
 
   it('PK 로 고르면 NOT NULL 도 켠다', () => {
@@ -73,7 +73,7 @@ describe('ERD 수정 명령', () => {
     const m = updateTable(base, 'mst_biz', { name: 'mst_company', comment: '회사' });
     expect(T(m, 'mst_company')).toMatchObject({ id: 't1', comment: '회사' });
     expect(T(m, 'mst_wh').fks[0].refTable).toBe('mst_company');
-    expect(() => updateTable(base, 'mst_biz', { name: 'mst_wh' })).toThrow('이미 있다');
+    expect(() => updateTable(base, 'mst_biz', { name: 'mst_wh' })).toThrow('이미 있습니다');
   });
 
   it('지우기는 그 대상을 가리키는 키를 함께 지운다', () => {
@@ -91,9 +91,9 @@ describe('ERD 수정 명령', () => {
     let m = addColumn(base, 'mst_wh', { name: 'owner_seq', type: 'integer', notNull: false });
     m = addFk(m, 'mst_wh', { name: 'fk_wh_owner', columns: ['owner_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] });
     expect(T(m, 'mst_wh').fks.map(f => f.name)).toEqual(['fk_wh_biz', 'fk_wh_owner']);
-    expect(() => addFk(m, 'mst_wh', { name: 'fk_wh_owner', columns: ['owner_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] })).toThrow('이미 있다');
+    expect(() => addFk(m, 'mst_wh', { name: 'fk_wh_owner', columns: ['owner_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] })).toThrow('이미 있습니다');
     expect(() => addFk(m, 'mst_wh', { name: 'fk_x', columns: ['owner_seq'], refTable: 'mst_biz', refColumns: ['biz_nm'] })).toThrow('PK 나 UNIQUE');
-    expect(() => addFk(m, 'mst_wh', { name: 'fk_x', columns: ['nope'], refTable: 'mst_biz', refColumns: ['biz_seq'] })).toThrow('없다');
+    expect(() => addFk(m, 'mst_wh', { name: 'fk_x', columns: ['nope'], refTable: 'mst_biz', refColumns: ['biz_seq'] })).toThrow('없습니다');
     expect(T(dropFk(m, 'mst_wh', 'fk_wh_owner'), 'mst_wh').fks.map(f => f.name)).toEqual(['fk_wh_biz']);
   });
 
@@ -184,5 +184,18 @@ describe('Enter 로 컬럼 추가 (STEP 10)', () => {
     expect(T(m2, 'mst_biz').columns.map(c => c.name).slice(0, 3)).toEqual(['biz_seq', 'column_1', 'biz_nm']);
     const ora: SchemaModel = { ...base, version: 2, dialect: 'oracle', schema: 'ERD' };
     expect(nextColumnName(ora, 'mst_biz')).toBe('COLUMN_1');
+  });
+});
+
+describe('컬럼 복사, 붙여넣기 (2026-10-16)', () => {
+  it('맨 아래에 붙이고 같은 이름은 건너뛴다. PK, IDENTITY 는 옮기지 않고 되돌리기 한 번이다', () => {
+    const src = [col('biz_nm', 'varchar(100)', { notNull: true, comment: '사업장명', default: "'x'" }), col('biz_seq', 'integer', { notNull: true, identity: 'always' })];
+    const r = pasteColumns(base, 'mst_wh', src);
+    expect(r.added).toEqual(['biz_nm']);
+    expect(r.skipped).toEqual(['biz_seq']); // mst_wh 에 이미 있다
+    expect(T(r.model, 'mst_wh').columns.at(-1)).toEqual(col('biz_nm', 'varchar(100)', { notNull: true, comment: '사업장명', default: "'x'" }));
+    expect(T(r.model, 'mst_wh').pk).toEqual(['wh_seq']);
+    const n = pasteColumns(base, 'mst_wh', [col('new_id', 'bigint', { identity: 'always', notNull: true })]);
+    expect(T(n.model, 'mst_wh').columns.at(-1)).toEqual(col('new_id', 'bigint', { notNull: true }));
   });
 });

@@ -57,7 +57,7 @@ describe.skipIf(!!skip)('MySQL 어댑터 (도커 erdtest)', () => {
     expect(r.tables.length).toBe(counts.tables);
     expect(r.tables.reduce((n, t) => n + t.fks.length, 0)).toBe(counts.fks);
     expect(counts).toEqual({ tables: 5, fks: 3 });
-    expect(r.warnings).toContain('뷰 erd_v_order: 모델에 담지 않는다');
+    expect(r.warnings).toContain('뷰 erd_v_order: 모델에 담지 않습니다');
 
     const cust = r.tables.find(t => t.name === 'erd_customer')!;
     expect(cust.comment).toBe('거래처');

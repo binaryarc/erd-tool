@@ -13,6 +13,6 @@ const LOADERS: Partial<Record<Dialect, () => Promise<DbAdapter>>> = {
 
 export async function adapterFor(d: Dialect): Promise<DbAdapter> {
   const load = LOADERS[d];
-  if (!load) throw new Error(`아직 지원하지 않는 DB: ${DIALECT_LABEL[d] ?? d}`);
+  if (!load) throw new Error(`아직 지원하지 않는 DB 입니다: ${DIALECT_LABEL[d] ?? d}`);
   return load();
 }

@@ -3,7 +3,7 @@
 // 크기는 shared/model/arrange.ts 의 NODE 와 같아야 한다 (배치 계산에 쓴다).
 import { inject } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
-import { VIEW_KEY, type ViewState } from '../view';
+import { VIEW_KEY, colKey, type ViewState } from '../view';
 
 export interface TableNodeData {
   name: string;
@@ -25,7 +25,7 @@ const view = inject(VIEW_KEY) as ViewState;
 
 const title = (d: TableNodeData) =>
   view.nameMode === 'physical' ? d.name : view.nameMode === 'logical' ? d.comment || d.name : d.name;
-const extTitle = (xs: string[]) => ['이 그룹 밖 테이블과 이어진 FK (선은 그리지 않음)', ...xs].join(String.fromCharCode(10));
+const extTitle = (xs: string[]) => ['이 그룹 밖 테이블과 이어진 FK (선은 그리지 않습니다)', ...xs].join(String.fromCharCode(10));
 const colName = (c: TableNodeData['columns'][number]) =>
   view.nameMode === 'logical' ? c.comment || c.name : c.name;
 </script>
@@ -41,7 +41,9 @@ const colName = (c: TableNodeData['columns'][number]) =>
     <Handle id="t-*" type="target" :position="Position.Left" class="h head-h" />
     <Handle id="s-*" type="source" :position="Position.Right" class="h head-h" />
     <template v-if="!view.compact">
-      <div v-for="c in data.columns" :key="c.name" class="row" :class="{ pk: c.pk }" :title="c.comment">
+      <!-- 컬럼 행을 누르면 그 컬럼을 고른다 (Shift 나 Ctrl 을 누르고 누르면 더한다). Ctrl+C, Ctrl+V 로 다른 테이블에 붙인다 -->
+      <div v-for="c in data.columns" :key="c.name" class="row" :class="{ pk: c.pk, sel: view.colSel.includes(colKey(data.name, c.name)) }" :title="c.comment"
+           @click="e => view.onColumnClick?.(data.name, c.name, e.shiftKey || e.ctrlKey)">
         <Handle :id="'t-' + c.name" type="target" :position="Position.Left" class="h" />
         <!-- 키 표시: PK, FK, NN(NOT NULL). PK 는 NOT NULL 이 당연해 NN 을 따로 적지 않는다 -->
         <span class="key"><i v-if="c.pk" class="pk">PK</i><i v-if="c.fk" class="fk">FK</i><i v-if="c.notNull && !c.pk" class="nn">NN</i></span>
@@ -63,6 +65,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
 /* 행은 넘침을 숨기지 않는다. 숨기면 테이블 밖으로 반쯤 나간 연결점이 잘려 절반만 눌린다 (STEP 10). 긴 글자는 논리명이 줄어든다 */
 .row { position: relative; height: 18px; display: flex; gap: 6px; padding: 0 6px; white-space: nowrap; }
 .row.pk { background: var(--pk-bg); }
+.row.sel { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--accent); }
 /* 배지 칸 폭은 text-width.ts 의 KEY 와 같아야 한다 (배지 둘: PK+FK 또는 FK+NN) */
 .key { width: 38px; flex: none; display: flex; gap: 2px; align-items: center; }
 .key i { font: bold 9px/12px Consolas, monospace; font-style: normal; padding: 0 2px; border-radius: 2px; }

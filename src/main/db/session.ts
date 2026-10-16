@@ -156,7 +156,7 @@ const sessions = new Map<string, Session>();
 
 const get = (tabId: string) => {
   const s = sessions.get(tabId);
-  if (!s) throw new Error('이 탭은 아직 접속하지 않았다');
+  if (!s) throw new Error('이 탭은 아직 접속하지 않았습니다');
   return s;
 };
 

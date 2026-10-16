@@ -27,7 +27,7 @@ describe('BE 프로필 비밀번호', () => {
     const k = key();
     answers.push({ password: 'typed', save: true });
     expect(await passwordFor(k, 'dev (shop-dev)', () => { throw new Error('JASYPT_ENCRYPTOR_PASSWORD 환경변수가 없다'); })).toBe('typed');
-    expect(asked[0]).toEqual({ key: k, label: 'dev (shop-dev)', reason: 'BE 폴더 설정에서 비밀번호를 자동으로 풀지 못했다: JASYPT_ENCRYPTOR_PASSWORD 환경변수가 없다' });
+    expect(asked[0]).toEqual({ key: k, label: 'dev (shop-dev)', reason: 'BE 폴더 설정에서 비밀번호를 자동으로 풀지 못했습니다: JASYPT_ENCRYPTOR_PASSWORD 환경변수가 없다' });
     expect(hasSavedPassword(k)).toBe(true);
     await forgetPassword(k);
     expect(hasSavedPassword(k)).toBe(false);
@@ -40,7 +40,7 @@ describe('BE 프로필 비밀번호', () => {
     await markWrong(k);
     answers.push({ password: 'right', save: false });
     expect(await passwordFor(k, 'dev', () => 'auto-pw')).toBe('right');
-    expect(asked[0].reason).toContain('틀렸다');
+    expect(asked[0].reason).toContain('틀렸습니다');
     expect(saved.has(k)).toBe(false);
     expect(await passwordFor(k, 'dev', () => 'auto-pw')).toBe('right'); // 이 실행 동안은 기억
   });
@@ -48,7 +48,7 @@ describe('BE 프로필 비밀번호', () => {
   it('취소하면 오류, 같은 접속을 동시에 열면 한 번만 묻는다', async () => {
     const k = key();
     const fail = () => { throw new Error('x'); };
-    await expect(passwordFor(k, 'test', fail)).rejects.toThrow('test 비밀번호 입력을 취소했다');
+    await expect(passwordFor(k, 'test', fail)).rejects.toThrow('test 비밀번호 입력을 취소했습니다');
     answers.push({ password: 'p', save: false });
     const both = await Promise.all([passwordFor(k, 'test', fail), passwordFor(k, 'test', fail)]);
     expect(both).toEqual(['p', 'p']);
@@ -57,6 +57,6 @@ describe('BE 프로필 비밀번호', () => {
 
   it('묻는 곳이 없으면 (시험, 화면 없음) 까닭을 오류로', async () => {
     setPasswordAsker(null);
-    await expect(passwordFor(key(), 'dev', () => { throw new Error('지원하지 않는 Jasypt 설정'); })).rejects.toThrow('자동으로 풀지 못했다: 지원하지 않는 Jasypt 설정');
+    await expect(passwordFor(key(), 'dev', () => { throw new Error('지원하지 않는 Jasypt 설정'); })).rejects.toThrow('자동으로 풀지 못했습니다: 지원하지 않는 Jasypt 설정');
   });
 });

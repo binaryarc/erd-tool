@@ -138,7 +138,7 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
     if (k.kind === 'p') t.pk = split(k.cols);
     else if (k.kind === 'u') t.uniques.push({ name: k.name, columns: split(k.cols) });
     else if (k.kind === 'c') (t.checks ??= []).push({ name: k.name, definition: k.def });
-    else if (k.kind === 'x') warnings.push(`제약 ${k.t}.${k.name}: 배제(EXCLUDE) 제약은 모델에 담지 않았다`);
+    else if (k.kind === 'x') warnings.push(`제약 ${k.t}.${k.name}: 배제(EXCLUDE) 제약은 모델에 담지 않았습니다`);
     else {
       const fk: ForeignKey = { name: k.name, columns: split(k.cols), refTable: k.ft!, refColumns: split(k.fcols) };
       // 참조 동작과 DEFERRABLE (2026-10-16 추가). a(NO ACTION)와 바로 검사는 적지 않는다
@@ -148,15 +148,15 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
       t.fks.push(fk);
     }
   }
-  for (const g of triggers) warnings.push(`트리거 ${g.t}.${g.name}: 모델에 담지 않는다`);
+  for (const g of triggers) warnings.push(`트리거 ${g.t}.${g.name}: 모델에 담지 않습니다`);
   for (const i of indexes) {
-    if (i.am !== 'btree' || i.partial) warnings.push(`인덱스 ${i.name}: ${i.am}${i.partial ? ', 부분 인덱스' : ''} 정보는 모델에 담지 않았다`);
+    if (i.am !== 'btree' || i.partial) warnings.push(`인덱스 ${i.name}: ${i.am}${i.partial ? ', 부분 인덱스' : ''} 정보는 모델에 담지 않았습니다`);
     byName.get(i.t)?.indexes.push({ name: i.name, columns: split(i.cols), unique: i.uniq });
   }
-  for (const v of views) warnings.push(`뷰 ${v.name}: 아직 모델에 담지 않는다`);
+  for (const v of views) warnings.push(`뷰 ${v.name}: 아직 모델에 담지 않습니다`);
   const functions: FunctionDef[] = [];
   for (const f of funcs) {
-    if (f.def === null) { warnings.push(`함수 ${f.name}(${f.args}): 집계 함수라 담지 않았다`); continue; }
+    if (f.def === null) { warnings.push(`함수 ${f.name}(${f.args}): 집계 함수라 담지 않았습니다`); continue; }
     functions.push({ name: f.name, args: f.args, definition: f.def.replace(/\r\n/g, '\n').replace(/\s+$/, '') });
   }
 

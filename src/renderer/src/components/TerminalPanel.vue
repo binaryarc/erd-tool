@@ -40,7 +40,7 @@ const aiError = ref('');
 /** AI 를 붙여 실행하는 명령. Codex 의 -c 값은 TOML 로 읽히지 않으면 글자 그대로 쓰여 따옴표 없이 준다(셸마다 따옴표 처리가 달라서) */
 async function aiCommand(kind: 'claude' | 'codex'): Promise<string> {
   const info = await window.erd.mcp.info();
-  if (!info) throw new Error('AI 연결 서버가 떠 있지 않다 (앱을 다시 켜 보세요)');
+  if (!info) throw new Error('AI 연결 서버가 실행 중이 아닙니다. 앱을 다시 켜 보세요');
   return kind === 'claude'
     ? `claude --mcp-config "${info.claudeConfig}"`
     : `codex -c mcp_servers.erd.url=${info.url} -c mcp_servers.erd.bearer_token_env_var=ERD_MCP_TOKEN`;
@@ -67,7 +67,7 @@ defineExpose({ add, close, terms, aiCommand, get: (id: string) => refs.get(id), 
       </button>
       <button class="add" @click="add('powershell')">+ PowerShell</button>
       <button class="add" @click="add('bash')">+ Git Bash</button>
-      <select class="add" title="지금 터미널에서 AI 를 이 ERD 에 붙여 실행한다 (그 자리 연결, 설정 파일은 바꾸지 않음)"
+      <select class="add" title="지금 터미널에서 AI 를 이 ERD 에 연결해 실행합니다 (설정 파일은 바꾸지 않습니다)"
               @change="e => { const s = e.target as HTMLSelectElement; if (s.value) void connectAi(s.value as 'claude' | 'codex'); s.value = ''; }">
         <option value="">AI 연결 ▾</option>
         <option value="claude">Claude Code</option>
@@ -78,7 +78,7 @@ defineExpose({ add, close, terms, aiCommand, get: (id: string) => refs.get(id), 
       <button class="add" title="터미널 영역 숨기기 (Ctrl+`)" @click="emit('hide')">숨기기 ▾</button>
     </nav>
     <div class="body">
-      <p v-if="!terms.length" class="empty">+ PowerShell 이나 + Git Bash 를 눌러 터미널을 연다. 사용자 홈 폴더에서 시작한다.</p>
+      <p v-if="!terms.length" class="empty">+ PowerShell 이나 + Git Bash 를 눌러 터미널을 여세요. 사용자 홈 폴더에서 시작합니다.</p>
       <div v-for="t in terms" v-show="t.id === active" :key="t.id" class="term">
         <TerminalTab :ref="el => (el ? refs.set(t.id, el as InstanceType<typeof TerminalTab>) : refs.delete(t.id))"
                      :term-id="t.id" :shell="t.shell" :active="props.visible && t.id === active" @started="l => onStarted(t.id, l)" />

@@ -57,7 +57,7 @@ export function mergeModel(prev: SchemaModel | null, next: SchemaModel): { model
       const d = oldCols.get(c.name)?.domain;
       if (d === undefined || c.domain !== undefined) return c;
       if (domainType.get(d) === c.type) return { ...c, domain: d };
-      warnings.push(`${t.name}.${c.name}: DB 타입 ${c.type} 이 도메인 ${d} 의 타입 ${domainType.get(d) ?? '(도메인 없음)'} 과 달라 도메인 연결을 풀었다`);
+      warnings.push(`${t.name}.${c.name}: DB 타입 ${c.type} 이 도메인 ${d} 의 타입 ${domainType.get(d) ?? '(도메인 없음)'} 과 달라 도메인 연결을 풀었습니다`);
       return c;
     });
     return { ...t, id: old ? old.id : 't' + ++maxId, columns };

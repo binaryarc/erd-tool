@@ -57,7 +57,7 @@ describe.skipIf(!!skip)('Oracle 어댑터 (도커 FREEPDB1)', () => {
     expect(r.tables.length).toBe(counts.tables);
     expect(r.tables.reduce((n, t) => n + t.fks.length, 0)).toBe(counts.fks);
     expect(counts).toEqual({ tables: 5, fks: 3 });
-    expect(r.warnings).toContain('뷰 ERD_V_ORDER: 모델에 담지 않는다');
+    expect(r.warnings).toContain('뷰 ERD_V_ORDER: 모델에 담지 않습니다');
 
     const cust = r.tables.find(t => t.name === 'ERD_CUSTOMER')!;
     expect(cust.comment).toBe('거래처');

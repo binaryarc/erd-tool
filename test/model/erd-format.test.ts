@@ -112,7 +112,7 @@ describe('.erd 형식', () => {
   it('DB 종류와 스키마를 보존하고, 모르는 DB 종류와 버전은 오류다', () => {
     const { parsed } = roundTrip({ ...model([table('t1', 'mst_biz')]), dialect: 'sqlserver', schema: 'dbo' });
     expect([parsed.model.dialect, parsed.model.schema]).toEqual(['sqlserver', 'dbo']);
-    expect(parseModel({ '_index.erd': 'erd-model 2\ndb db2 x\n' }).errors.map(e => e.message)).toEqual(['db 줄 형식이 아니다: db db2 x']);
+    expect(parseModel({ '_index.erd': 'erd-model 2\ndb db2 x\n' }).errors.map(e => e.message)).toEqual(['db 줄 형식이 아닙니다: db db2 x']);
     expect(parseModel({ '_index.erd': 'erd-model 4\n' }).errors.map(e => e.message)).toEqual(['지원하지 않는 형식 버전: 4']);
   });
 });
@@ -138,11 +138,11 @@ describe('검증', () => {
     const errors = validateModel(parseModel(files));
     const text = errors.map(e => `${e.file}:${e.line} ${e.message}`);
     expect(text).toEqual(expect.arrayContaining([
-      'mdm.erd:5 mst_b: ID @t1 가 mst_a 와 겹친다',
-      'mdm.erd:3 테이블 이름 mst_a 이 2번 나온다',
-      'mdm.erd:7 mst_b: FK fk_b_a 의 참조 테이블 mst_none 이 없다',
-      'mdm.erd:8 mst_b: FK fk_b_a2 의 참조 컬럼 mst_a.nope 이 없다',
-      'mdm.erd:9 mst_c: ID 형식이 t숫자 가 아니다 (@x9)',
+      'mdm.erd:5 mst_b: ID @t1 가 mst_a 와(과) 겹칩니다',
+      'mdm.erd:3 테이블 이름 mst_a 이 2번 나옵니다',
+      'mdm.erd:7 mst_b: FK fk_b_a 의 참조 테이블 mst_none 이(가) 없습니다',
+      'mdm.erd:8 mst_b: FK fk_b_a2 의 참조 컬럼 mst_a.nope 이(가) 없습니다',
+      'mdm.erd:9 mst_c: ID 형식이 t숫자가 아닙니다 (@x9)',
     ]));
   });
 
@@ -184,7 +184,7 @@ describe('UNIQUE 제약과 함수', () => {
 
   it('UNIQUE 의 없는 컬럼을 검증 오류로 낸다', () => {
     const t = table('t1', 'mst_a', { uniques: [{ name: 'uq_x', columns: ['nope'] }] });
-    expect(validateModel(roundTrip(model([t])).parsed).map(e => e.message)).toEqual(['mst_a: UNIQUE uq_x 의 컬럼 nope 이 없다']);
+    expect(validateModel(roundTrip(model([t])).parsed).map(e => e.message)).toEqual(['mst_a: UNIQUE uq_x 의 컬럼 nope 이(가) 없습니다']);
   });
 
   it('CHECK 제약, identity, 생성 컬럼을 저장하고 그대로 읽는다', () => {
@@ -231,7 +231,7 @@ describe('UNIQUE 제약과 함수', () => {
     expect(r.second).toEqual(r.first);
     // 모르는 꼬리 글자는 형식 오류로 알린다
     expect(parseModel({ '_index.erd': 'erd-model 1\n', 'x.erd': 'mst_a @t1\n  seq integer PK\n  FK f (seq) > mst_a(seq) ON DELETE BOOM\n' }).errors.map(e => e.message))
-      .toEqual(['FK 줄 형식이 아니다: FK f (seq) > mst_a(seq) ON DELETE BOOM']);
+      .toEqual(['FK 줄 형식이 아닙니다: FK f (seq) > mst_a(seq) ON DELETE BOOM']);
   });
 });
 

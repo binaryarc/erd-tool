@@ -62,7 +62,7 @@ describe('두 구조 비교 글 (db_compare)', () => {
       'dev 을(를) 지금 ERD 처럼 바꾸려면: 차이 2개, 위험 1개',
       '요약: 컬럼 추가 1, 컬럼 삭제 1',
       '1. 컬럼 추가 mst_biz.memo: text',
-      '2. 컬럼 삭제 mst_biz_wh.use_yn: char(1) [위험: 컬럼 값이 사라진다]',
+      '2. 컬럼 삭제 mst_biz_wh.use_yn: char(1) [위험: 컬럼 값이 사라집니다]',
     ].join('\n'));
     expect(diffText([], 'dev', 'test')).toBe('dev 와(과) test 는 구조가 같다 (차이 0)');
     const many = applyCommands(model, Array.from({ length: 5 }, (_, i) => `add_column mst_biz.c${i} int`)).model;
@@ -97,7 +97,7 @@ describe('변경 명령', () => {
   });
   it('하나라도 실패하면 전체를 적용하지 않는다 (줄 번호와 이유)', () => {
     const before = JSON.stringify(model);
-    expect(() => applyCommands(model, ['add_column mst_biz.memo text', 'add_column nope.x int'])).toThrow(/2줄 「add_column nope\.x int」: 테이블 nope 이 없다/);
+    expect(() => applyCommands(model, ['add_column mst_biz.memo text', 'add_column nope.x int'])).toThrow(/2줄 「add_column nope\.x int」: 테이블 nope 이\(가\) 없습니다/);
     expect(JSON.stringify(model)).toBe(before);
     expect(() => applyCommands(model, ['place mst_biz_wh 100 200'])).toThrow('좌표는 받지 않는다');
     expect(() => applyCommands(model, ['place mst_biz_wh after=mst_biz group=sm'])).toThrow('그룹은 mdm');

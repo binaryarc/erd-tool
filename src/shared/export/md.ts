@@ -63,7 +63,7 @@ export function buildSchemaDocs(model: SchemaModel, now: Date): MdFile[] {
 export function buildMenuTables(model: SchemaModel, menuCode: string, tableNames: string[], now: Date): MdFile {
   if (!/^[a-z0-9_]+$/i.test(menuCode)) throw new Error('메뉴코드는 영문, 숫자로 입력하세요');
   if (!tableNames.length) throw new Error('ERD 에서 테이블을 고르세요 (Ctrl+클릭으로 여러 개)');
-  const tables = tableNames.map(n => model.tables.find(t => t.name === n) ?? (() => { throw new Error(`테이블 ${n} 이 없다`); })());
+  const tables = tableNames.map(n => model.tables.find(t => t.name === n) ?? (() => { throw new Error(`테이블 ${n} 이(가) 없습니다`); })());
   const code = menuCode.toLowerCase();
   return {
     name: `${code}-03-물리테이블목록.md`,

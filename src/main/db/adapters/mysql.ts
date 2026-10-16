@@ -158,12 +158,12 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
     if (/auto_increment/i.test(c.extra)) col.identity = 'default';
     if (/GENERATED/i.test(c.extra) && c.gen) {
       col.generated = stripParens(c.gen);
-      if (/VIRTUAL/i.test(c.extra)) warnings.push(`컬럼 ${c.t}.${c.col}: 저장하지 않는(VIRTUAL) 생성 컬럼이다. 다시 만들면 STORED 가 된다`);
+      if (/VIRTUAL/i.test(c.extra)) warnings.push(`컬럼 ${c.t}.${c.col}: 저장하지 않는(VIRTUAL) 생성 컬럼입니다. 다시 만들면 STORED 가 됩니다`);
     } else {
       const d = defaultText(c.def, c.extra, c.typ);
       if (d !== undefined) col.default = d;
     }
-    if (/on update/i.test(c.extra)) warnings.push(`컬럼 ${c.t}.${c.col}: ${c.extra.replace(/DEFAULT_GENERATED\s*/i, '')} 는 모델에 담지 않았다`);
+    if (/on update/i.test(c.extra)) warnings.push(`컬럼 ${c.t}.${c.col}: ${c.extra.replace(/DEFAULT_GENERATED\s*/i, '')} 는 모델에 담지 않았습니다`);
     if (c.cmt) col.comment = c.cmt;
     t.columns.push(col);
   }
@@ -192,10 +192,10 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
     const t = byName.get(g[0].t);
     if (!t) continue;
     const notes = [g[0].typ !== 'BTREE' && g[0].typ, g.some(x => x.sub !== null) && '앞부분 길이'].filter(Boolean);
-    if (notes.length) warnings.push(`인덱스 ${g[0].name}: ${notes.join(', ')} 정보는 모델에 담지 않았다`);
+    if (notes.length) warnings.push(`인덱스 ${g[0].name}: ${notes.join(', ')} 정보는 모델에 담지 않았습니다`);
     t.indexes.push({ name: g[0].name, columns: g.map(x => x.col ?? x.expr ?? ''), unique: Number(g[0].nonuniq) === 0 });
   }
-  for (const o of others) warnings.push(`${o.kind} ${o.name}: 모델에 담지 않는다`);
+  for (const o of others) warnings.push(`${o.kind} ${o.name}: 모델에 담지 않습니다`);
   return { tables: [...byName.values()], sequences: [], functions: [], warnings };
 }
 

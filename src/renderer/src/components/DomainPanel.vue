@@ -28,7 +28,7 @@ const draft = ref({ name: '', type: NEW_COLUMN_TYPE });
 const nameBox = ref<HTMLInputElement>();
 function add() {
   const d = { ...draft.value };
-  emit('edit', m => addDomain(m, d.name, d.type), ok => { if (ok) { draft.value = { name: '', type: NEW_COLUMN_TYPE }; nameBox.value?.focus(); } }, `도메인 ${d.name.trim()} 을 만듦 (저장 전)`);
+  emit('edit', m => addDomain(m, d.name, d.type), ok => { if (ok) { draft.value = { name: '', type: NEW_COLUMN_TYPE }; nameBox.value?.focus(); } }, `도메인 ${d.name.trim()} 을(를) 만들었습니다 (저장 전)`);
 }
 defineExpose({ /** 시험용 */ addDraft: (name: string, type: string) => { draft.value = { name, type }; add(); } });
 </script>
@@ -41,15 +41,15 @@ defineExpose({ /** 시험용 */ addDraft: (name: string, type: string) => { draf
       <button title="닫기" @click="emit('close')">×</button>
     </header>
     <div class="dm-body">
-      <p class="muted">도메인은 타입만 정한다. 타입을 고치면 이 도메인을 쓰는 컬럼이 모두 같은 타입으로 바뀐다. 컬럼에는 테이블 편집 패널의 「도메인」 칸에서 지정한다.</p>
+      <p class="muted">도메인은 타입만 정합니다. 타입을 고치면 이 도메인을 쓰는 컬럼이 모두 같은 타입으로 바뀝니다. 컬럼에는 테이블 편집 패널의 「도메인」 칸에서 지정합니다.</p>
       <table>
         <thead><tr><th>No.</th><th>이름</th><th>타입</th><th>쓰는 컬럼</th><th></th></tr></thead>
         <tbody>
           <template v-for="(d, i) in rows" :key="d.name">
             <tr :data-domain="d.name">
               <td class="no">{{ i + 1 }}</td>
-              <td><input :value="d.name" spellcheck="false" @change="e => onText(e, d.name, v => m => updateDomain(m, d.name, { name: v }), v => `도메인 이름을 ${v} 로 바꿈: 연결된 컬럼 ${d.used.length}개가 따라감 (저장 전)`)" @keydown.enter="($event.target as HTMLInputElement).blur()" /></td>
-              <td><input :value="d.type" spellcheck="false" class="type" @change="e => onText(e, d.type, v => m => updateDomain(m, d.name, { type: v }), v => `도메인 ${d.name} 타입을 ${v} 로 바꿈: 컬럼 ${d.used.length}개가 함께 바뀜 (저장 전)`)" @keydown.enter="($event.target as HTMLInputElement).blur()" /></td>
+              <td><input :value="d.name" spellcheck="false" @change="e => onText(e, d.name, v => m => updateDomain(m, d.name, { name: v }), v => `도메인 이름을 ${v}(으)로 바꿨습니다. 연결된 컬럼 ${d.used.length}개도 따라갑니다 (저장 전)`)" @keydown.enter="($event.target as HTMLInputElement).blur()" /></td>
+              <td><input :value="d.type" spellcheck="false" class="type" @change="e => onText(e, d.type, v => m => updateDomain(m, d.name, { type: v }), v => `도메인 ${d.name} 타입을 ${v}(으)로 바꿨습니다. 컬럼 ${d.used.length}개가 함께 바뀌었습니다 (저장 전)`)" @keydown.enter="($event.target as HTMLInputElement).blur()" /></td>
               <td><button class="link" :disabled="!d.used.length" @click="open = open === d.name ? '' : d.name">{{ d.used.length }}개</button></td>
               <td class="act"><button class="danger" title="도메인 삭제 (연결만 풀고 컬럼 타입은 그대로)" @click="emit('remove', d.name)">×</button></td>
             </tr>

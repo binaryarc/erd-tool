@@ -139,6 +139,67 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
   } finally {
     if (part === 'connect' && out.prep) out.cleanup = await js(`window.__erdConnect('cleanup', ${JSON.stringify(process.env.ERD_BE_DIR)})`);
   }
+  if (part === 'colcopy') try {
+    // 컬럼 행 누르기, Shift 로 더하기 → Ctrl+C → 다른 테이블 고르기 → Ctrl+V → 맨 아래에 붙음 → Ctrl+Z
+    const rowAt = (table: string, col: string) => js<{ x: number; y: number } | null>(`(() => {
+      const t = [...document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table')].find(e => e.querySelector('.head b')?.textContent === ${JSON.stringify(table)});
+      const r = [...(t?.querySelectorAll('.row') ?? [])].find(e => e.querySelector('.name')?.textContent === ${JSON.stringify(col)});
+      if (!r) return null; const b = r.querySelector('.name').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()`);
+    const selCount = () => js<number>(`document.querySelectorAll('.pane.canvas .split > .pane:first-child .row.sel').length`);
+    await nodeAt('mst_biz'); // 그 테이블로 화면을 옮긴다
+    const a = await rowAt('mst_biz', 'biz_nm'), b = await rowAt('mst_biz', 'ceo_nm');
+    if (!a || !b) throw new Error('컬럼 행을 못 찾았다');
+    await click(a.x, a.y);
+    await click(b.x, b.y, ['shift']);
+    out.selected = await selCount();
+    await key('C', ['control']);
+    out.copied = ((await probe()) as { message: string }).message;
+    const w = await nodeAt('mst_wh');
+    await click(w!.x, w!.y);
+    await key('V', ['control']);
+    out.pasted = await probe('mst_wh');
+    out.selectedAfterPaste = await selCount();
+    await key('V', ['control']); // 한 번 더: 같은 이름이라 모두 건너뜀
+    out.pastedAgain = ((await probe()) as { message: string }).message;
+    await key('Z', ['control']);
+    out.undone = await probe('mst_wh');
+  } catch (e) { out.error = (e as Error).message; }
+  if (part === 'viewport') try {
+    // 확대, 화면 위치를 저장하고 다시 열면 그 자리로 연다. 그룹 탭마다 따로 기억한다
+    const dir = process.env.ERD_SAVE_DIR!;
+    const v = (step: string, arg?: string) => js(`window.__erdViewport(${JSON.stringify(step)}, ${JSON.stringify(arg ?? null)})`);
+    out.set = await v('set', JSON.stringify({ x: -1234, y: -567, zoom: 0.42 }));
+    out.reopened = await v('saveReopen', dir);
+    out.layoutFile = JSON.parse(fs.readFileSync(`${dir}/layout.json`, 'utf8')).diagrams['전체'].viewport;
+    // 그룹 탭: 새 탭에서 다른 자리로 옮긴 뒤 전체로 갔다가 돌아오면 그 탭 자리
+    await clickText('.dtabs button', '+');
+    await sleep(600);
+    out.groupSet = await v('set', JSON.stringify({ x: 50, y: 60, zoom: 0.9 }));
+    out.backToAll = await v('tab', '전체');
+    out.backToGroup = await v('tab', '그룹 1');
+  } catch (e) { out.error = (e as Error).message; }
+  if (part === 'lines') try {
+    // 본 ERD(전체 보기)와 미니 ERD 의 선: 그려진 선 수, 선 굵기, 확대 배율, 화면 캡처
+    const shot = process.env.ERD_SHOT;
+    const edgeInfo = (sel: string) => js(`(() => {
+      const paths = [...document.querySelectorAll(${JSON.stringify(sel)} + ' .vue-flow__edge-path')];
+      const vp = document.querySelector(${JSON.stringify(sel)} + ' .vue-flow__viewport');
+      const st = paths[0] ? getComputedStyle(paths[0]) : null;
+      return { edges: paths.length, stroke: st?.stroke, strokeWidth: st?.strokeWidth, opacity: st?.opacity, transform: vp ? getComputedStyle(vp).transform : null,
+        sampleBox: paths[0] ? (() => { const b = paths[0].getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; })() : null };
+    })()`);
+    await sleep(800);
+    out.main = await edgeInfo('.pane.canvas .split > .pane:first-child');
+    if (shot) fs.writeFileSync(`${shot}-main.png`, (await wc.capturePage()).toPNG());
+    const p = await nodeAt('mst_biz');
+    await click(p!.x, p!.y);
+    wc.sendInputEvent({ type: 'mouseDown', x: Math.round(p!.x), y: Math.round(p!.y), button: 'left', clickCount: 2 });
+    wc.sendInputEvent({ type: 'mouseUp', x: Math.round(p!.x), y: Math.round(p!.y), button: 'left', clickCount: 2 });
+    await sleep(1500);
+    out.mainAfterFocus = await edgeInfo('.pane.canvas .split > .pane:first-child');
+    out.mini = await edgeInfo('.mini');
+    if (shot) fs.writeFileSync(`${shot}-mini.png`, (await wc.capturePage()).toPNG());
+  } catch (e) { out.error = (e as Error).message; }
   if (part === 'savepreview') try {
     // 예전 형식(접두어 그룹 파일 나눔, 트리인데 layout.json 에 그룹 격자 항목) 모델 폴더를 열고 같은 폴더에 저장:
     // 미리보기 창에 새로 씀(tables.erd), 바뀜(_index.erd, layout.json), 지움(mdm.erd 등)이 나오고, 「저장」 을 누르면 그대로 된다

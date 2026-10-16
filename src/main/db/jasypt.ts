@@ -22,7 +22,7 @@ function masterKey(): string {
       if (m) return m[1].trim();
     } catch { /* 없음 */ }
   }
-  throw new Error('JASYPT_ENCRYPTOR_PASSWORD 환경변수가 없다');
+  throw new Error('JASYPT_ENCRYPTOR_PASSWORD 환경변수가 없습니다');
 }
 
 function findEncryptorConfig(beDir: string): string {
@@ -36,7 +36,7 @@ function findEncryptorConfig(beDir: string): string {
       else if (e.name === 'EncryptorConfig.java') return p;
     }
   }
-  throw new Error(`EncryptorConfig.java 를 찾지 못했다: ${beDir}`);
+  throw new Error(`EncryptorConfig.java 를 찾지 못했습니다: ${beDir}`);
 }
 
 /** ENC(...) 가 아니면 그대로 돌려준다 */
@@ -59,6 +59,6 @@ export function decryptValue(value: string, beDir: string): string {
       { iv: CryptoJS.enc.Hex.parse(h.subarray(8, 16).toString('hex')), mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 },
     ).toString(CryptoJS.enc.Utf8);
   } catch { /* 키가 틀리면 글자로 바꾸지 못해 오류가 난다 (Malformed UTF-8 data) */ }
-  if (!out) throw new Error('복호화하지 못했다 (마스터키가 다를 수 있다)');
+  if (!out) throw new Error('복호화하지 못했습니다 (마스터키가 다를 수 있습니다)');
   return out;
 }

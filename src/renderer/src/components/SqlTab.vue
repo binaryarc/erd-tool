@@ -51,14 +51,14 @@ async function loadOptions() {
 async function connect(key = chosen.value) {
   const o = options.value.find(x => x.key === key);
   if (!o) return;
-  if (state.value?.dirty && !confirm('커밋 안 한 변경이 있다. 롤백하고 다른 접속으로 바꿀까요?')) return;
+  if (state.value?.dirty && !confirm('커밋하지 않은 변경이 있습니다. 롤백하고 다른 접속으로 바꿀까요?')) return;
   busy.value = true; message.value = '';
   try {
     state.value = await window.erd.sql.open(props.tabId, o.ref, o.label);
     chosen.value = key;
     history.value = await window.erd.history.list(state.value.connKey);
     void loadCatalog(o.ref, state.value.connKey);
-    message.value = `${o.label} 접속${state.value.readOnly ? ' (읽기 전용)' : ''}`;
+    message.value = `${o.label} 에 접속했습니다${state.value.readOnly ? ' (읽기 전용)' : ''}`;
   } catch (e) { message.value = clean(e); state.value = null; }
   finally { busy.value = false; emit('state', state.value); }
 }
@@ -81,6 +81,9 @@ function reloadCatalog() {
 const columnDefs = computed<ColDef[]>(() => (result.value?.columns ?? []).map((c, i) => ({
   headerName: c.name, colId: 'c' + i, valueGetter: p => (p.data as unknown[])[i], resizable: true, sortable: false,
   cellClass: 'cell', minWidth: 60,
+  // NULL 은 빈 칸과 구별되게 흐린 NULL 로 보인다 (2026-10-16 사용자 요청)
+  valueFormatter: p => (p.value === null || p.value === undefined ? 'NULL' : typeof p.value === 'object' ? JSON.stringify(p.value) : String(p.value)),
+  cellClassRules: { 'is-null': p => p.value === null || p.value === undefined },
 })));
 
 /** 결과 반영 (오류면 편집기에 표시) */
@@ -153,13 +156,13 @@ async function runAll() {
       const r = await window.erd.sql.run(props.tabId, s.body);
       show(r, s.start + s.lead);
       if (r.error) {
-        message.value = `${done + 1}번째 문장에서 멈춤 (앞 ${done}개 실행됨, 커밋 안 함): ${r.error.message}`;
+        message.value = `${done + 1}번째 문장에서 멈췄습니다 (앞 ${done}개 실행, 커밋 전): ${r.error.message}`;
         editor.revealLineInCenter(model.getPositionAt(s.start).lineNumber);
         return { done, total: stmts.length, error: r.error.message };
       }
       done++;
     }
-    message.value = `${done}개 문장 실행${state.value?.dirty ? ', 커밋 안 함' : ''}`;
+    message.value = `${done}개 문장을 실행했습니다${state.value?.dirty ? ' (커밋 전)' : ''}`;
     return { done, total: stmts.length };
   } catch (e) { message.value = clean(e); return { done, total: stmts.length, error: clean(e) }; }
   finally { busy.value = false; }
@@ -170,7 +173,7 @@ async function more() {
   try {
     const r = await window.erd.sql.fetchMore(props.tabId);
     // 더 받다가 난 오류: 받아 둔 행은 그대로 두고 오류만 알린다 (그 문장은 savepoint 로 취소됨)
-    if (r.error) { show(r); message.value = `더 받기 실패, 이 문장은 취소함 (앞 변경과 트랜잭션은 그대로): ${message.value}`; return; }
+    if (r.error) { show(r); message.value = `더 받지 못해 이 문장을 취소했습니다 (앞 변경과 트랜잭션은 그대로): ${message.value}`; return; }
     grid.value?.applyTransaction({ add: r.rows });
     fetched.value += r.rows.length;
     state.value = r.state; emit('state', r.state);
@@ -185,10 +188,10 @@ async function tx(kind: 'commit' | 'rollback') {
 }
 
 async function allowWrite() {
-  if (!confirm('이 탭에서 쓰기를 허용할까요? 읽기 전용 접속(운영 등)의 데이터를 바꿀 수 있게 된다. 열린 트랜잭션은 롤백한다.')) return;
+  if (!confirm('이 탭에서 쓰기를 허용할까요? 읽기 전용 접속(운영 등)의 데이터를 바꿀 수 있게 됩니다. 열린 트랜잭션은 롤백합니다.')) return;
   state.value = await window.erd.sql.allowWrite(props.tabId);
   emit('state', state.value);
-  message.value = '이 탭에서 쓰기 허용됨';
+  message.value = '이 탭에서 쓰기를 허용했습니다';
 }
 
 onMounted(async () => {
@@ -247,11 +250,11 @@ defineExpose({
       <button :disabled="busy || !state?.inTx" @click="tx('rollback')">롤백</button>
       <button v-if="state?.readOnly" :disabled="busy" @click="allowWrite">쓰기 허용</button>
       <button v-if="state?.more" :disabled="busy" @click="more">1,000행 더</button>
-      <button :disabled="busy || !state" title="테이블을 새로 만들었으면 눌러 자동완성 목록을 다시 읽는다" @click="reloadCatalog">목록 새로 읽기</button>
+      <button :disabled="busy || !state" title="테이블을 새로 만들었으면 눌러 자동완성 목록을 다시 읽습니다" @click="reloadCatalog">목록 새로 읽기</button>
       <span class="status">
-        <b v-if="state?.dirty" class="warn">커밋 안 함</b>
+        <b v-if="state?.dirty" class="warn">커밋 전</b>
         <span v-else-if="state?.inTx">트랜잭션 진행 중</span>
-        <span v-if="state?.readOnly" class="ro" :title="state.readOnlyByAccount ? '이 DB 는 서버가 읽기 전용을 막지 못한다. 쓰기는 DB 계정 권한으로 막아야 한다' : ''">읽기 전용{{ state.readOnlyByAccount ? ' (계정 권한 필요)' : '' }}</span>
+        <span v-if="state?.readOnly" class="ro" :title="state.readOnlyByAccount ? '이 DB 는 서버가 읽기 전용을 막지 못합니다. 쓰기는 DB 계정 권한으로 막아야 합니다' : ''">읽기 전용{{ state.readOnlyByAccount ? ' (계정 권한 필요)' : '' }}</span>
         {{ message }}
         <span class="muted">{{ catalogMessage }}</span>
       </span>
@@ -265,7 +268,7 @@ defineExpose({
         <div class="result">
           <AgGridVue v-if="result?.columns.length" class="grid" :theme="theme" :column-defs="columnDefs" :row-data="result.rows"
                      :default-col-def="{ width: 120 }" :enable-cell-text-selection="true" @grid-ready="(e: { api: GridApi }) => (grid = e.api)" />
-          <p v-else class="muted empty">Ctrl+Enter 로 커서가 있는 문장을 실행한다. 선택한 부분이 있으면 그것만 실행한다.</p>
+          <p v-else class="muted empty">Ctrl+Enter 로 커서가 있는 문장을 실행합니다. 선택한 부분이 있으면 그것만 실행합니다.</p>
         </div>
       </template>
     </SplitPane>

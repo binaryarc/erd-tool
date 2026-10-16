@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arrange, NODE, syncLayout, tableHeight } from '../../src/shared/model/arrange';
+import { DEFAULT_RULE, arrange, NODE, syncLayout, tableHeight } from '../../src/shared/model/arrange';
 import { emptyLayout } from '../../src/shared/model/layout';
 import { detectCommon, groupsFromErdGroupsJson } from '../../src/shared/model/groups';
 import { isEmptyDiff, mergeModel } from '../../src/shared/model/merge';
@@ -33,8 +33,8 @@ describe('배치', () => {
     d.groups!.mdm.rule.cols = 2;
     const { positions } = arrange(m, d);
     const top = positions.get('t1')!.y;
-    expect(positions.get('t2')).toEqual({ x: NODE.width + 40, y: top });
-    expect(positions.get('t3')).toEqual({ x: 0, y: top + tableHeight(m.tables[1]) + 40 });
+    expect(positions.get('t2')).toEqual({ x: NODE.width + DEFAULT_RULE.gap, y: top });
+    expect(positions.get('t3')).toEqual({ x: 0, y: top + tableHeight(m.tables[1]) + DEFAULT_RULE.gap });
   });
 
   it('테이블 폭이 다르면 그룹 칸 폭은 가장 넓은 테이블에 맞추고, 넓어진 그룹이 겹치면 뒤 그룹을 민다', () => {
@@ -43,7 +43,7 @@ describe('배치', () => {
     d.groups!.wms.rule.cols = 2;
     const wide = 500;
     const { positions, groups } = arrange(m, d, t => (t.name === 'whs_a' ? wide : NODE.width));
-    expect(positions.get('t2')!.x).toBe(wide + 40); // 칸 폭 = 가장 넓은 테이블
+    expect(positions.get('t2')!.x).toBe(wide + DEFAULT_RULE.gap); // 칸 폭 = 가장 넓은 테이블
     const [wms, mdm] = groups;
     expect(mdm.x).toBeGreaterThanOrEqual(wms.x + wms.width); // 겹치지 않음
     expect(d.groups!.mdm.rule.origin[0]).toBeLessThan(mdm.x); // 저장된 시작점은 그대로

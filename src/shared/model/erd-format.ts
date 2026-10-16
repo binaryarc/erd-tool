@@ -151,7 +151,7 @@ export function parseModel(files: Record<string, string>): ParseResult {
   const model: SchemaModel = { version: MODEL_VERSION, groups: [], common: [], sequences: [], tables: [], functions: [] };
 
   const index = files[INDEX_FILE];
-  if (index === undefined) errors.push({ file: INDEX_FILE, line: 0, message: '파일이 없다' });
+  if (index === undefined) errors.push({ file: INDEX_FILE, line: 0, message: '파일이 없습니다' });
   else parseIndex(index, model, errors);
 
   for (const file of Object.keys(files).filter(f => f.startsWith(FUNCTIONS_DIR)).sort(cmp)) {
@@ -169,7 +169,7 @@ export function parseModel(files: Record<string, string>): ParseResult {
       if (!raw.startsWith('  ')) {
         finish();
         const m = raw.match(/^(\S+) @(\S+)(?: (.*))?$/);
-        if (!m) { cur = undefined; return err(`테이블 줄 형식이 아니다: ${raw}`); }
+        if (!m) { cur = undefined; return err(`테이블 줄 형식이 아닙니다: ${raw}`); }
         let rest = m[3] ?? '';
         wantCommon = rest === COMMON_MARK || rest.endsWith(' ' + COMMON_MARK);
         if (wantCommon) rest = rest.slice(0, rest.length - COMMON_MARK.length).trimEnd();
@@ -178,29 +178,29 @@ export function parseModel(files: Record<string, string>): ParseResult {
         where.set(cur.name, { file, line });
         return;
       }
-      if (!cur) return err('테이블 줄 없이 컬럼이나 키 줄이 나왔다');
+      if (!cur) return err('테이블 줄 없이 컬럼이나 키 줄이 나왔습니다');
       const body = raw.slice(2);
       if (body.startsWith('PK (')) {
         const m = body.match(/^PK \((.+)\)$/);
-        if (!m) return err(`PK 줄 형식이 아니다: ${body}`);
+        if (!m) return err(`PK 줄 형식이 아닙니다: ${body}`);
         cur.pk = splitList(m[1]);
       } else if (body.startsWith('FK ')) {
         const m = body.match(/^FK (\S+) \(([^)]+)\) > ([^\s(]+)\(([^)]+)\)(.*)$/);
         const opts = m && parseFkOptions(m[5]);
-        if (!m || !opts) return err(`FK 줄 형식이 아니다: ${body}`);
+        if (!m || !opts) return err(`FK 줄 형식이 아닙니다: ${body}`);
         cur.fks.push({ name: m[1], columns: splitList(m[2]), refTable: m[3], refColumns: splitList(m[4]), ...opts });
         where.set(`${cur.name} ${m[1]}`, { file, line });
       } else if (body.startsWith('UQ ')) {
         const m = body.match(/^UQ (\S+) \((.+)\)$/);
-        if (!m) return err(`UQ 줄 형식이 아니다: ${body}`);
+        if (!m) return err(`UQ 줄 형식이 아닙니다: ${body}`);
         cur.uniques.push({ name: m[1], columns: splitList(m[2]) });
       } else if (body.startsWith('IX ')) {
         const m = body.match(/^IX (\S+) \((.+)\)( UNIQUE)?$/);
-        if (!m) return err(`IX 줄 형식이 아니다: ${body}`);
+        if (!m) return err(`IX 줄 형식이 아닙니다: ${body}`);
         cur.indexes.push({ name: m[1], columns: splitList(m[2]), unique: !!m[3] });
       } else if (body.startsWith('CK ')) {
         const m = body.match(/^CK (\S+) (.+)$/);
-        if (!m) return err(`CK 줄 형식이 아니다: ${body}`);
+        if (!m) return err(`CK 줄 형식이 아닙니다: ${body}`);
         (cur.checks ??= []).push({ name: m[1], definition: m[2] });
       } else {
         const c = parseColumn(body, err);
@@ -228,11 +228,11 @@ function parseFunctions(file: string, text: string, model: SchemaModel, errors: 
     if (raw.startsWith(FUNCTION_HEAD)) {
       finish();
       const m = raw.slice(FUNCTION_HEAD.length).match(/^([^(]+)\((.*)\)$/);
-      if (!m) { cur = undefined; errors.push({ file, line: i + 1, message: `함수 머리 줄 형식이 아니다: ${raw}` }); return; }
+      if (!m) { cur = undefined; errors.push({ file, line: i + 1, message: `함수 머리 줄 형식이 아닙니다: ${raw}` }); return; }
       cur = { name: m[1], args: m[2], definition: '' };
       body = [];
     } else if (cur) body.push(raw);
-    else if (raw.trim()) errors.push({ file, line: i + 1, message: '함수 머리 줄 없이 본문이 나왔다' });
+    else if (raw.trim()) errors.push({ file, line: i + 1, message: '함수 머리 줄 없이 본문이 나왔습니다' });
   });
   finish();
 }
@@ -246,7 +246,7 @@ function parseIndex(text: string, model: SchemaModel, errors: ModelError[]) {
       // 버전 1 은 db 줄이 없다: DB 종류를 비워 두면 PostgreSQL, public 으로 본다. 버전 2 는 도메인이 없다. 다음 저장 때 지금 버전으로 쓴다
       if (rest[0] !== '1' && rest[0] !== '2' && Number(rest[0]) !== MODEL_VERSION) err(`지원하지 않는 형식 버전: ${rest[0]}`);
     } else if (kw === 'db') {
-      if (!DIALECTS.includes(rest[0] as Dialect) || !rest[1]) return err(`db 줄 형식이 아니다: ${raw}`);
+      if (!DIALECTS.includes(rest[0] as Dialect) || !rest[1]) return err(`db 줄 형식이 아닙니다: ${raw}`);
       model.dialect = rest[0] as Dialect;
       model.schema = rest[1];
     } else if (kw === 'group') {
@@ -261,12 +261,12 @@ function parseIndex(text: string, model: SchemaModel, errors: ModelError[]) {
       const c = parseColumn(rest.join(' '), err);
       if (c) model.common.push(c.column);
     } else if (kw === 'domain') {
-      if (rest.length < 2 || !rest[0]) return err(`domain 줄 형식이 아니다: ${raw}`);
+      if (rest.length < 2 || !rest[0]) return err(`domain 줄 형식이 아닙니다: ${raw}`);
       const d: Domain = { name: rest[0], type: rest.slice(1).join(' ') };
       (model.domains ??= []).push(d);
     } else if (kw === 'seq') {
       const m = raw.match(/^seq (\S+) start=(-?\d+) inc=(-?\d+)$/);
-      if (!m) return err(`seq 줄 형식이 아니다: ${raw}`);
+      if (!m) return err(`seq 줄 형식이 아닙니다: ${raw}`);
       model.sequences.push({ name: m[1], start: Number(m[2]), inc: Number(m[3]) });
     } else err(`알 수 없는 줄: ${raw}`);
   });
@@ -280,7 +280,7 @@ export function parseColumn(body: string, err: (m: string) => void): { column: C
   const eq = findUnquoted(main, ' =');
   const dflt = eq >= 0 ? main.slice(eq + 2) : undefined;
   const words = (eq >= 0 ? main.slice(0, eq) : main).split(' ');
-  if (words.length < 2) { err(`컬럼 줄 형식이 아니다: ${body}`); return undefined; }
+  if (words.length < 2) { err(`컬럼 줄 형식이 아닙니다: ${body}`); return undefined; }
   const name = words[0];
   let pk = false, notNull = false, k = words.length;
   let identity: Column['identity'], idArgs: RegExpMatchArray | null = null;

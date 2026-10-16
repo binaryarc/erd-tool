@@ -57,7 +57,7 @@ const clean = (e: unknown) => (e as Error).message.replace(/^Error invoking remo
 
 async function read(s: Side): Promise<SchemaModel> {
   if (s.kind === 'erd') {
-    if (!props.model) throw new Error('ERD 에 열린 모델이 없다');
+    if (!props.model) throw new Error('ERD 에 열린 모델이 없습니다');
     return props.model;
   }
   if (s.kind === 'folder') return (await window.erd.model.load(s.dir)).model;
@@ -98,7 +98,7 @@ function makeAlter() { emit('openSql', { sql: alterSql.value }); }
 function apply() {
   const c = leftConn.value;
   if (!c || c.readOnly) return;
-  if (c.profile !== 'dev' && !confirm(`${c.label} 은(는) dev 가 아니다. test, 운영은 Flyway 가 꺼져 있어 도구에서 바로 바꾸면 Flyway 이력에 남지 않는다.\nFlyway 파일로 반영하는 것을 권한다(STEP 7). 그래도 이 접속의 SQL 탭에 ALTER 를 넣을까요?`)) return;
+  if (c.profile !== 'dev' && !confirm(`${c.label} 은(는) dev 가 아닙니다. test, 운영은 Flyway 가 꺼져 있어 도구에서 바로 바꾸면 Flyway 이력에 남지 않습니다.\nFlyway 파일로 반영하기를 권합니다. 그래도 이 접속의 SQL 탭에 ALTER 를 넣을까요?`)) return;
   emit('openSql', { sql: alterSql.value, conn: c.key });
 }
 
@@ -126,13 +126,13 @@ async function writeFlyway(dir: string, historyFile?: string) {
     const f = buildFlyway({ from: lastFrom, to: lastTo, version, description: fw.value.description.trim(), menuCode: fw.value.menuCode.trim() || undefined,
       fromLabel: sideLabel(left.value), toLabel: sideLabel(right.value), now: new Date() });
     const r = await window.erd.export.write(dir, [{ name: f.fileName, content: f.sql }], historyFile ? { file: historyFile, line: f.historyLine } : undefined);
-    fw.value.result = `만듦: ${r.written[0]} (문장 ${f.statements}개, 위험 ${f.dangers}개)${r.history ? `, 이력 한 줄 추가: ${r.history}` : ''}. DB 에는 실행하지 않았다`;
+    fw.value.result = `만들었습니다: ${r.written[0]} (문장 ${f.statements}개, 위험 ${f.dangers}개)${r.history ? `, 이력 한 줄 추가: ${r.history}` : ''}. DB 에는 실행하지 않았습니다`;
     return { fileName: f.fileName, path: r.written[0], history: r.history, statements: f.statements, sql: f.sql };
   } catch (e) { fw.value.error = clean(e); return null; }
 }
 
 async function makeFlyway() {
-  if (!validDescription(fw.value.description.trim())) { fw.value.error = '설명은 영문 소문자 snake_case 로 (예: add_mst_biz_columns)'; return; }
+  if (!validDescription(fw.value.description.trim())) { fw.value.error = '설명은 영문 소문자 snake_case 로 적어 주세요 (예: add_mst_biz_columns)'; return; }
   const d = await defaults();
   const dir = await window.erd.pickFolder(d.flyway);
   if (!dir) return;
@@ -177,20 +177,20 @@ defineExpose({ ready, compare, writeFlyway, setFlyway: (p: Partial<typeof fw.val
     <p v-if="error" class="warn">{{ error }}</p>
 
     <template v-if="done">
-      <p v-if="!items.length" class="ok">두 쪽이 같다 ({{ sideLabel(left) }} = {{ sideLabel(right) }})</p>
+      <p v-if="!items.length" class="ok">두 쪽이 같습니다 ({{ sideLabel(left) }} = {{ sideLabel(right) }})</p>
       <template v-else>
         <div class="actions">
           <span>{{ sideLabel(left) }} 을(를) {{ sideLabel(right) }} 처럼 바꾸려면 차이 {{ items.length }}개 (위험 {{ items.filter(i => i.danger).length }}개)</span>
           <span class="spacer" />
           <button @click="makeAlter">ALTER 만들기</button>
-          <button :disabled="!canApply" :title="leftConn?.readOnly ? '읽기 전용 접속은 적용할 수 없다' : !leftConn ? '왼쪽이 접속일 때만 적용한다' : ''" @click="apply">왼쪽 DB 에 적용</button>
+          <button :disabled="!canApply" :title="leftConn?.readOnly ? '읽기 전용 접속에는 적용할 수 없습니다' : !leftConn ? '왼쪽이 DB 접속일 때만 적용할 수 있습니다' : ''" @click="apply">왼쪽 DB 에 적용</button>
         </div>
         <div class="flyway">
           <b>Flyway 파일로</b>
           <label>설명 <input v-model="fw.description" spellcheck="false" placeholder="add_mst_biz_columns" /></label>
           <label>메뉴코드 <input v-model="fw.menuCode" spellcheck="false" placeholder="없으면 비움" class="short" /></label>
           <label class="check"><input v-model="fw.history" type="checkbox" /> 99-migration-history.md 에 한 줄 추가</label>
-          <button :disabled="!flywayOk" :title="flywayOk ? '폴더를 고르면 V{다음 번호}__{설명}_{시각}.sql 을 만든다. DB 에는 실행하지 않는다' : 'Flyway 파일은 PostgreSQL 모델에서만 만든다'" @click="makeFlyway">Flyway 파일 만들기</button>
+          <button :disabled="!flywayOk" :title="flywayOk ? '폴더를 고르면 V{다음 번호}__{설명}_{시각}.sql 을 만듭니다. DB 에는 실행하지 않습니다' : 'Flyway 파일은 PostgreSQL 모델에서만 만들 수 있습니다'" @click="makeFlyway">Flyway 파일 만들기</button>
         </div>
         <p v-if="fw.result" class="ok">{{ fw.result }}</p>
         <p v-if="fw.error" class="warn">{{ fw.error }}</p>
@@ -204,7 +204,7 @@ defineExpose({ ready, compare, writeFlyway, setFlyway: (p: Partial<typeof fw.val
           </tbody>
         </table>
         <label class="check"><input v-model="dangerOnly" type="checkbox" /> 위험만 보기</label>
-        <span v-if="filterKind" class="muted">{{ KIND_LABEL[filterKind] }} 만 보는 중 (표의 줄을 다시 누르면 풀린다)</span>
+        <span v-if="filterKind" class="muted">{{ KIND_LABEL[filterKind] }} 만 보는 중 (표의 줄을 다시 누르면 풀립니다)</span>
         <div class="list">
           <table>
             <thead><tr><th>No.</th><th>종류</th><th>변화</th><th>테이블</th><th>대상</th><th>내용</th><th>위험</th></tr></thead>

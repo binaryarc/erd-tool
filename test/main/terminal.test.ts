@@ -26,6 +26,6 @@ describe('셸 찾기', () => {
   it('Git Bash 는 사용자 단위 설치도 찾고, System32 의 WSL bash 는 잡지 않는다', () => {
     expect(findShell('bash', env, has('C:\\Users\\u\\AppData\\Local\\Programs\\Git\\bin\\bash.exe')).path)
       .toBe('C:\\Users\\u\\AppData\\Local\\Programs\\Git\\bin\\bash.exe');
-    expect(() => findShell('bash', env, has('C:\\Windows\\System32\\bash.exe'))).toThrow('Git Bash 를 찾지 못했다');
+    expect(() => findShell('bash', env, has('C:\\Windows\\System32\\bash.exe'))).toThrow('Git Bash 를 찾지 못했습니다');
   });
 });

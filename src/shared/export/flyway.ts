@@ -74,10 +74,10 @@ const body = (sql: string) => sql.replace(/^-- [^\n]*\n\n?/, '').trimEnd();
 
 export function buildFlyway(i: FlywayInput): FlywayFile {
   // 여러 번 실행해도 안전한 문장(DO 블록, IF NOT EXISTS)이 PostgreSQL 전용이다 (STEP 9 범위, 사용자 결정 2026-10-16)
-  if (dialectOf(i.from.dialect ? i.from : i.to) !== 'postgresql') throw new Error('Flyway 파일은 PostgreSQL 모델에서만 만든다');
-  if (!validDescription(i.description)) throw new Error(`설명은 영문 소문자 snake_case 여야 한다: ${i.description}`);
+  if (dialectOf(i.from.dialect ? i.from : i.to) !== 'postgresql') throw new Error('Flyway 파일은 PostgreSQL 모델에서만 만들 수 있습니다');
+  if (!validDescription(i.description)) throw new Error(`설명은 영문 소문자 snake_case 로 적어 주세요: ${i.description}`);
   const items = diffModels(i.from, i.to);
-  if (!items.length) throw new Error('차이가 없어 Flyway 파일을 만들지 않는다');
+  if (!items.length) throw new Error('차이가 없어 Flyway 파일을 만들지 않았습니다');
   const up = buildAlter(i.from, i.to, items, { flyway: true });
   const down = buildAlter(i.to, i.from, undefined, { flyway: true });
   const fileName = flywayFileName(i.version, i.description, i.now);
@@ -109,7 +109,7 @@ export function buildFlyway(i: FlywayInput): FlywayFile {
     '',
   ].join('\n');
   // 함수 정의 등에 달러+중괄호가 섞이면 Flyway 기동이 멈춘다 (허브 규칙 4절 3번)
-  if (sql.includes('${')) throw new Error('달러+중괄호 형태가 들어 있어 Flyway 가 플레이스홀더로 해석한다. 그 부분을 고친 뒤 다시 만드세요');
+  if (sql.includes('${')) throw new Error('달러+중괄호 형태가 들어 있어 Flyway 가 플레이스홀더로 해석합니다. 그 부분을 고친 뒤 다시 만드세요');
 
   const historyLine = `| ${dateTime(i.now)} | ${i.menuCode || '-'} | ${tables.map(t => '`' + t + '`').join(', ')} | ${summary} — ${fileName} | - | - |`;
   return { fileName, sql, statements: up.statements, dangers: up.dangers, items, historyLine };
@@ -119,10 +119,10 @@ export function buildFlyway(i: FlywayInput): FlywayFile {
 export function appendHistoryLine(md: string, line: string): string {
   const lines = md.split('\n');
   const head = lines.findIndex(l => /^#+\s*변경 이력\s*$/.test(l));
-  if (head < 0) throw new Error('「변경 이력」 절을 찾지 못했다');
+  if (head < 0) throw new Error('「변경 이력」 절을 찾지 못했습니다');
   let i = head + 1;
   while (i < lines.length && !lines[i].startsWith('|')) i++;
-  if (i >= lines.length) throw new Error('「변경 이력」 절에 표가 없다');
+  if (i >= lines.length) throw new Error('「변경 이력」 절에 표가 없습니다');
   while (i < lines.length && lines[i].startsWith('|')) i++;
   lines.splice(i, 0, line);
   return lines.join('\n');

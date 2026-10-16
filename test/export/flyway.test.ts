@@ -40,7 +40,7 @@ describe('Flyway 파일', () => {
     expect(f.sql).not.toContain('${');
     expect(lines.filter(l => /^\\/.test(l))).toEqual([]);
     expect(lines.filter(l => /^\s*(BEGIN|COMMIT|ROLLBACK)\s*;/i.test(l))).toEqual([]);
-    expect(lines.filter(l => /^\s*(DROP|DELETE|TRUNCATE)\b/i.test(l))).toEqual([]); // 추가만 한 변경이라 실행문 DROP 이 없다
+    expect(lines.filter(l => /^\s*(DROP|DELETE|TRUNCATE)\b/i.test(l))).toEqual([]); // 추가만 한 변경이라 실행문 DROP 이(가) 없습니다
     expect(lines.filter(l => l.startsWith('-- ROLLBACK'))).toHaveLength(1);
     expect(f.sql.endsWith('\n') && !f.sql.includes('\r')).toBe(true);
   });
