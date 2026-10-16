@@ -67,5 +67,5 @@ export function buildJoinSelect(model: SchemaModel, picked: string[]): string {
       via!.on.map(([a, b]) => `${alias.get(table)}.${b} = ${alias.get(via!.from)}.${a}`).join(' AND ')),
   ];
   if (missing.length) lines.push(`-- FK 로 이어지지 않아 뺀 테이블: ${missing.join(', ')}`);
-  return lines.join('\n') + '\nLIMIT 100;';
+  return rulesFor(dialectOf(model)).limitSelect(lines.join('\n'), 100);
 }

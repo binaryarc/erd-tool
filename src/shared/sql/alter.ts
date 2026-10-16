@@ -13,8 +13,10 @@ export type AlterOptions = DdlOptions;
 export interface AlterScript { sql: string; statements: number; dangers: number; items: DiffItem[] }
 
 export function buildAlter(from: SchemaModel, to: SchemaModel, items: DiffItem[] = diffModels(from, to), opts: AlterOptions = {}): AlterScript {
-  const w = rulesFor(dialectOf(from.dialect ? from : to)).ddl(opts);
+  const at = from.dialect ? from : to;
+  const w = rulesFor(dialectOf(at)).ddl({ schema: at.schema, ...opts });
   const toTables = new Map(to.tables.map(t => [t.name, t]));
+  const fromTables = new Map(from.tables.map(t => [t.name, t]));
   const sections: { title: string; lines: string[] }[] = [];
   let dangers = 0;
   const section = (title: string) => { const s = { title, lines: [] as string[] }; sections.push(s); return s.lines; };
@@ -64,7 +66,7 @@ export function buildAlter(from: SchemaModel, to: SchemaModel, items: DiffItem[]
       colLines.push(w.dropColumn(i.table!, i.name));
     } else if (i.kind === 'column' && i.change === 'alter') {
       warn(colLines, i.danger && `${i.table}.${i.name}: ${i.danger}`);
-      colLines.push(...w.alterColumn(i.table!, i.from as Column, i.to as Column));
+      colLines.push(...w.alterColumn(i.table!, i.from as Column, i.to as Column, { from: fromTables.get(i.table!), to: toTables.get(i.table!) }));
     } else if (i.kind === 'table' && i.change === 'alter') {
       colLines.push(...w.tableComment(i.table ?? '', (i.to as Table).comment || undefined));
     }
