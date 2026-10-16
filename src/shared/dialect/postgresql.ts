@@ -3,7 +3,7 @@
 //   (IF NOT EXISTS, IF EXISTS, 제약 추가는 pg_constraint 를 확인하는 DO 블록).
 
 import { isProcedure } from '../model/diff';
-import { fkOptions } from '../model/erd-format';
+import { fkOptions, identityArgs } from '../model/erd-format';
 import type { Column, Table } from '../model/types';
 import { PG_TEXT } from '../sql/text';
 import type { DdlOptions, DdlWriter, DialectRules } from './index';
@@ -25,14 +25,16 @@ const TYPE_ALIASES: [RegExp, string][] = [
 ];
 export const shortType = (t: string): string => TYPE_ALIASES.reduce((s, [re, to]) => s.replace(re, to), t);
 
-const identityClause = (i: NonNullable<Column['identity']>) => `GENERATED ${i === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY`;
+/** IDENTITY 절. 시작값, 증가값이 (1, 1) 이 아니면 시퀀스 옵션을 붙인다 */
+const identityClause = (i: NonNullable<Column['identity']>, c?: Column) =>
+  `GENERATED ${i === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY${c && identityArgs(c) ? ` (START WITH ${c.identityStart ?? 1} INCREMENT BY ${c.identityStep ?? 1})` : ''}`;
 
 /** 컬럼 정의. 생성 컬럼은 DEFAULT 대신 생성식, identity 는 IDENTITY 절 (2026-10-16: 전에는 생성식을 DEFAULT 로 써서 PostgreSQL 이 거부했다) */
 function colDef(c: Column): string {
   return [
     q(c.name), c.type, c.notNull ? 'NOT NULL' : '',
     c.generated !== undefined ? `GENERATED ALWAYS AS (${c.generated}) STORED` : c.default !== undefined ? `DEFAULT ${c.default}` : '',
-    c.identity ? identityClause(c.identity) : '',
+    c.identity ? identityClause(c.identity, c) : '',
   ].filter(Boolean).join(' ');
 }
 
@@ -101,7 +103,8 @@ function ddl(o: DdlOptions = {}): DdlWriter {
       if (a.type !== b.type) out.push(`ALTER TABLE ${t} ALTER COLUMN ${c} TYPE ${b.type} USING ${c}::${b.type};`);
       if ((a.default ?? null) !== (b.default ?? null)) out.push(b.default !== undefined ? `ALTER TABLE ${t} ALTER COLUMN ${c} SET DEFAULT ${b.default};` : `ALTER TABLE ${t} ALTER COLUMN ${c} DROP DEFAULT;`);
       if (a.notNull !== b.notNull) out.push(`ALTER TABLE ${t} ALTER COLUMN ${c} ${b.notNull ? 'SET' : 'DROP'} NOT NULL;`);
-      if (!a.identity && b.identity) out.push(`ALTER TABLE ${t} ALTER COLUMN ${c} ADD ${identityClause(b.identity)};`);
+      if (!a.identity && b.identity) out.push(`ALTER TABLE ${t} ALTER COLUMN ${c} ADD ${identityClause(b.identity, b)};`);
+      if (a.identity && b.identity && identityArgs(a) !== identityArgs(b)) out.push(`ALTER TABLE ${t} ALTER COLUMN ${c} SET START WITH ${b.identityStart ?? 1} SET INCREMENT BY ${b.identityStep ?? 1};`);
       if (a.identity && b.identity && a.identity !== b.identity) out.push(`ALTER TABLE ${t} ALTER COLUMN ${c} SET GENERATED ${b.identity === 'always' ? 'ALWAYS' : 'BY DEFAULT'};`);
       if ((a.comment ?? '') !== (b.comment ?? '')) out.push(`COMMENT ON COLUMN ${t}.${c} IS ${b.comment ? lit(b.comment) : 'NULL'};`);
       return out;

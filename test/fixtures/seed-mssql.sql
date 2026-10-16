@@ -9,7 +9,7 @@ IF OBJECT_ID('dbo.erd_code', 'U') IS NOT NULL DROP TABLE dbo.erd_code;
 IF OBJECT_ID('dbo.erd_seq', 'SO') IS NOT NULL DROP SEQUENCE dbo.erd_seq;
 GO
 CREATE TABLE erd_customer (
-  cust_id int IDENTITY(1,1) NOT NULL,
+  cust_id int IDENTITY(1000,10) NOT NULL,
   cust_cd varchar(20) NOT NULL,
   cust_nm nvarchar(100) NOT NULL,
   grade char(1) NOT NULL DEFAULT ('A'),

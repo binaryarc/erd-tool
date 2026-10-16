@@ -3,6 +3,7 @@
 // 대문자가 아닌 이름은 큰따옴표로 감싸 대소문자를 지킨다. DDL 은 바로 커밋된다.
 // PL/SQL 블록(BEGIN, CREATE PROCEDURE 등)은 / 줄까지 한 문장이다.
 
+import { identityArgs } from '../model/erd-format';
 import type { Column, Table } from '../model/types';
 import type { DdlWriter, DialectRules } from './index';
 
@@ -19,11 +20,15 @@ const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
 const ixCol = (c: string) => (/^[A-Za-z][\w$#]*$/.test(c) ? q(c) : c); // 식 인덱스는 그대로
 const NOT_SUPPORTED = (what: string) => `-- [지원 안 함] ${what}`;
 
+/** IDENTITY 절. 시작값, 증가값이 (1, 1) 이 아니면 옵션을 붙인다 */
+const identityClause = (c: Column) =>
+  `GENERATED ${c.identity === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY${identityArgs(c) ? ` (START WITH ${c.identityStart ?? 1} INCREMENT BY ${c.identityStep ?? 1})` : ''}`;
+
 function colDef(c: Column): string {
   return [
     q(c.name), c.type,
     c.generated !== undefined ? `GENERATED ALWAYS AS (${c.generated}) VIRTUAL` : '',
-    c.identity ? `GENERATED ${c.identity === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY` : '',
+    c.identity ? identityClause(c) : '',
     c.generated === undefined && !c.identity && c.default !== undefined ? `DEFAULT ${c.default}` : '',
     c.notNull ? 'NOT NULL' : '',
   ].filter(Boolean).join(' ');
@@ -72,7 +77,7 @@ function ddl(): DdlWriter {
       }
       const out: string[] = [];
       if (!!a.identity !== !!b.identity) out.push(NOT_SUPPORTED(`${t}.${b.name}: IDENTITY 를 두거나 없애려면 컬럼을 다시 만들어야 한다`));
-      else if (a.identity && b.identity && a.identity !== b.identity) out.push(`ALTER TABLE ${n(t)} MODIFY (${q(b.name)} GENERATED ${b.identity === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY);`);
+      else if (a.identity && b.identity && (a.identity !== b.identity || identityArgs(a) !== identityArgs(b))) out.push(`ALTER TABLE ${n(t)} MODIFY (${q(b.name)} ${identityClause(b)});`);
       // MODIFY 에는 바뀐 것만 넣는다 (이미 NOT NULL 인 컬럼에 NOT NULL 을 다시 주면 ORA-01442)
       const parts = [
         a.type !== b.type ? b.type : '',

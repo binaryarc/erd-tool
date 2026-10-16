@@ -142,3 +142,23 @@ describe('모델 전체 CREATE', () => {
     expect(sql).not.toContain('DROP');
   });
 });
+
+describe('Oracle 이름 대소문자 (STEP 9)', () => {
+  const ora = (): SchemaModel => ({ version: 2, dialect: 'oracle', schema: 'ERD', groups: [{ name: 'erd', isDefault: true }], common: [], sequences: [], functions: [],
+    tables: [{ id: 't1', name: 'ERD_P', comment: '', columns: [{ name: 'ID', type: 'integer', notNull: true }, { name: 'mixed', type: 'integer', notNull: false }], pk: ['ID'], fks: [], uniques: [], indexes: [] }] });
+  it('새 이름은 대문자로 맞추고, 따옴표가 필요한 이름은 그대로 둔다', () => {
+    let m = addTable(ora(), 'erd_c');
+    m = addColumn(m, 'erd_c', { name: 'p_id', type: 'int', notNull: false });
+    m = addColumn(m, 'ERD_C', { name: 'my-col', type: 'int', notNull: false });
+    m = addFk(m, 'erd_c', { name: 'fk_c_p', columns: ['p_id'], refTable: 'erd_p', refColumns: ['id'] });
+    const c = m.tables.find(t => t.name === 'ERD_C')!;
+    expect(c.columns.map(x => [x.name, x.type])).toEqual([['P_ID', 'integer'], ['my-col', 'integer']]);
+    expect(c.fks).toEqual([{ name: 'FK_C_P', columns: ['P_ID'], refTable: 'ERD_P', refColumns: ['ID'] }]);
+  });
+  it('따옴표로 만든 소문자 이름은 그대로 가리키고, PostgreSQL 모델은 바꾸지 않는다', () => {
+    const m = updateColumn(ora(), 'erd_p', 'mixed', { comment: '혼합' });
+    expect(m.tables[0].columns[1]).toMatchObject({ name: 'mixed', comment: '혼합' });
+    const pg = addTable({ ...ora(), dialect: undefined }, 'erd_c');
+    expect(pg.tables.map(t => t.name)).toEqual(['ERD_P', 'erd_c']);
+  });
+});
