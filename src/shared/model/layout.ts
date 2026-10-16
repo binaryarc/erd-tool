@@ -15,11 +15,15 @@ export interface Diagram {
   groups: Record<string, GroupPlacement>;
   /** 테이블 ID → 직접 지정한 좌표 */
   pinned: Record<string, [number, number]>;
+  /** 그룹 탭(STEP 10)의 소속 테이블 ID. 있으면 이 다이어그램은 그 테이블만 보인다. 「전체」 에는 없다 */
+  members?: string[];
 }
 
 export interface Layout {
   version: number;
   diagrams: Record<string, Diagram>;
+  /** 그룹 탭 이름을 화면 순서대로 (STEP 10). 「전체」 는 넣지 않는다. 없으면 그룹 탭 없음 */
+  tabs?: string[];
 }
 
 /** 배치 방식을 읽는다. 적혀 있지 않으면 트리 (사용자 지정 2026-10-16. 처음에는 그룹 격자였다) */

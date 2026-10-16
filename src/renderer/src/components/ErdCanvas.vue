@@ -29,14 +29,20 @@ const props = withDefaults(defineProps<{
   fitKey?: number;
   /** AI 가 바꿔 확정을 기다리는 테이블 ID (주황 테두리, STEP 8) */
   highlight?: Set<string>;
+  /** 그룹 탭에서 그리지 않은 FK (테이블 ID → 설명). 테이블 머리에 「외부 FK n개」 배지 (STEP 10) */
+  external?: Map<string, string[]>;
 }>(), { flowId: 'main', showMiniMap: true, fitOnResize: false });
-const emit = defineEmits<{ pin: [id: string, x: number, y: number]; select: [names: string[]]; open: [name: string] }>();
+const emit = defineEmits<{
+  pin: [id: string, x: number, y: number]; select: [names: string[]]; open: [name: string];
+  /** 우클릭 (STEP 10): 테이블 위면 name 이 있고, 빈 곳이면 없다. x, y 는 화면 좌표 */
+  menu: [e: { x: number; y: number; name?: string }];
+}>();
 const view = inject(VIEW_KEY) as ViewState;
 
 const nodes = computed<Node[]>(() => {
   void props.version; // layout 이 바뀌면 다시 계산
   // 폭은 보기 모드에 따라 바뀐다 (둘 다 보기에서 긴 이름이 잘리지 않게)
-  const widths = new Map(props.model.tables.map(t => [t.id, tableWidth(t, view.nameMode)]));
+  const widths = new Map(props.model.tables.map(t => [t.id, tableWidth(t, view.nameMode, props.external?.get(t.id)?.length ?? 0)]));
   const widthOf = (t: { id: string }) => widths.get(t.id)!;
   let positions: Map<string, { x: number; y: number }>;
   let groupNodes: Node[] = [];
@@ -54,7 +60,7 @@ const nodes = computed<Node[]>(() => {
   const tableNodes: Node[] = props.model.tables.map(t => {
     const fkCols = new Set(t.fks.flatMap(f => f.columns));
     const data: TableNodeData = {
-      name: t.name, comment: t.comment, width: widths.get(t.id)!, focus: t.name === props.focus, ai: props.highlight?.has(t.id),
+      name: t.name, comment: t.comment, width: widths.get(t.id)!, focus: t.name === props.focus, ai: props.highlight?.has(t.id), external: props.external?.get(t.id),
       columns: t.columns.map(c => ({ name: c.name, type: c.type, comment: c.comment, notNull: c.notNull, pk: t.pk.includes(c.name), fk: fkCols.has(c.name) })),
     };
     return { id: t.id, type: 'table', position: positions.get(t.id) ?? { x: 0, y: 0 }, data };
@@ -84,7 +90,7 @@ watch([() => viewport.value.zoom, () => view.compactOnZoomOut], ([z, on]) => { v
 let lastMode = arrangeMode(props.diagram);
 async function refit() {
   await nextTick();
-  setTimeout(() => fitView({ padding: 0.15 }), 50);
+  setTimeout(() => fitView({ padding: 0.15, maxZoom: 1 }), 50); // 테이블이 적은 그룹 탭이 화면 가득 커지지 않게
 }
 watch(() => props.fitKey ?? props.model, refit);
 
@@ -108,6 +114,17 @@ watch(() => props.version, () => {
 
 function onDragStop(e: NodeDragEvent) {
   for (const n of e.nodes) if (n.type === 'table') emit('pin', n.id, Math.round(n.position.x), Math.round(n.position.y));
+}
+
+function onNodeMenu(e: NodeMouseEvent) {
+  if (e.node.type !== 'table') return;
+  const ev = e.event as MouseEvent;
+  ev.preventDefault();
+  emit('menu', { x: ev.clientX, y: ev.clientY, name: (e.node.data as TableNodeData).name });
+}
+function onPaneMenu(ev: MouseEvent) {
+  ev.preventDefault();
+  emit('menu', { x: ev.clientX, y: ev.clientY });
 }
 
 function onDoubleClick(e: NodeMouseEvent) {
@@ -162,7 +179,8 @@ defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoo
 <template>
   <div ref="box" class="erd-box">
   <VueFlow :id="flowId" :nodes="nodes" :edges="edges" :min-zoom="0.05" :max-zoom="2" multi-selection-key-code="Control"
-           :zoom-on-double-click="false" fit-view-on-init @node-drag-stop="onDragStop" @node-double-click="onDoubleClick">
+           :zoom-on-double-click="false" :delete-key-code="null" fit-view-on-init @node-drag-stop="onDragStop" @node-double-click="onDoubleClick"
+           @node-context-menu="onNodeMenu" @pane-context-menu="onPaneMenu">
     <template #node-table="{ data }">
       <TableNode :data="data" />
     </template>

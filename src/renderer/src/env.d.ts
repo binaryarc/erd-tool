@@ -15,6 +15,7 @@ declare global {
     __erdStep6Shot?: () => Promise<unknown>;
     __erdAiCancel?: () => unknown;
     __erdProbe?: (table?: string) => unknown;
+    __erdSaveReopen?: (dir: string) => Promise<unknown>;
   }
 }
 

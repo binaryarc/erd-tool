@@ -14,6 +14,8 @@ export interface TableNodeData {
   focus?: boolean;
   /** AI 가 바꿔 확정을 기다리는 테이블 */
   ai?: boolean;
+  /** 그룹 탭에서 그리지 않은 FK 설명 (STEP 10) */
+  external?: string[];
   columns: { name: string; type: string; comment?: string; pk: boolean; fk: boolean; notNull: boolean }[];
 }
 
@@ -22,6 +24,7 @@ const view = inject(VIEW_KEY) as ViewState;
 
 const title = (d: TableNodeData) =>
   view.nameMode === 'physical' ? d.name : view.nameMode === 'logical' ? d.comment || d.name : d.name;
+const extTitle = (xs: string[]) => ['이 그룹 밖 테이블과 이어진 FK (선은 그리지 않음)', ...xs].join(String.fromCharCode(10));
 const colName = (c: TableNodeData['columns'][number]) =>
   view.nameMode === 'logical' ? c.comment || c.name : c.name;
 </script>
@@ -31,6 +34,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
     <div class="head" :title="data.comment">
       <b>{{ title(data) }}</b>
       <span v-if="view.nameMode === 'both' && data.comment" class="logical">{{ data.comment }}</span>
+      <i v-if="data.external?.length" class="ext" :title="extTitle(data.external)">외부 FK {{ data.external.length }}개</i>
     </div>
     <template v-if="!view.compact">
       <div v-for="c in data.columns" :key="c.name" class="row" :class="{ pk: c.pk }" :title="c.comment">
@@ -64,6 +68,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
 .key .pk { color: #7a4b00; background: #ffd970; }
 .key .fk { color: #0b4f8a; background: #bcdcff; }
 .key .nn { color: var(--muted); border: 1px solid var(--line); line-height: 10px; }
+.ext { margin-left: auto; flex: none; font: 10px/14px 'Malgun Gothic', sans-serif; font-style: normal; color: var(--muted); border: 1px dashed var(--edge); border-radius: 2px; padding: 0 3px; }
 .tbl.focus { box-shadow: 0 0 0 3px var(--warn); }
 .tbl.ai { box-shadow: 0 0 0 3px #f08c00; }
 /* 폭은 내용에 맞춰 계산되므로 이름은 줄이지 않는다. 최대 폭에 걸리면 논리명부터 줄어든다 */
