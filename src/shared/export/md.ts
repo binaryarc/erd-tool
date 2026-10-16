@@ -21,7 +21,7 @@ function tableValues(t: Table) {
   return {
     name: t.name, comment: cell(t.comment),
     columns: numbered(t.columns.map(c => ({
-      name: c.name, type: cell(c.type), nullable: c.notNull ? 'N' : 'Y', default: cell(c.default), pk: t.pk.includes(c.name) ? 'PK' : '', comment: cell(c.comment),
+      name: c.name, type: cell(c.type), nullable: c.notNull ? 'N' : 'Y', default: cell(c.generated !== undefined ? `생성: ${c.generated}` : c.identity ? `IDENTITY${c.identity === 'default' ? ' (BY DEFAULT)' : ''}` : c.default), pk: t.pk.includes(c.name) ? 'PK' : '', comment: cell(c.comment),
     }))),
     fks: numbered(t.fks.map(f => ({ name: f.name, columns: f.columns.join(', '), ref: `${f.refTable}(${f.refColumns.join(', ')})` }))),
     uniques: numbered(t.uniques.map(u => ({ name: u.name, columns: u.columns.join(', ') }))),

@@ -90,7 +90,7 @@ function build(deps: McpDeps): McpServer {
     inputSchema: z.object({
       from: z.string().describe('지금 모습: 접속 이름 또는 erd'),
       to: z.string().describe('바꿀 모습: 접속 이름 또는 erd'),
-      kind: z.enum(['table', 'column', 'pk', 'fk', 'unique', 'index', 'sequence', 'function']).optional().describe('이 종류만 보기'),
+      kind: z.enum(['table', 'column', 'pk', 'fk', 'unique', 'check', 'index', 'sequence', 'function']).optional().describe('이 종류만 보기'),
       alter: z.boolean().optional().describe('ALTER 문도 받기'),
     }),
   }, callWith('db_compare'));

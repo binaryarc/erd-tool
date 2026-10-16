@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { IPC, type ConnRef, type ManualConn, type ShellKind } from '../shared/ipc';
+import { IPC, type ConnRef, type ManualConn, type PasswordAsk, type ShellKind } from '../shared/ipc';
 import { forgetSessionPasswords, listManual, profileSecretStore, removeManual, saveManual } from './db/manual';
 import { forgetPassword, hasSavedPassword, setPasswordAsker, setSecretStore } from './db/passwords';
 import { profileKey } from './db/connect';
@@ -21,19 +21,25 @@ import type { ConnRef as Ref, McpInfo, McpReply } from '../shared/ipc';
 
 // ---------- BE 프로필 비밀번호 (2026-10-16) ----------
 // properties 에서 자동으로 풀지 못하거나 DB 가 거부하면 화면에 묻는다 (passwords.ts). 답이 올 때까지 기다린다(사람이 입력)
-const pwWaits = new Map<number, (a: { password: string; save: boolean } | null) => void>();
+// 화면을 새로 고치면 떠 있던 비밀번호 창이 사라진다. 묻는 내용을 들고 있다가 새 화면에 다시 보낸다(안 그러면 그 접속이 끝없이 기다렸다, 2026-10-16 화면 재현)
+const pwWaits = new Map<number, { ok: (a: { password: string; save: boolean } | null) => void; ask: PasswordAsk }>();
 let pwSeq = 0;
 setSecretStore(profileSecretStore);
 setPasswordAsker(req => new Promise(ok => {
   if (!mainWin || mainWin.isDestroyed()) { ok(null); return; }
   const id = ++pwSeq;
-  pwWaits.set(id, ok);
-  mainWin.webContents.send(IPC.pwAsk, id, { label: req.label, reason: req.reason });
+  const ask = { label: req.label, reason: req.reason };
+  pwWaits.set(id, { ok, ask });
+  mainWin.webContents.send(IPC.pwAsk, id, ask);
 }));
 ipcMain.on(IPC.pwReply, (_e, id: number, answer: { password: string; save: boolean } | null) => {
-  pwWaits.get(id)?.(answer);
+  pwWaits.get(id)?.ok(answer);
   pwWaits.delete(id);
 });
+/** 새로 뜬 화면에 아직 답을 못 받은 비밀번호 창을 다시 띄운다 */
+const resendPasswordAsks = (win: BrowserWindow) => { for (const [id, w] of pwWaits) win.webContents.send(IPC.pwAsk, id, w.ask); };
+/** 창이 없어지면 기다리던 비밀번호 요청을 취소로 끝낸다 */
+const cancelPasswordAsks = () => { for (const w of pwWaits.values()) w.ok(null); pwWaits.clear(); };
 
 // ---------- AI 연결 (STEP 8) ----------
 let mainWin: BrowserWindow | null = null;
@@ -41,12 +47,24 @@ let mcpInfo: McpInfo | null = null;
 const mcpWaits = new Map<number, { ok: (t: string) => void; bad: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 let mcpSeq = 0;
 
-/** ERD 도구 호출을 화면에 맡기고 답을 기다린다 (15초) */
+/** 화면 안에서 끝나는 도구는 15초, DB 를 읽는 도구는 비밀번호 입력과 느린 DB 를 기다려 5분 (15초로는 비밀번호 창이 뜬 채 시간 초과가 났다, 2026-10-16 화면 재현) */
+const DB_TOOLS = new Set(['db_compare', 'erd_export']);
+const toolTimeout = (tool: string) => (DB_TOOLS.has(tool) ? 300_000 : 15_000);
+
+/** 화면에 기다리는 비밀번호 창이 있으면 그 접속 이름 (시간 초과 안내용) */
+const waitingPasswords = () => [...pwWaits.values()].map(w => w.ask.label);
+
+/** ERD 도구 호출을 화면에 맡기고 답을 기다린다 */
 function askRenderer(tool: string, args: Record<string, unknown>): Promise<string> {
   return new Promise((ok, bad) => {
     if (!mainWin || mainWin.isDestroyed()) { bad(new Error('ERD 도구 창이 없다')); return; }
     const id = ++mcpSeq;
-    const timer = setTimeout(() => { mcpWaits.delete(id); bad(new Error('ERD 도구 화면이 15초 안에 답하지 않았다')); }, 15_000);
+    const ms = toolTimeout(tool);
+    const timer = setTimeout(() => {
+      mcpWaits.delete(id);
+      const pw = waitingPasswords();
+      bad(new Error(`ERD 도구 화면이 ${ms / 1000}초 안에 답하지 않았다${pw.length ? `. 비밀번호 입력을 기다리는 접속이 있다: ${pw.join(', ')}. 사람에게 ERD 도구 창에서 입력해 달라고 한 뒤 다시 부르세요` : ''}`));
+    }, ms);
     mcpWaits.set(id, { ok, bad, timer });
     mainWin.webContents.send(IPC.mcpCall, id, tool, args);
   });
@@ -178,6 +196,13 @@ function createWindow() {
   });
   registerIpc(win);
   mainWin = win;
+  // 화면을 (새로) 불러올 때마다: 답을 못 받은 비밀번호 창은 다시 띄우고, 옛 화면에 맡긴 AI 도구 호출은 답이 오지 않으니 취소로 끝낸다
+  win.webContents.on('did-finish-load', () => {
+    resendPasswordAsks(win);
+    for (const w of mcpWaits.values()) { clearTimeout(w.timer); w.bad(new Error('ERD 도구 화면을 새로 고쳐 이 호출은 취소됐다. 다시 부르세요')); }
+    mcpWaits.clear();
+  });
+  win.on('closed', cancelPasswordAsks);
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL);
   else win.loadFile(path.join(__dirname, '../renderer/index.html'));

@@ -92,4 +92,16 @@ describe.skipIf(!!skip)('dev DB SQL 세션', () => {
     expect((await runSql('d', `select val from ${TABLE}`)).rows[0][0]).toBe('before');
     await closeSession('d');
   }, 30_000);
+
+  it('주석 줄 뒤에 쓴 COMMIT 도 버튼과 같이 처리한다 (임시 테이블)', async () => {
+    await openSession('f', dev, 'dev');
+    await runSql('f', 'create temp table erd_probe_tx (x int)');
+    await runSql('f', 'insert into erd_probe_tx values (1)');
+    const c = await runSql('f', '-- 메모\n/* 확정 */ commit');
+    expect(c.error).toBeUndefined();
+    expect([c.command, c.state.inTx, c.state.dirty]).toEqual(['COMMIT', false, false]);
+    await rollbackTx('f');
+    expect((await runSql('f', 'select count(*)::int n from erd_probe_tx')).rows[0][0]).toBe(1);
+    await closeSession('f');
+  }, 30_000);
 });

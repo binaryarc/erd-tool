@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { diffModels, narrowing } from '../../src/shared/model/diff';
 import { buildAlter } from '../../src/shared/sql/alter';
+import { updateColumn, updateTable } from '../../src/shared/model/edit';
 import { splitStatements } from '../../src/shared/sql/text';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
 
@@ -106,5 +107,60 @@ describe('ALTER 만들기', () => {
     const a = model([table('mst_user', [col('id', 'integer')])]);
     const b = model([table('mst_user', [col('id', 'integer'), col('order', 'integer')])]);
     expect(buildAlter(a, b).sql).toContain('ADD COLUMN "order" integer;');
+  });
+
+  it('화면에서 바꾼 이름은 삭제, 추가가 아니라 RENAME 이다 (거꾸로 비교하면 되돌리는 RENAME)', () => {
+    let m = updateTable(base, 'mst_wh', { name: 'mst_warehouse' });
+    m = updateColumn(m, 'mst_biz', 'biz_nm', { name: 'biz_name' });
+    const items = diffModels(base, m);
+    expect(items.map(i => `${i.kind} ${i.change} ${i.detail}`)).toEqual(['table rename mst_wh → mst_warehouse', 'column rename biz_nm → biz_name']);
+    const sql = buildAlter(base, m).sql;
+    expect(sql).toContain('ALTER TABLE mst_wh RENAME TO mst_warehouse;');
+    expect(sql).toContain('ALTER TABLE mst_biz RENAME COLUMN biz_nm TO biz_name;');
+    expect(sql).not.toMatch(/DROP|ADD/);
+    const back = buildAlter(m, base).sql;
+    expect(back).toContain('ALTER TABLE mst_warehouse RENAME TO mst_wh;');
+    expect(back).toContain('ALTER TABLE mst_biz RENAME COLUMN biz_name TO biz_nm;');
+    // Flyway 는 여러 번 실행해도 안전하게
+    const fw = buildAlter(base, m, undefined, { flyway: true }).sql;
+    expect(fw).toContain('ALTER TABLE IF EXISTS public.mst_wh RENAME TO mst_warehouse;');
+    expect(fw).toContain("column_name = 'biz_nm') THEN ALTER TABLE public.mst_biz RENAME COLUMN biz_nm TO biz_name;");
+  });
+
+  it('이름을 바꾸고 타입도 바꾸면 RENAME 뒤에 새 이름으로 ALTER', () => {
+    const m = updateColumn(base, 'mst_biz', 'biz_nm', { name: 'biz_name', type: 'varchar(200)' });
+    const stmts = splitStatements(buildAlter(base, m).sql).map(s => s.text.replace(/^(--[^\n]*\n|\s)*/, ''));
+    expect(stmts).toEqual(['ALTER TABLE mst_biz RENAME COLUMN biz_nm TO biz_name', 'ALTER TABLE mst_biz ALTER COLUMN biz_name TYPE varchar(200) USING biz_name::varchar(200)']);
+  });
+
+  it('이름을 원래대로 되돌리면 기록이 지워져 차이가 없다', () => {
+    const m = updateColumn(updateColumn(base, 'mst_biz', 'biz_nm', { name: 'x' }), 'mst_biz', 'x', { name: 'biz_nm' });
+    expect(diffModels(base, m)).toEqual([]);
+  });
+
+  it('CHECK 제약 추가, 삭제와 identity, 생성 컬럼의 DDL', () => {
+    const a = model([table('t', [col('id', 'integer', { notNull: true }), col('qty', 'integer')], { pk: ['id'] })]);
+    const b = model([table('t', [col('id', 'integer', { notNull: true, identity: 'always' }), col('qty', 'integer'), col('qty2', 'integer', { generated: 'qty * 2' })],
+      { pk: ['id'], checks: [{ name: 'ck_qty', definition: 'CHECK ((qty >= 0))' }] })]);
+    const sql = buildAlter(a, b).sql;
+    expect(sql).toContain('ALTER TABLE t ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY;');
+    expect(sql).toContain('ALTER TABLE t ADD COLUMN qty2 integer GENERATED ALWAYS AS (qty * 2) STORED;');
+    expect(sql).toContain('ALTER TABLE t ADD CONSTRAINT ck_qty CHECK ((qty >= 0));');
+    expect(sql).not.toContain('DEFAULT (qty * 2)');
+    const back = buildAlter(b, a).sql;
+    expect(back).toContain('ALTER TABLE t DROP CONSTRAINT ck_qty;');
+    expect(back).toContain('ALTER TABLE t ALTER COLUMN id DROP IDENTITY IF EXISTS;');
+    // 새 테이블은 CREATE 안에 IDENTITY, 생성식이 들어간다
+    const create = buildAlter(model([]), b).sql;
+    expect(create).toContain('  id integer NOT NULL GENERATED ALWAYS AS IDENTITY,');
+    expect(create).toContain('  qty2 integer GENERATED ALWAYS AS (qty * 2) STORED');
+  });
+
+  it('컬럼 이름 바꾸기와 삭제는 CHECK 식도 따라간다', () => {
+    const a = model([table('t', [col('qty', 'integer'), col('qty2', 'integer', { generated: 'qty * 2' })], { checks: [{ name: 'ck_qty', definition: 'CHECK ((qty >= 0))' }] })]);
+    const r = updateColumn(a, 't', 'qty', { name: 'amount' });
+    expect(r.tables[0].checks).toEqual([{ name: 'ck_qty', definition: 'CHECK ((amount >= 0))' }]);
+    expect(r.tables[0].columns[1].generated).toBe('amount * 2');
+    expect(diffModels(a, r).map(i => i.change)).toEqual(['rename']); // CHECK, 생성식은 PostgreSQL 이 따라 바꾸므로 따로 차이가 없다
   });
 });

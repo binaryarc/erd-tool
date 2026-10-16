@@ -3,7 +3,7 @@
 // 왼쪽을 오른쪽처럼 바꾸는 ALTER 를 만들거나 왼쪽 DB 에 적용한다(새 SQL 탭에 넣을 뿐, 바로 실행하지 않는다).
 // 바로 적용은 dev 기준이다. test, 운영은 「Flyway 파일로」 로 만든 파일로 반영한다(STEP 7). 파일만 만들고 DB 에 실행하지 않는다.
 import { computed, onMounted, ref, shallowRef } from 'vue';
-import { diffModels, summarize, type DiffItem, type DiffKind } from '../../../shared/model/diff';
+import { DIFF_CHANGE_LABEL, DIFF_KIND_LABEL, diffModels, summarize, type DiffItem, type DiffKind } from '../../../shared/model/diff';
 import { buildAlter } from '../../../shared/sql/alter';
 import { buildFlyway, suggestDescription, validDescription } from '../../../shared/export/flyway';
 import type { SchemaModel } from '../../../shared/model/types';
@@ -27,8 +27,8 @@ const dangerOnly = ref(false);
 let lastFrom: SchemaModel | null = null;
 let lastTo: SchemaModel | null = null;
 
-const KIND_LABEL: Record<DiffKind, string> = { table: '테이블', column: '컬럼', pk: 'PK', fk: 'FK', unique: 'UNIQUE', index: '인덱스', sequence: '시퀀스', function: '함수' };
-const CHANGE_LABEL = { add: '추가', drop: '삭제', alter: '변경' } as const;
+const KIND_LABEL = DIFF_KIND_LABEL;
+const CHANGE_LABEL = DIFF_CHANGE_LABEL;
 
 /** 접속 목록을 다 읽었을 때 풀린다 (탭을 열자마자 비교하는 「DB 에 적용」 버튼이 기다린다) */
 const ready = new Promise<void>(done => onMounted(async () => {
@@ -191,11 +191,11 @@ defineExpose({ ready, compare, writeFlyway, setFlyway: (p: Partial<typeof fw.val
         <p v-if="fw.result" class="ok">{{ fw.result }}</p>
         <p v-if="fw.error" class="warn">{{ fw.error }}</p>
         <table class="sum">
-          <thead><tr><th>No.</th><th>종류</th><th>추가</th><th>삭제</th><th>변경</th></tr></thead>
+          <thead><tr><th>No.</th><th>종류</th><th>추가</th><th>삭제</th><th>변경</th><th>이름 바꿈</th></tr></thead>
           <tbody>
-            <tr v-for="([k, v], i) in Object.entries(summary).filter(([, v]) => v.add + v.drop + v.alter)" :key="k"
+            <tr v-for="([k, v], i) in Object.entries(summary).filter(([, v]) => v.add + v.drop + v.alter + v.rename)" :key="k"
                 :class="{ on: filterKind === k }" @click="filterKind = filterKind === k ? '' : (k as DiffKind)">
-              <td>{{ i + 1 }}</td><td>{{ KIND_LABEL[k as DiffKind] }}</td><td>{{ v.add }}</td><td>{{ v.drop }}</td><td>{{ v.alter }}</td>
+              <td>{{ i + 1 }}</td><td>{{ KIND_LABEL[k as DiffKind] }}</td><td>{{ v.add }}</td><td>{{ v.drop }}</td><td>{{ v.alter }}</td><td>{{ v.rename }}</td>
             </tr>
           </tbody>
         </table>

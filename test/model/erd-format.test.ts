@@ -160,4 +160,29 @@ describe('UNIQUE 제약과 함수', () => {
     const t = table('t1', 'mst_a', { uniques: [{ name: 'uq_x', columns: ['nope'] }] });
     expect(validateModel(roundTrip(model([t])).parsed).map(e => e.message)).toEqual(['mst_a: UNIQUE uq_x 의 컬럼 nope 이 없다']);
   });
+
+  it('CHECK 제약, identity, 생성 컬럼을 저장하고 그대로 읽는다', () => {
+    const t = table('t1', 'mst_a', {
+      columns: [
+        { name: 'seq', type: 'integer', notNull: true, identity: 'always' },
+        { name: 'qty', type: 'integer', notNull: false, comment: '수량 #1' },
+        { name: 'qty2', type: 'integer', notNull: false, generated: "qty * 2 + length('a = b')" },
+        { name: 'no', type: 'bigint', notNull: true, identity: 'default' },
+      ],
+      checks: [{ name: 'ck_qty', definition: 'CHECK ((qty >= 0))' }],
+    });
+    const r = roundTrip(model([t]));
+    expect(r.first['mdm.erd']).toContain('  seq integer PK IDENTITY');
+    expect(r.first['mdm.erd']).toContain("  qty2 integer =GENERATED ALWAYS AS (qty * 2 + length('a = b')) STORED");
+    expect(r.first['mdm.erd']).toContain('  CK ck_qty CHECK ((qty >= 0))');
+    expect(r.parsed.errors).toEqual([]);
+    expect(r.parsed.model.tables[0].columns).toEqual(t.columns);
+    expect(r.parsed.model.tables[0].checks).toEqual(t.checks);
+    expect(r.second).toEqual(r.first);
+  });
+
+  it('이름 바꾼 기록(renamedFrom)은 파일에 남기지 않는다', () => {
+    const t = table('t1', 'mst_a', { renamedFrom: 'mst_old', columns: [{ name: 'seq', type: 'integer', notNull: true, renamedFrom: 'id' }] });
+    expect(serializeModel(model([t]))['mdm.erd']).toBe(serializeModel(model([table('t1', 'mst_a')]))['mdm.erd']);
+  });
 });

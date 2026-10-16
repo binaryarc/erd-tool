@@ -7,6 +7,7 @@ import { getProfile, passwordOf } from '../../src/main/db/profiles';
 import { reversePg } from '../../src/main/db/pg-reverse';
 import { diffModels } from '../../src/shared/model/diff';
 import { buildAlter } from '../../src/shared/sql/alter';
+import { updateColumn, updateTable } from '../../src/shared/model/edit';
 import { splitStatements } from '../../src/shared/sql/text';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
 
@@ -87,6 +88,49 @@ describe.skipIf(!!skip)('ALTER 를 dev 에 실제로 적용', () => {
       await client.query('ROLLBACK').catch(() => {});
       const left = await client.query("select count(*)::int n from pg_namespace where nspname = 'erd_tmp'");
       expect(left.rows[0].n).toBe(0); // dev 에 남은 것 없음
+      await client.end();
+    }
+  }, 60_000);
+
+  it('identity, 생성 컬럼, CHECK 를 읽고 그대로 다시 만들며, 화면에서 바꾼 이름은 데이터를 지키는 RENAME 이다 (끝에 롤백)', async () => {
+    const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
+    try {
+      await client.query('BEGIN');
+      await client.query('CREATE SCHEMA erd_tmp');
+      await client.query('SET LOCAL search_path TO erd_tmp');
+      // 2026-10-16 화면 재현에 쓴 테이블과 같은 모양
+      await client.query('create table erd_probe_chk (id integer generated always as identity primary key, qty integer check (qty >= 0), qty2 integer generated always as (qty * 2) stored)');
+      const r = await reversePg(client, { schema: 'erd_tmp' });
+      const t = r.tables[0];
+      expect(t.columns).toEqual([
+        { name: 'id', type: 'integer', notNull: true, identity: 'always' },
+        { name: 'qty', type: 'integer', notNull: false },
+        { name: 'qty2', type: 'integer', notNull: false, generated: 'qty * 2' },
+      ]);
+      expect(t.checks).toEqual([{ name: 'erd_probe_chk_qty_check', definition: 'CHECK ((qty >= 0))' }]);
+      expect(r.sequences).toEqual([]); // identity 가 만든 시퀀스는 따로 담지 않는다
+      const m = model(r.tables);
+
+      // 전체 CREATE 를 빈 스키마에 실행하고 다시 읽으면 차이 0 (전에는 생성식이 DEFAULT 로 나와 실행이 실패했다)
+      await client.query('DROP TABLE erd_probe_chk');
+      await run(client, buildAlter(empty, m).sql);
+      expect(meaningful(await read(client), m)).toEqual([]);
+
+      // 이름 바꾸기: 행을 넣고 테이블, 컬럼 이름을 바꿔 적용하면 행이 남는다 (전에는 DROP 뒤 ADD 라 값이 사라졌다)
+      await client.query('insert into erd_probe_chk (qty) values (5)');
+      let renamed = updateTable(m, 'erd_probe_chk', { name: 'erd_probe_renamed' });
+      renamed = updateColumn(renamed, 'erd_probe_renamed', 'qty', { name: 'amount' });
+      await run(client, buildAlter(m, renamed).sql);
+      expect(meaningful(await read(client), renamed)).toEqual([]);
+      expect((await client.query('select amount, qty2 from erd_probe_renamed')).rows).toEqual([{ amount: 5, qty2: 10 }]);
+      // CHECK 는 새 이름으로 계속 막는다
+      await client.query('SAVEPOINT ck');
+      await expect(client.query('insert into erd_probe_renamed (amount) values (-1)')).rejects.toThrow(/check constraint/);
+      await client.query('ROLLBACK TO SAVEPOINT ck');
+    } finally {
+      await client.query('ROLLBACK').catch(() => {});
+      const left = await client.query("select count(*)::int n from pg_namespace where nspname = 'erd_tmp'");
+      expect(left.rows[0].n).toBe(0);
       await client.end();
     }
   }, 60_000);

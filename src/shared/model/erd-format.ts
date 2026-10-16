@@ -57,15 +57,24 @@ function tableLines(t: Table, common: Column[]): string[] {
       .map(u => `  UQ ${u.name} (${u.columns.join(', ')})`),
     ...[...t.indexes].sort((a, b) => cmp(a.name, b.name))
       .map(i => `  IX ${i.name} (${i.columns.join(', ')})${i.unique ? ' UNIQUE' : ''}`),
+    ...[...(t.checks ?? [])].sort((a, b) => cmp(a.name, b.name)).map(c => `  CK ${c.name} ${c.definition}`),
   ];
 }
 
+const IDENTITY_WORD = { always: 'IDENTITY', default: 'IDENTITY_BD' } as const;
+const GENERATED_RE = /^GENERATED ALWAYS AS \((.*)\) STORED$/;
+
+/** 기본값 자리: 생성 컬럼은 생성식을 DDL 모양 그대로 둔다 */
+const defaultText = (c: Column) => (c.generated !== undefined ? `GENERATED ALWAYS AS (${c.generated}) STORED` : c.default);
+
 export function columnText(c: Column, pk: boolean): string {
+  const d = defaultText(c);
   return [
     c.name, c.type,
     pk ? 'PK' : '',
     c.notNull && !pk ? 'NN' : '',
-    c.default !== undefined ? '=' + c.default : '',
+    c.identity ? IDENTITY_WORD[c.identity] : '',
+    d !== undefined ? '=' + d : '',
     c.comment ? '#' + esc(c.comment) : '',
   ].filter(Boolean).join(' ');
 }
@@ -79,7 +88,8 @@ export function endsWithCommon(cols: Column[], common: Column[]): boolean {
 
 export function sameColumn(a: Column, b: Column): boolean {
   return a.name === b.name && a.type === b.type && a.notNull === b.notNull
-    && a.default === b.default && (a.comment ?? '') === (b.comment ?? '');
+    && a.default === b.default && (a.comment ?? '') === (b.comment ?? '')
+    && a.identity === b.identity && a.generated === b.generated;
 }
 
 export function groupOf(table: string, groups: GroupRule[]): string {
@@ -156,6 +166,10 @@ export function parseModel(files: Record<string, string>): ParseResult {
         const m = body.match(/^IX (\S+) \((.+)\)( UNIQUE)?$/);
         if (!m) return err(`IX 줄 형식이 아니다: ${body}`);
         cur.indexes.push({ name: m[1], columns: splitList(m[2]), unique: !!m[3] });
+      } else if (body.startsWith('CK ')) {
+        const m = body.match(/^CK (\S+) (.+)$/);
+        if (!m) return err(`CK 줄 형식이 아니다: ${body}`);
+        (cur.checks ??= []).push({ name: m[1], definition: m[2] });
       } else {
         const c = parseColumn(body, err);
         if (!c) return;
@@ -229,12 +243,20 @@ export function parseColumn(body: string, err: (m: string) => void): { column: C
   if (words.length < 2) { err(`컬럼 줄 형식이 아니다: ${body}`); return undefined; }
   const name = words[0];
   let pk = false, notNull = false, k = words.length;
-  while (k > 2 && (words[k - 1] === 'PK' || words[k - 1] === 'NN')) {
-    if (words[k - 1] === 'PK') pk = true; else notNull = true;
+  let identity: Column['identity'];
+  const MARKS = new Set(['PK', 'NN', IDENTITY_WORD.always, IDENTITY_WORD.default]);
+  while (k > 2 && MARKS.has(words[k - 1])) {
+    const w = words[k - 1];
+    if (w === 'PK') pk = true;
+    else if (w === 'NN') notNull = true;
+    else identity = w === IDENTITY_WORD.always ? 'always' : 'default';
     k--;
   }
-  const column: Column = { name, type: words.slice(1, k).join(' '), notNull: notNull || pk };
-  if (dflt !== undefined) column.default = dflt;
+  const column: Column = { name, type: words.slice(1, k).join(' '), notNull: notNull || pk || !!identity };
+  if (identity) column.identity = identity;
+  const gen = dflt?.match(GENERATED_RE);
+  if (gen) column.generated = gen[1];
+  else if (dflt !== undefined) column.default = dflt;
   if (comment) column.comment = comment;
   return { column, pk };
 }

@@ -8,6 +8,18 @@ export interface Column {
   notNull: boolean;
   default?: string;
   comment?: string;
+  /** GENERATED ALWAYS(always) 또는 BY DEFAULT(default) AS IDENTITY. 시퀀스는 DB 가 따로 만든다 */
+  identity?: 'always' | 'default';
+  /** GENERATED ALWAYS AS (식) STORED 의 식. 있으면 default 는 없다 */
+  generated?: string;
+  /** 화면에서 이름을 바꾸기 전 이름. 파일에는 저장하지 않는다(메모리 전용). 차이 계산이 DROP, ADD 대신 RENAME 을 만들 때 쓴다 */
+  renamedFrom?: string;
+}
+
+/** CHECK 제약. definition 은 pg_get_constraintdef 모양 그대로 (예: CHECK ((qty >= 0))) */
+export interface Check {
+  name: string;
+  definition: string;
 }
 
 export interface ForeignKey {
@@ -51,6 +63,10 @@ export interface Table {
   fks: ForeignKey[];
   uniques: Unique[];
   indexes: Index[];
+  /** CHECK 제약 (없으면 생략 가능) */
+  checks?: Check[];
+  /** 화면에서 이름을 바꾸기 전 이름 (메모리 전용, Column.renamedFrom 과 같다) */
+  renamedFrom?: string;
 }
 
 export interface GroupRule {
