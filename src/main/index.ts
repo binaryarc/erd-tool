@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { IPC, type ConnRef, type ManualConn, type ShellKind } from '../shared/ipc';
 import { forgetSessionPasswords, listManual, profileSecretStore, removeManual, saveManual } from './db/manual';
@@ -84,6 +85,17 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.pickFolder, async (_e, defaultPath?: string) => {
     const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
+  });
+  // 「ERD 저장」 폴더 (2026-10-16 사용자 지정): 처음 위치는 DB 접속에 쓰는 BE 폴더의 docs/erd, 없으면 사용자 홈
+  ipcMain.handle(IPC.modelPickSaveDir, async () => {
+    const be = getSettings().beDir;
+    const erdDir = be ? path.join(be, 'docs', 'erd') : '';
+    const defaultPath = erdDir && fs.existsSync(erdDir) ? erdDir : os.homedir();
+    const r = await dialog.showOpenDialog(win, { title: 'ERD 모델을 저장할 폴더', defaultPath, properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const dir = r.filePaths[0];
+    const hasModel = fs.existsSync(dir) && fs.readdirSync(dir).some(f => f.endsWith('.erd'));
+    return { dir, hasModel };
   });
   ipcMain.handle(IPC.pickFile, async (_e, defaultPath?: string) => {
     const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md'] }] });
@@ -201,6 +213,13 @@ function createWindow() {
         //   ERD_AUTO=sql  SQL 탭, 터미널 탭 시험. ERD_SHOT 을 주면 두 탭 화면을 남긴다
         //   ERD_AUTO=step5  DB 비교, ERD 차이 적용(전체 실행 후 롤백). ERD_SHOT 을 주면 비교 탭과 적용 탭 화면을 남긴다
         //   ERD_AUTO=step6  ERD 수정 → dev 적용(커밋) → 다시 읽어 차이 0 → 되돌리기로 시험 테이블 지움. ERD_SHOT 을 주면 편집 화면을 남긴다
+        //   ERD_AUTO=suggest  SQL 탭 자동완성 목록의 항목 글자와 색을 재고, ERD_SHOT 이면 화면을 남긴다
+        if (auto === 'suggest') {
+          const shot = process.env.ERD_SHOT;
+          if (shot) fs.writeFileSync(`${shot}-suggest.png`, (await win.webContents.capturePage()).toPNG());
+          app.quit();
+          return;
+        }
         //   ERD_AUTO=mcp  모델을 열고 ERD_MEASURE 밀리초(기본 60초) 기다린다. 그동안 밖에서 MCP 도구를 직접 불러 본다
         //   ERD_AUTO=password  비밀번호 창(자동 실패, 틀림, 취소). 끝에 비밀번호 저장소(Windows 계정 암호화)에 시험 값을 넣고 읽고 지운다
         if (auto === 'password') {
