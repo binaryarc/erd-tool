@@ -11,7 +11,7 @@ import TableEditor from './components/TableEditor.vue';
 import ExportTab from './components/ExportTab.vue';
 import DiagramTabs from './components/DiagramTabs.vue';
 import TablePickDialog from './components/TablePickDialog.vue';
-import { EditHistory, addColumn, addFk, addTable, dropTable, updateTable } from '../../shared/model/edit';
+import { addColumn, addFk, addTable, dropTable, updateTable } from '../../shared/model/edit';
 import { TabError, addMembers, createTab, deleteTab, forgetIds, groupTabs, groupView, newTabName, prefixTabs, pruneMembers, removeMembers, renameTab } from '../../shared/model/group-tabs';
 import { buildCreateAll } from '../../shared/sql/create';
 import { diffModels } from '../../shared/model/diff';
@@ -19,7 +19,7 @@ import { buildJoinSelect } from '../../shared/sql/join';
 import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
 import { arrangeMode, emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
 import type { ModelError, SchemaModel } from '../../shared/model/types';
-import type { ConnRef, ManualConn, ReverseResult, ShellKind } from '../../shared/ipc';
+import type { ConnRef, ManualConn, ReverseResult, SessionData, SessionTab, ShellKind } from '../../shared/ipc';
 import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
 import { neighborhood } from '../../shared/model/tree';
 import { applyCommands } from '../../shared/ai/commands';
@@ -29,6 +29,7 @@ import { buildAlter } from '../../shared/sql/alter';
 import { buildSchemaDocs } from '../../shared/export/md';
 import { buildFlyway, suggestDescription } from '../../shared/export/flyway';
 import { loadConnOptions } from './conn-options';
+import { docField, docTitle, newDoc, sameDir, type ErdDoc, type Pins } from './erd-doc';
 
 const view = reactive<ViewState>({
   nameMode: loadPref('nameMode', 'both', ['physical', 'logical', 'both'] as const),
@@ -40,25 +41,29 @@ watch(() => view.nameMode, v => savePref('nameMode', v));
 watch(() => view.edgeKind, v => savePref('edgeKind', v));
 provide(VIEW_KEY, view);
 
-const modelDir = ref('');
-const model = shallowRef<SchemaModel | null>(null);
-const layout = shallowRef<Layout>(emptyLayout());
-const diagram = shallowRef<Diagram | null>(null);
-const version = ref(0);
-const errors = ref<ModelError[]>([]);
+// ---------- ERD 탭 (STEP 10 결정 20) ----------
+// 위 탭줄에 ERD 탭을 여러 개 연다. 탭마다 화면 상태(erd-doc.ts)가 따로고, 아래 값들은 지금 ERD 탭(cur)의 값을 가리킨다.
+// SQL, 비교 탭을 보고 있을 때 cur 는 마지막으로 본 ERD 탭이다 (머리 버튼, 비교, 내보내기, SQL 자동완성이 그 모델을 쓴다).
+const docs = new Map<string, ErdDoc>([['erd', newDoc('erd')]]);
+const cur = shallowRef<ErdDoc>(docs.get('erd')!);
+const modelDir = docField(cur, 'modelDir');
+const model = docField(cur, 'model');
+const layout = docField(cur, 'layout');
+const diagram = docField(cur, 'diagram');
+const version = docField(cur, 'version');
+const errors = docField(cur, 'errors');
+const dirty = docField(cur, 'dirty');
+/** 본 ERD 를 전체 보기로 맞추는 때: 모델을 불러올 때만 (고칠 때마다 화면이 튀지 않게) */
+const fitKey = docField(cur, 'fitKey');
 const message = ref('');
-const dirty = ref(false);
+const NL = '\n';
 const panel = ref<InstanceType<typeof ConnPanel>>();
 const canvas = ref<InstanceType<typeof ErdCanvas>>();
-/** 본 ERD 를 전체 보기로 맞추는 때: 모델을 불러올 때만 (고칠 때마다 화면이 튀지 않게) */
-const fitKey = ref(0);
-
-window.erd.settings.get().then(s => { if (s.modelDir) modelDir.value = s.modelDir; });
 
 // ---------- 그룹 탭 (STEP 10) ----------
 // 보이는 다이어그램 이름. 「전체」 는 모델 전체, 그룹 탭은 소속 테이블만 거른 모델을 캔버스에 넘긴다.
 // 수정 명령은 항상 전체 모델에 적용하고, 그룹 탭 화면은 그 결과를 다시 거른다.
-const tab = ref(DEFAULT_DIAGRAM);
+const tab = docField(cur, 'tab');
 const tabNames = computed(() => { void version.value; return groupTabs(layout.value); });
 const membersOf = (name: string) => layout.value.diagrams[name]?.members;
 /** 캔버스에 넘길 모델과 그리지 않은 FK (그룹 탭일 때) */
@@ -88,19 +93,26 @@ function show(m: SchemaModel, l: Layout) {
   history.clear();
   syncHistory();
   aiBase.value = null;
-  aiSteps.length = 0;
+  aiStepsOf().length = 0;
 }
 
 // ---------- ERD 수정 (STEP 6) ----------
 // 수정 명령(shared/model/edit.ts)은 새 모델을 돌려준다. 되돌리기는 수정 직전 모델을 기록해 두고 바꿔 끼운다.
 // 끌어 옮긴 위치(layout)는 되돌리기 대상이 아니다. 지운 테이블을 되살리면 위치는 그룹 규칙대로 다시 놓인다.
-const history = new EditHistory();
-const canUndo = ref(false);
-const canRedo = ref(false);
+const history = {
+  push: (m: SchemaModel) => cur.value.history.push(m),
+  undo: (m: SchemaModel) => cur.value.history.undo(m),
+  redo: (m: SchemaModel) => cur.value.history.redo(m),
+  clear: () => cur.value.history.clear(),
+  get canUndo() { return cur.value.history.canUndo; },
+  get canRedo() { return cur.value.history.canRedo; },
+};
+const canUndo = docField(cur, 'canUndo');
+const canRedo = docField(cur, 'canRedo');
 function syncHistory() { canUndo.value = history.canUndo; canRedo.value = history.canRedo; }
 
 /** 편집 패널에 띄운 테이블 ID. 이름이 아니라 ID 로 들고 있어야 이름을 바꾸거나 되돌려도 패널이 따라간다 */
-const editId = ref('');
+const editId = docField(cur, 'editId');
 const editName = computed(() => model.value?.tables.find(t => t.id === editId.value)?.name ?? '');
 
 function setModel(m: SchemaModel) {
@@ -145,7 +157,7 @@ function openEditor(name: string) {
 
 /** Enter 로 컬럼을 더할 테이블 ID: 마지막으로 하나만 고른 테이블이나 편집 패널에 연 테이블 중 나중 것 (STEP 10).
  *  새 테이블을 만든 직후 캔버스에 다른 테이블이 골라져 있어도 새 테이블로 간다 */
-const pickId = ref('');
+const pickId = docField(cur, 'pickId');
 function onSelect(names: string[]) {
   selected.value = names;
   pickId.value = names.length === 1 ? (model.value?.tables.find(t => t.name === names[0])?.id ?? '') : names.length ? '' : editId.value;
@@ -193,10 +205,9 @@ async function applyToDb() {
 // ---------- AI(MCP) 도구 처리 (STEP 8, 설계 10장) ----------
 // 메인의 MCP 서버가 ERD 도구 호출을 여기로 넘긴다. 모델과 확정 대기 상태가 화면에 있기 때문이다.
 // AI 가 바꾼 것은 첫 변경 직전 모습(aiBase)과 비교해 주황 테두리로 강조하고, 사람이 「확정」하기 전까지 저장을 막는다.
-type Pins = Record<string, [number, number]>;
-interface AiStep { before: SchemaModel; beforePinned: Pins; after: SchemaModel }
-const aiBase = shallowRef<{ model: SchemaModel; pinned: Pins } | null>(null);
-const aiSteps: AiStep[] = [];
+const aiBase = docField(cur, 'aiBase');
+/** 지금 ERD 탭의 AI 변경 단계 (배열을 그 자리에서 고친다) */
+const aiStepsOf = () => cur.value.aiSteps;
 const pinsNow = (): Pins => ({ ...(diagram.value?.pinned ?? {}) });
 
 /** 확정 대기 중인 테이블 ID: 기준과 구조가 다르거나 고정 좌표가 다른 테이블 */
@@ -254,7 +265,7 @@ async function aiApply(lines: string[]): Promise<string> {
     throw e;
   }
   if (!aiBase.value) aiBase.value = { model: before, pinned: beforePinned };
-  aiSteps.push({ before, beforePinned, after: model.value! });
+  aiStepsOf().push({ before, beforePinned, after: model.value! });
   version.value++;
   message.value = 'AI 가 고침 (확정 대기)';
   return [
@@ -266,21 +277,21 @@ async function aiApply(lines: string[]): Promise<string> {
 }
 
 function aiUndo(): string {
-  const step = aiSteps.at(-1);
+  const step = aiStepsOf().at(-1);
   if (!step) throw new Error('되돌릴 AI 변경이 없다 (사람이 확정했거나 아직 고치지 않았다)');
   if (model.value !== step.after) throw new Error('그 뒤에 사람이 ERD 를 고쳐서 AI 변경만 되돌릴 수 없다');
-  aiSteps.pop();
+  aiStepsOf().pop();
   history.push(model.value);
   setModel(step.before);
   setPins(step.beforePinned);
-  if (!aiSteps.length) aiBase.value = null;
-  return `마지막 erd_apply 를 되돌렸다. 남은 확정 대기 변경: ${aiSteps.length}번`;
+  if (!aiStepsOf().length) aiBase.value = null;
+  return `마지막 erd_apply 를 되돌렸다. 남은 확정 대기 변경: ${aiStepsOf().length}번`;
 }
 
 /** 사람의 「확정」: 강조만 푼다 (저장은 「저장」 버튼으로) */
 function aiConfirm() {
   aiBase.value = null;
-  aiSteps.length = 0;
+  aiStepsOf().length = 0;
   version.value++;
   message.value = 'AI 변경을 확정함 (저장 전)';
 }
@@ -292,7 +303,7 @@ function aiCancel() {
   setModel(base.model);
   setPins(base.pinned);
   aiBase.value = null;
-  aiSteps.length = 0;
+  aiStepsOf().length = 0;
   message.value = 'AI 변경을 취소함';
 }
 
@@ -372,17 +383,19 @@ function discardOk(what: string): boolean {
   if (!dirty.value && !aiBase.value) return true;
   return confirm(`저장하지 않은 ERD 변경이 있다${aiBase.value ? ' (확정 대기 중인 AI 변경 포함)' : ''}.\n${what} 이 변경은 사라진다. 계속할까요?`);
 }
-// 창 닫기 확인은 메인이 하므로 상태를 알려 둔다
-watch([dirty, aiBase], () => window.erd.setModelDirty(dirty.value || !!aiBase.value), { immediate: true });
 // X 버튼이 아닌 길(window.close(), 새로 고침)로 화면이 내려가려 하면 막는다. 막으면 메인이 창으로 묻는다(will-prevent-unload).
-// X 버튼은 메인이 먼저 묻고 확인하면 여기서 막아도 메인이 통과시킨다
+// X 버튼은 메인이 먼저 묻고 확인하면 여기서 막아도 메인이 통과시킨다.
+// 저장 안 한 ERD 변경은 마지막 화면(session.json)에 2초마다 담기므로 막지 않는다 (STEP 10 결정 22)
 window.addEventListener('beforeunload', e => {
-  if (dirty.value || aiBase.value || tabs.value.some(t => t.dirty)) e.returnValue = false;
+  if (tabs.value.some(t => t.dirty)) e.returnValue = false;
 });
 
 async function openModel(dir?: string) {
   const d = dir ?? await window.erd.pickFolder(modelDir.value || undefined);
   if (!d) return;
+  // 다른 ERD 탭에 이미 열린 폴더면 그 탭으로 간다 (한 폴더를 두 탭에서 고치면 저장할 때 서로 덮어쓴다)
+  const other = [...docs.values()].find(x => x !== cur.value && sameDir(x.modelDir.value, d) && x.model.value);
+  if (other) { activeTab.value = other.id; message.value = `이미 ${titleOf(other.id)} 탭에 열려 있어 그 탭으로 옮김`; return; }
   if (!discardOk('다른 ERD 를 열면')) return;
   await setModelDir(d);
   const r = await window.erd.model.load(d);
@@ -409,7 +422,9 @@ async function save() {
   if (aiBase.value) { message.value = '확정 대기 중인 AI 변경을 확정하거나 취소한 뒤 저장한다'; return; }
   const picked = await window.erd.model.pickSaveDir();
   if (!picked) return;
-  const same = picked.dir.replace(/\\/g, '/').toLowerCase() === modelDir.value.replace(/\\/g, '/').toLowerCase();
+  const other = [...docs.values()].find(x => x !== cur.value && sameDir(x.modelDir.value, picked.dir));
+  if (other) { message.value = `그 폴더는 ${titleOf(other.id)} 탭에 열려 있어 저장하지 않았다`; return; }
+  const same = sameDir(picked.dir, modelDir.value);
   if (picked.hasModel && !same && !confirm(`${picked.dir}\n이 폴더에 다른 ERD 모델 파일(.erd)이 있다. 이 모델로 덮어쓰고, 이 모델에 없는 그룹 파일은 지운다. 계속할까요?`)) return;
   await setModelDir(picked.dir);
   return saveTo(picked.dir);
@@ -553,7 +568,7 @@ function onPick(names: string[]) {
 }
 
 // 미니 ERD: 더블클릭한 테이블과 FK 로 바로 이어진 테이블만, 항상 트리로
-const miniName = ref('');
+const miniName = docField(cur, 'miniName');
 const miniModel = computed(() => (model.value && miniName.value ? neighborhood(model.value, miniName.value) : null));
 const miniDiagram: Diagram = { mode: 'tree', groups: {}, pinned: {} };
 const mini = ref<InstanceType<typeof ErdCanvas>>();
@@ -564,6 +579,29 @@ const editor = ref<InstanceType<typeof TableEditor>>();
 interface Tab { id: string; kind: 'erd' | 'sql' | 'compare' | 'export'; title: string; dirty: boolean; initialSql?: string; initialConn?: string }
 const tabs = ref<Tab[]>([{ id: 'erd', kind: 'erd', title: 'ERD', dirty: false }]);
 const activeTab = ref('erd');
+const isErd = (id: string) => docs.has(id);
+/** ERD 탭 제목: 모델 폴더(BE 레포 이름), 없으면 ERD n */
+const titleOf = (id: string) => docTitle(docs.get(id)!, tabs.value.find(t => t.id === id)?.title ?? 'ERD');
+let erdSeq = 1;
+
+// ERD 탭을 고르면 그 탭의 상태로 바꾼다. 떠나는 탭의 화면 위치를 남겨 돌아오면 그 자리로 연다 (캔버스는 탭마다 새로 만든다)
+watch(activeTab, id => {
+  const d = docs.get(id);
+  if (!d || d === cur.value) return;
+  if (canvas.value) cur.value.viewport = canvas.value.viewportNow();
+  cur.value = d;
+  selected.value = [];
+});
+
+/** 새 ERD 탭 (빈 상태. ERD 폴더 열기나 DB 에서 불러오기로 채운다) */
+function addErd(): string {
+  const id = `erd-${++erdSeq}`;
+  docs.set(id, newDoc(id));
+  const at = tabs.value.map(t => t.kind).lastIndexOf('erd') + 1;
+  tabs.value.splice(at, 0, { id, kind: 'erd', title: `ERD ${erdSeq}`, dirty: false });
+  activeTab.value = id;
+  return id;
+}
 const selected = ref<string[]>([]);
 const tabRefs = new Map<string, unknown>();
 const setTabRef = (id: string, el: unknown) => { if (el) tabRefs.set(id, el); else tabRefs.delete(id); };
@@ -605,7 +643,7 @@ window.addEventListener('keydown', e => {
   const el = e.target as HTMLElement;
   if (e.key === 'Escape' && menu.value) { menu.value = null; return; }
   if (e.key === 'Escape' && dlg.value) { answerDlg(''); return; }
-  if (activeTab.value !== 'erd' || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value) return;
+  if (!isErd(activeTab.value) || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value) return;
   // Delete: 고른 테이블을 모델에서 지운다 (확인 창). 입력 칸 안의 Delete 는 그대로 둔다 (STEP 10)
   if (e.key === 'Delete' && !el.closest('input, textarea, select, [contenteditable]')) {
     if (selected.value.length) { e.preventDefault(); void deleteTables([...selected.value]); }
@@ -649,6 +687,18 @@ const ask = (labels: string[]) => new Promise<'commit' | 'rollback' | 'cancel'>(
 function answerClose(a: 'commit' | 'rollback' | 'cancel') { closeAsk.value?.resolve(a); closeAsk.value = null; }
 
 async function closeTab(t: Tab) {
+  if (t.kind === 'erd') {
+    const d = docs.get(t.id)!;
+    if (tabs.value.filter(x => x.kind === 'erd').length < 2) return; // ERD 탭은 하나는 남긴다
+    if ((d.dirty.value || d.aiBase.value) && await askDlg(`${titleOf(t.id)} 탭에 저장하지 않은 ERD 변경이 있다${d.aiBase.value ? ' (확정 대기 중인 AI 변경 포함)' : ''}.` + NL + '탭을 닫으면 이 변경은 사라진다.',
+      [{ label: '닫기', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
+    if (cur.value === d) { // 닫는 탭이 지금 ERD 탭이면 다른 ERD 탭을 먼저 지금 탭으로
+      const next = tabs.value.filter(x => x.kind === 'erd' && x.id !== t.id).at(-1)!;
+      cur.value = docs.get(next.id)!;
+      if (activeTab.value === t.id) activeTab.value = next.id;
+    }
+    docs.delete(t.id);
+  }
   if (t.kind === 'sql') {
     if (t.dirty) {
       const a = await ask([t.title]);
@@ -661,13 +711,110 @@ async function closeTab(t: Tab) {
   if (activeTab.value === t.id) activeTab.value = tabs.value[tabs.value.length - 1].id;
 }
 
-window.erd.onCloseRequest(async (dirty, modelDirty) => {
-  if (modelDirty && !discardOk('창을 닫으면')) { window.erd.confirmClose(false); return; }
+window.erd.onCloseRequest(async dirty => {
+  await saveSession(); // 저장 안 한 ERD 변경은 마지막 화면에 담아 다시 켜면 돌아온다 (묻지 않는다)
   if (!dirty.length) { window.erd.confirmClose(true); return; }
   const a = await ask(dirty.map(d => tabs.value.find(t => t.id === d.tabId)?.title ?? d.label));
   if (a !== 'cancel') for (const d of dirty) await window.erd.sql[a](d.tabId);
   window.erd.confirmClose(a !== 'cancel');
 });
+
+// ---------- 마지막 화면 (STEP 10 결정 22) ----------
+// ERD 탭(저장 안 한 변경, 보던 그룹 탭, 화면 위치), SQL 탭 글자와 접속, 위 탭 순서와 보던 탭을 session.json 에 담는다.
+// 2초마다 바뀐 것이 있으면 쓰고, 창을 닫을 때 한 번 더 쓴다. 비교, 내보내기 탭과 터미널은 담지 않는다.
+let restoring = true; // 되살리는 중에는 쓰지 않는다 (반쯤 연 화면으로 덮어쓰지 않게)
+let lastSession = '';
+const modelJson = new WeakMap<object, string>(); // 같은 모델은 다시 글자로 바꾸지 않는다
+
+function sessionNow(): SessionData {
+  const out: SessionTab[] = [];
+  for (const t of tabs.value) {
+    const d = docs.get(t.id);
+    if (d) {
+      const viewport = d === cur.value && canvas.value ? canvas.value.viewportNow() : d.viewport;
+      const m = d.model.value;
+      // 확정 대기 중인 AI 변경도 저장 안 한 변경으로 담는다 (다시 켜면 강조 없이 바뀐 모델로 열린다)
+      const unsaved = m && (d.dirty.value || d.aiBase.value) ? { model: m, layout: d.layout.value } : undefined;
+      out.push({ kind: 'erd', id: t.id, modelDir: d.modelDir.value, diagram: d.tab.value, ...(viewport ? { viewport } : {}), ...(unsaved ? { unsaved } : {}) });
+    } else if (t.kind === 'sql') {
+      const tab = tabRefs.get(t.id) as InstanceType<typeof SqlTab> | undefined;
+      const conn = tab?.connKey() || t.initialConn;
+      out.push({ kind: 'sql', id: t.id, title: t.title, sql: tab?.text() ?? t.initialSql ?? '', ...(conn ? { conn } : {}) });
+    }
+  }
+  const active = tabs.value.some(t => t.id === activeTab.value && (isErd(t.id) || t.kind === 'sql')) ? activeTab.value : cur.value.id;
+  return { version: 1, active, tabs: out };
+}
+
+/** 바뀐 것이 있을 때만 쓴다 */
+async function saveSession() {
+  if (restoring) return;
+  const data = sessionNow();
+  const key = JSON.stringify(data, (k, v) => {
+    if (k === 'model' && v && typeof v === 'object') {
+      let j = modelJson.get(v);
+      if (!j) { j = JSON.stringify(v); modelJson.set(v, j); }
+      return j; // 모델은 고칠 때마다 새 객체라 객체마다 한 번만 글자로 바꾼다
+    }
+    return v;
+  });
+  if (key === lastSession) return;
+  lastSession = key;
+  try { await window.erd.session.set(JSON.parse(JSON.stringify(data))); }
+  catch (e) { message.value = `마지막 화면을 저장하지 못함: ${cleanError(e)}`; }
+}
+setInterval(() => void saveSession(), 2000);
+
+/** 시작할 때: 마지막 화면이 있으면 그대로 연다. 없으면 설정의 모델 폴더만 고른 상태로 시작한다 (예전과 같다) */
+async function restoreSession() {
+  try {
+    const s = await window.erd.session.get();
+    if (!s?.tabs.length) {
+      const st = await window.erd.settings.get();
+      if (st.modelDir) modelDir.value = st.modelDir;
+      return;
+    }
+    const kept: Tab[] = [];
+    const notes: string[] = [];
+    for (const t of s.tabs) {
+      if (t.kind === 'erd') {
+        const d = t.id === 'erd' ? docs.get('erd')! : newDoc(t.id);
+        docs.set(t.id, d);
+        const n = Number(/^erd-(\d+)$/.exec(t.id)?.[1] ?? 1);
+        erdSeq = Math.max(erdSeq, n);
+        kept.push({ id: t.id, kind: 'erd', title: n > 1 ? `ERD ${n}` : 'ERD', dirty: false });
+        d.modelDir.value = t.modelDir;
+        if (t.viewport) d.viewport = t.viewport;
+        cur.value = d;
+        if (t.unsaved) {
+          show(t.unsaved.model, t.unsaved.layout);
+          dirty.value = true;
+        } else if (t.modelDir) {
+          try {
+            const r = await window.erd.model.load(t.modelDir);
+            errors.value = r.errors;
+            show(r.model, r.layout);
+          } catch (e) { notes.push(`${docTitle(d, 'ERD')}: ${cleanError(e)}`); }
+        }
+        if (d.model.value && membersOf(t.diagram)) { tab.value = t.diagram; refreshDiagram(); }
+      } else {
+        const n = Number(/^sql-(\d+)$/.exec(t.id)?.[1] ?? 0);
+        seq = Math.max(seq, n);
+        kept.push({ id: t.id, kind: 'sql', title: t.title, dirty: false, initialSql: t.sql, initialConn: t.conn });
+      }
+    }
+    if (!kept.some(t => t.kind === 'erd')) kept.unshift(tabs.value[0]);
+    for (const id of [...docs.keys()]) if (!kept.some(t => t.id === id)) docs.delete(id); // 닫았던 첫 ERD 탭
+    tabs.value = kept;
+    const first = kept.find(t => t.kind === 'erd')!;
+    cur.value = docs.get(kept.some(t => t.id === s.active && isErd(t.id)) ? s.active : first.id)!;
+    activeTab.value = kept.some(t => t.id === s.active) ? s.active : first.id;
+    message.value = notes.length ? `마지막 화면을 열었지만 못 연 것: ${notes.join(', ')}` : '마지막 화면을 열었다';
+  } finally {
+    restoring = false;
+  }
+}
+const restored = restoreSession();
 
 // 시험 모드 (메인의 ERD_AUTO 가 부른다)
 const frames = (n: number) => new Promise<void>(r => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
@@ -1124,9 +1271,11 @@ async function dbmsScenario(baseDir: string, list: { name: string; conn: ManualC
 }
 
 /** STEP 10 시험: 모델만 연다. 키보드, 마우스 입력은 메인이 실제 입력으로 보내고 __erdProbe 로 화면 상태를 읽는다 */
-async function step10Scenario(beDir: string, dir: string) {
+async function step10Scenario(beDir: string, dir: string, part?: string) {
+  await restored;
   await panel.value!.setSource('be');
   await panel.value!.setBeDir(beDir);
+  if (part === 'session2') { await nextTick(); await frames(10); await sleep(1500); return sessionState(); } // 마지막 화면으로 열린 것을 본다
   await openModel(dir);
   activeTab.value = 'erd';
   await nextTick(); await frames(10); await sleep(800);
@@ -1172,8 +1321,39 @@ window.__erdSaveReopen = async (dir: string) => {
   return JSON.parse(JSON.stringify({ written: saved?.written, before: before.tabs, after: after.tabs, same: JSON.stringify(before.tabs) === JSON.stringify(after.tabs), tab: after.tab, nodes: after.nodes }));
 };
 
-window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure, dbms }) => {
-  if (scenario === 'step10') return step10Scenario(beDir, dir);
+/** 마지막 화면 시험용: 위 탭, ERD 탭마다 모델 폴더, 저장 안 함 여부, 컬럼 수, 그룹 탭, 화면 위치, SQL 탭 글자와 접속 */
+function sessionState() {
+  const erd = (id: string) => {
+    const d = docs.get(id)!;
+    const t = d.model.value?.tables.find(x => x.name === 'mst_biz_wh');
+    return { dir: d.modelDir.value.split(/[\/]/).pop(), title: titleOf(id), dirty: d.dirty.value, tables: d.model.value?.tables.length, whColumns: t?.columns.map(c => c.name),
+      diagram: d.tab.value, groupTabs: groupTabs(d.layout.value), viewport: d === cur.value && canvas.value ? canvas.value.viewportNow() : d.viewport };
+  };
+  return JSON.parse(JSON.stringify({
+    active: activeTab.value, cur: cur.value.id,
+    tabs: tabs.value.map(t => (isErd(t.id) ? { id: t.id, ...erd(t.id) } : t.kind === 'sql'
+      ? { id: t.id, title: t.title, text: (tabRefs.get(t.id) as InstanceType<typeof SqlTab> | undefined)?.text(), conn: (tabRefs.get(t.id) as InstanceType<typeof SqlTab> | undefined)?.connKey() } : { id: t.id })),
+    nodes: document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table').length, message: message.value,
+  }));
+}
+window.__erdSession = async (step: string, arg?: string) => {
+  if (step === 'open') { await openModel(arg); await nextTick(); await frames(10); await sleep(600); }
+  if (step === 'addErd') { addErd(); await nextTick(); }
+  if (step === 'addSql') {
+    const id = addSql(arg ?? '');
+    await nextTick(); await frames(5);
+    const tab = tabRefs.get(id) as InstanceType<typeof SqlTab>;
+    await tab.loadOptions();
+    await tab.connect('be:dev');
+  }
+  if (step === 'activate') { activeTab.value = arg!; await nextTick(); await frames(10); await sleep(800); }
+  if (step === 'pan') { await canvas.value!.fitView({ nodes: [model.value!.tables.find(t => t.name === arg)!.id], maxZoom: 0.8 }); await sleep(600); }
+  if (step === 'flush') { lastSession = ''; await saveSession(); }
+  return sessionState();
+};
+
+window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure, dbms, part }) => {
+  if (scenario === 'step10') return step10Scenario(beDir, dir, part);
   if (scenario === 'dbms') return dbmsScenario(dir, JSON.parse(dbms ?? '[]'));
   if (scenario === 'password') return passwordScenario(beDir);
   if (scenario === 'suggest') return suggestScenario(beDir);
@@ -1265,10 +1445,13 @@ window.__erdBench = async () => {
             <template #first>
               <main class="workarea main-top">
                 <nav class="tabs">
-                  <button v-for="t in tabs" :key="t.id" :class="{ on: t.id === activeTab }" @click="activeTab = t.id">
-                    {{ t.title }}<b v-if="t.dirty" class="warn"> *</b>
-                    <span v-if="t.kind !== 'erd'" class="x" title="닫기" @click.stop="closeTab(t)">×</span>
+                  <button v-for="t in tabs" :key="t.id" :class="{ on: t.id === activeTab, erd: t.kind === 'erd' }" :data-tab="t.id"
+                          :title="t.kind === 'erd' ? (docs.get(t.id)?.modelDir.value || '빈 ERD 탭') : ''" @click="activeTab = t.id">
+                    <template v-if="t.kind === 'erd'">{{ titleOf(t.id) }}<b v-if="docs.get(t.id)?.dirty.value" class="warn"> *</b></template>
+                    <template v-else>{{ t.title }}<b v-if="t.dirty" class="warn"> *</b></template>
+                    <span v-if="t.kind !== 'erd' || tabs.filter(x => x.kind === 'erd').length > 1" class="x" title="닫기" @click.stop="closeTab(t)">×</span>
                   </button>
+                  <button class="add" title="새 ERD 탭 (다른 모델 폴더를 열거나 DB 에서 불러온다)" @click="addErd()">+ ERD</button>
                   <button class="add" @click="addSql()">+ SQL</button>
                   <button class="add" @click="openCompare">DB 비교</button>
                   <button class="add" title="MD 문서, 메뉴 물리 테이블 목록. Flyway 파일은 DB 비교 탭에서" @click="openExport">내보내기</button>
@@ -1277,7 +1460,7 @@ window.__erdBench = async () => {
                   <span class="spacer" />
                   <button class="add" title="Ctrl+`" @click="toggleTerm">{{ termVisible ? '터미널 숨기기 ▾' : '터미널 ▴' }}</button>
                 </nav>
-                <div v-show="activeTab === 'erd'" class="pane canvas">
+                <div v-show="isErd(activeTab)" class="pane canvas">
                   <div v-if="aiBase" class="ai-bar">
                     AI 변경 <b>{{ aiChanged.size }}</b>개 테이블 확정 대기 (주황 테두리)
                     <button @click="aiConfirm">확정</button>
@@ -1287,7 +1470,7 @@ window.__erdBench = async () => {
                   <div class="erd-area">
                   <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName">
                     <template #first>
-                      <ErdCanvas v-if="model && diagram && shown" ref="canvas" :model="shown.model" :external="shown.external" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
+                      <ErdCanvas v-if="model && diagram && shown" :key="cur.id" ref="canvas" :initial-viewport="cur.viewport" :model="shown.model" :external="shown.external" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
                                  @pin="onPin" @select="onSelect" @open="n => { editId = ''; miniName = n; }" @menu="onMenu" />
                       <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 ERD 폴더를 여세요.</p>
                     </template>

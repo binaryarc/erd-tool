@@ -48,6 +48,8 @@ export const IPC = {
   pwAsk: 'pw:ask',
   pwReply: 'pw:reply',
   connForgetPassword: 'conn:forgetPassword',
+  sessionGet: 'session:get',
+  sessionSet: 'session:set',
 } as const;
 
 /** 접속 정보를 어디서 가져올지: BE 폴더 properties 자동 매핑, 또는 직접 입력 */
@@ -205,6 +207,23 @@ export interface SqlCatalog {
   functions: { name: string; args: string; returns: string }[];
 }
 
+/** 마지막 화면 (STEP 10 결정 22). 앱 설정 폴더의 session.json. 다시 켜면 이대로 연다 */
+export interface SessionData {
+  version: 1;
+  /** 보던 위 탭 ID */
+  active: string;
+  tabs: SessionTab[];
+}
+export type SessionTab =
+  | {
+    kind: 'erd'; id: string; modelDir: string;
+    /** 저장 안 한 변경이 있으면 모델과 배치를 통째로 담는다. 없으면 모델 폴더에서 다시 읽는다 */
+    unsaved?: { model: SchemaModel; layout: Layout };
+    /** 보던 그룹 탭, 화면 위치 */
+    diagram: string; viewport?: { x: number; y: number; zoom: number };
+  }
+  | { kind: 'sql'; id: string; title: string; sql: string; conn?: string };
+
 export interface ErdApi {
   pickFolder(defaultPath?: string): Promise<string | null>;
   /** MD 파일 고르기 (이력 파일) */
@@ -218,6 +237,11 @@ export interface ErdApi {
   settings: {
     get(): Promise<Settings>;
     set(patch: Settings): Promise<Settings>;
+  };
+  session: {
+    /** 없거나 읽지 못하면 null. 시험 모드(ERD_AUTO)는 ERD_SESSION 이 없으면 항상 null */
+    get(): Promise<SessionData | null>;
+    set(data: SessionData): Promise<void>;
   };
   model: {
     load(dir: string): Promise<LoadResult>;
