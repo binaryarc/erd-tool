@@ -68,11 +68,15 @@ async function focusColumn(name: string) {
   el?.focus();
   el?.select();
 }
-/** after 를 주면 그 컬럼 뒤에, 없으면 공통 컬럼 앞에 */
+/** after 를 주면 그 컬럼 뒤에, 없으면 테이블 맨 아래에 (2026-10-16 사용자 지정: 화면에서 보이는 맨 아래, 공통 컬럼 뒤) */
 function addNext(after?: string): Promise<string | undefined> {
   return new Promise(resolve => {
     let name = '';
-    apply(m => { name = nextColumnName(m, props.name); return addCol(m, props.name, { name, type: NEW_COLUMN_TYPE, notNull: false }, after); },
+    apply(m => {
+      name = nextColumnName(m, props.name);
+      const at = after ?? m.tables.find(x => x.name === props.name)?.columns.at(-1)?.name;
+      return addCol(m, props.name, { name, type: NEW_COLUMN_TYPE, notNull: false }, at);
+    },
       ok => { if (!ok) return resolve(undefined); void focusColumn(name).then(() => resolve(name)); });
   });
 }

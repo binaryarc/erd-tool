@@ -7,8 +7,9 @@ import type { SchemaModel, Table } from './types';
 
 /** 화면 크기 (TableNode.vue 의 CSS 와 같아야 한다). width 는 최소 폭, 실제 폭은 내용에 맞춘다 */
 export const NODE = { width: 220, maxWidth: 560, headHeight: 24, rowHeight: 18, compactHeight: 24 } as const;
-export const DEFAULT_RULE = { cols: 4, gap: 40 } as const;
-const GROUP_GAP = 160;
+// 간격은 2026-10-16 사용자 요청으로 좁힘 (전: 테이블 사이 40, 그룹 사이 160). 이미 저장된 그룹 규칙의 간격은 그대로 쓴다
+export const DEFAULT_RULE = { cols: 4, gap: 24 } as const;
+const GROUP_GAP = 80;
 const GROUP_TITLE = 36;
 
 export const DEFAULT_DIAGRAM = '전체';

@@ -301,6 +301,28 @@ export function dropFk(m: SchemaModel, tableName: string, fkName: string): Schem
   return withTable(m, tableName, x => ({ ...x, fks: x.fks.filter(f => f.name !== fkName) }));
 }
 
+// ---------- 컬럼 복사, 붙여넣기 (2026-10-16 사용자 요청) ----------
+
+/** 다른 테이블(다른 모델 포함)에서 복사한 컬럼을 target 맨 아래에 붙인다. 같은 이름이 이미 있으면 건너뛴다.
+ *  이름, 타입, NOT NULL, 기본값, 코멘트, 도메인(이 모델에 같은 도메인이 있을 때)만 옮긴다. PK, IDENTITY, 생성식은 옮기지 않는다 */
+export function pasteColumns(m: SchemaModel, target: string, cols: Column[]): { model: SchemaModel; added: string[]; skipped: string[] } {
+  target = tableRef(m, target);
+  table(m, target); // 없으면 EditError
+  const added: string[] = [], skipped: string[] = [];
+  const domains = new Set((m.domains ?? []).map(d => d.name));
+  let next = m;
+  for (const c of cols) {
+    const name = newName(m, c.name);
+    if (next.tables.find(x => x.name === target)!.columns.some(x => x.name === name) || added.includes(name)) { skipped.push(c.name); continue; }
+    const last = next.tables.find(x => x.name === target)!.columns.at(-1)?.name;
+    const input: ColumnInput = { name, type: c.type, notNull: c.notNull, ...(c.default !== undefined && c.generated === undefined ? { default: c.default } : {}),
+      ...(c.comment ? { comment: c.comment } : {}), ...(c.domain && domains.has(c.domain) ? { domain: c.domain } : {}) };
+    next = addColumn(next, target, input, last);
+    added.push(name);
+  }
+  return { model: next, added, skipped };
+}
+
 // ---------- 도메인 (STEP 10) ----------
 // 도메인은 타입만 정한다(결정 2). 연결한 컬럼의 타입은 늘 도메인 타입과 같게 둔다. 그래서 DDL, 차이 계산, MD 는 지금처럼 컬럼 타입만 본다.
 

@@ -33,6 +33,8 @@ const props = withDefaults(defineProps<{
   external?: Map<string, string[]>;
   /** 처음 화면 위치. 있으면 전체 보기 대신 이 자리로 연다 (ERD 탭을 오가거나 다시 켤 때, STEP 10) */
   initialViewport?: { x: number; y: number; zoom: number };
+  /** fitKey 가 바뀔 때 이 위치가 있으면 전체 보기 대신 이 자리로 (다이어그램에 저장한 화면 위치) */
+  savedViewport?: { x: number; y: number; zoom: number };
   /** 선을 끌어 FK 를 만들 수 있다 (본 ERD 만, STEP 10). canConnect 는 놓기 전 가능 여부 (연결점이 초록으로 붙는다) */
   connectable?: boolean;
   canConnect?: (a: ConnEnd, b: ConnEnd) => boolean;
@@ -44,6 +46,8 @@ const emit = defineEmits<{
   menu: [e: { x: number; y: number; name?: string }];
   /** 선을 끌어 놓음 (STEP 10): a 는 끌기 시작한 쪽, b 는 놓은 쪽. 컬럼이 없으면 테이블 머리나 몸통에 놓은 것 */
   connect: [a: ConnEnd, b: ConnEnd];
+  /** 빈 곳을 눌렀다 (고른 컬럼을 푼다) */
+  paneClick: [];
   /** 고른 FK 선 (테이블 이름, FK 이름) */
   selectFks: [fks: { table: string; fk: string }[]];
 }>();
@@ -134,14 +138,24 @@ watch(() => getSelectedNodes.value.map(n => n.id).join(','), () => {
   emit('select', getSelectedNodes.value.filter(n => n.type === 'table').map(n => names.get(n.id)!).filter(Boolean));
 });
 watch([() => viewport.value.zoom, () => view.compactOnZoomOut], ([z, on]) => { view.compact = on && z < COMPACT_ZOOM; });
+// 전체를 한 화면에 넣으면 배율이 0.1 안팎이라 1px 선이 0.1px 로 줄어 안 보였다 (2026-10-16 사용자 지적: 미니 ERD 에서만 선이 보임).
+// 선 굵기를 배율로 나눠 화면에서는 늘 1.3px 안팎이 되게 한다. 크게 확대하면 1px 아래로는 줄이지 않는다
+const edgeWidth = computed(() => Math.min(12, Math.max(1, 1.3 / (viewport.value.zoom || 1))));
 // 다른 모델로 바뀌거나 배치 방식이 바뀌면 전체가 보이게 맞춘다.
 // diagram 은 반응형이 아니라(layout 을 그대로 IPC 로 보내므로) version 이 바뀔 때 방식이 달라졌는지 직접 비교한다
 let lastMode = arrangeMode(props.diagram);
+/** fitKey 가 바뀌면: 저장한 화면 위치가 있으면 그 자리, 없으면 전체 보기 */
+async function restoreOrFit() {
+  const v = props.savedViewport;
+  if (!v) return refit();
+  await nextTick();
+  setTimeout(() => void setViewport({ ...v }), 50);
+}
 async function refit() {
   await nextTick();
   setTimeout(() => fitView({ padding: 0.15, maxZoom: 1 }), 50); // 테이블이 적은 그룹 탭이 화면 가득 커지지 않게
 }
-watch(() => props.fitKey ?? props.model, refit);
+watch(() => props.fitKey ?? props.model, restoreOrFit);
 
 const box = ref<HTMLDivElement>();
 let observer: ResizeObserver | undefined;
@@ -223,15 +237,16 @@ function boxes() {
   return m;
 }
 
-defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoom, viewportNow: () => ({ ...viewport.value }) });
+defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoom, viewportNow: () => ({ ...viewport.value }),
+  /** 시험용 */ setViewportTo: (v: { x: number; y: number; zoom: number }) => void setViewport(v) });
 </script>
 
 <template>
-  <div ref="box" class="erd-box">
+  <div ref="box" class="erd-box" :style="{ '--edge-w': edgeWidth + 'px' }">
   <VueFlow :id="flowId" :nodes="nodes" :edges="edges" :min-zoom="0.05" :max-zoom="2" multi-selection-key-code="Control"
            :zoom-on-double-click="false" :delete-key-code="null" :fit-view-on-init="!initialViewport" :default-viewport="initialViewport" :nodes-connectable="connectable" :is-valid-connection="validConn" :connection-radius="24"
            @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @node-drag-stop="onDragStop" @node-double-click="onDoubleClick"
-           @node-context-menu="onNodeMenu" @pane-context-menu="onPaneMenu">
+           @node-context-menu="onNodeMenu" @pane-context-menu="onPaneMenu" @pane-click="emit('paneClick')">
     <template #node-table="{ data }">
       <TableNode :data="data" />
     </template>
@@ -249,9 +264,10 @@ defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoo
 .vue-flow__node-group { background: var(--group-bg); border: 1px dashed var(--group-border); border-radius: 6px; padding: 0; }
 .group-box { width: 100%; height: 100%; }
 .group-box span { display: inline-block; margin: 6px 10px; font: bold 16px 'Malgun Gothic', sans-serif; color: var(--muted); }
-.vue-flow__edge-path { stroke: var(--edge); }
+/* 선 굵기는 확대 배율로 나눠 화면에서 늘 1.3px 안팎으로 보이게 한다 (--edge-w, edgeWidth) */
+.vue-flow__edge-path { stroke: var(--edge); stroke-width: var(--edge-w, 1px); }
 /* 한 번 클릭한(선택한) 테이블은 두꺼운 테두리. outline 은 크기를 바꾸지 않아 선 위치가 그대로다 */
 .vue-flow__node-table.selected .tbl { outline: 3px solid var(--accent); outline-offset: 1px; }
 .vue-flow__node-table.selected { z-index: 10 !important; }
-.vue-flow__edge.selected .vue-flow__edge-path { stroke: var(--accent); stroke-width: 2; }
+.vue-flow__edge.selected .vue-flow__edge-path { stroke: var(--accent); stroke-width: calc(var(--edge-w, 1px) * 2); }
 </style>

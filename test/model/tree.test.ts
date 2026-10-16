@@ -30,10 +30,12 @@ describe('트리 배치', () => {
     expect(p.get('t1')!.y).toBeLessThan(p.get('t4')!.y);
   });
 
-  it('FK 없는 테이블은 묶음 아래에 모으고, 어떤 두 테이블도 겹치지 않는다', () => {
+  it('FK 없는 테이블은 묶음 아래나 오른쪽에 모으고(넓은 화면에 더 크게 보이는 쪽), 어떤 두 테이블도 겹치지 않는다', () => {
     const p = arrangeTree(m, size);
-    const treeBottom = Math.max(...['t1', 't2', 't3', 't4'].map(id => p.get(id)!.y + size.height(m.tables.find(x => x.id === id)!)));
-    for (const id of ['t5', 't6', 't7']) expect(p.get(id)!.y).toBeGreaterThan(treeBottom);
+    const tree = ['t1', 't2', 't3', 't4'];
+    const treeBottom = Math.max(...tree.map(id => p.get(id)!.y + size.height(m.tables.find(x => x.id === id)!)));
+    const treeRight = Math.max(...tree.map(id => p.get(id)!.x + 200));
+    for (const id of ['t5', 't6', 't7']) expect(p.get(id)!.y > treeBottom || p.get(id)!.x > treeRight, id).toBe(true);
     const boxes = m.tables.map(x => ({ ...p.get(x.id)!, w: 200, h: size.height(x) }));
     for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i], b = boxes[j];

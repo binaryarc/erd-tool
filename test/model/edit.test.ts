@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  EditError, EditHistory, NEW_COLUMN_TYPE, addColumn, addFk, addTable, dropColumn, dropFk, dropTable, moveColumn, nextColumnName, normalizeType, updateColumn, updateTable,
+  EditError, EditHistory, NEW_COLUMN_TYPE, addColumn, addFk, addTable, dropColumn, dropFk, dropTable, moveColumn, nextColumnName, normalizeType, pasteColumns, updateColumn, updateTable,
 } from '../../src/shared/model/edit';
 import { diffModels } from '../../src/shared/model/diff';
 import { serializeModel, parseModel } from '../../src/shared/model/erd-format';
@@ -184,5 +184,18 @@ describe('Enter 로 컬럼 추가 (STEP 10)', () => {
     expect(T(m2, 'mst_biz').columns.map(c => c.name).slice(0, 3)).toEqual(['biz_seq', 'column_1', 'biz_nm']);
     const ora: SchemaModel = { ...base, version: 2, dialect: 'oracle', schema: 'ERD' };
     expect(nextColumnName(ora, 'mst_biz')).toBe('COLUMN_1');
+  });
+});
+
+describe('컬럼 복사, 붙여넣기 (2026-10-16)', () => {
+  it('맨 아래에 붙이고 같은 이름은 건너뛴다. PK, IDENTITY 는 옮기지 않고 되돌리기 한 번이다', () => {
+    const src = [col('biz_nm', 'varchar(100)', { notNull: true, comment: '사업장명', default: "'x'" }), col('biz_seq', 'integer', { notNull: true, identity: 'always' })];
+    const r = pasteColumns(base, 'mst_wh', src);
+    expect(r.added).toEqual(['biz_nm']);
+    expect(r.skipped).toEqual(['biz_seq']); // mst_wh 에 이미 있다
+    expect(T(r.model, 'mst_wh').columns.at(-1)).toEqual(col('biz_nm', 'varchar(100)', { notNull: true, comment: '사업장명', default: "'x'" }));
+    expect(T(r.model, 'mst_wh').pk).toEqual(['wh_seq']);
+    const n = pasteColumns(base, 'mst_wh', [col('new_id', 'bigint', { identity: 'always', notNull: true })]);
+    expect(T(n.model, 'mst_wh').columns.at(-1)).toEqual(col('new_id', 'bigint', { notNull: true }));
   });
 });

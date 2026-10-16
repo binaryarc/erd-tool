@@ -81,6 +81,9 @@ function reloadCatalog() {
 const columnDefs = computed<ColDef[]>(() => (result.value?.columns ?? []).map((c, i) => ({
   headerName: c.name, colId: 'c' + i, valueGetter: p => (p.data as unknown[])[i], resizable: true, sortable: false,
   cellClass: 'cell', minWidth: 60,
+  // NULL 은 빈 칸과 구별되게 흐린 NULL 로 보인다 (2026-10-16 사용자 요청)
+  valueFormatter: p => (p.value === null || p.value === undefined ? 'NULL' : typeof p.value === 'object' ? JSON.stringify(p.value) : String(p.value)),
+  cellClassRules: { 'is-null': p => p.value === null || p.value === undefined },
 })));
 
 /** 결과 반영 (오류면 편집기에 표시) */

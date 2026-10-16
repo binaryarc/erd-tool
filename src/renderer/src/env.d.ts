@@ -21,6 +21,7 @@ declare global {
     __erdUndo?: (step: string, a?: string, b?: string) => Promise<unknown>;
     __erdDomain?: (step: string, a?: string, b?: string) => Promise<unknown>;
     __erdSavePreview?: (dir: string) => Promise<boolean>;
+    __erdViewport?: (step: string, arg?: string) => Promise<unknown>;
   }
 }
 

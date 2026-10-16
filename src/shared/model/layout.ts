@@ -18,6 +18,8 @@ export interface Diagram {
   pinned: Record<string, [number, number]>;
   /** 그룹 탭(STEP 10)의 소속 테이블 ID. 있으면 이 다이어그램은 그 테이블만 보인다. 「전체」 에는 없다 */
   members?: string[];
+  /** 마지막으로 본 화면 위치와 확대 배율. 열 때 전체 보기 대신 이 자리로 연다 (2026-10-16 사용자 요청) */
+  viewport?: { x: number; y: number; zoom: number };
 }
 
 export interface Layout {

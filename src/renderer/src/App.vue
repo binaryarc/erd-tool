@@ -12,9 +12,10 @@ import ExportTab from './components/ExportTab.vue';
 import DiagramTabs from './components/DiagramTabs.vue';
 import TablePickDialog from './components/TablePickDialog.vue';
 import DomainPanel from './components/DomainPanel.vue';
-import { addColumn, addFk, addTable, domainUsage, dropDomain, dropFk, dropTable, updateTable } from '../../shared/model/edit';
+import { addColumn, addFk, addTable, domainUsage, dropDomain, dropFk, dropTable, pasteColumns, updateTable } from '../../shared/model/edit';
 import { applyConnect, planConnect, type ConnectPlan, type End } from '../../shared/model/connect';
-import type { FkAction } from '../../shared/model/types';
+import type { Column, FkAction } from '../../shared/model/types';
+import { columnText } from '../../shared/model/erd-format';
 import { TabError, addMembers, createTab, deleteTab, forgetIds, groupTabs, groupView, newTabName, prefixTabs, pruneMembers, removeMembers, renameTab } from '../../shared/model/group-tabs';
 import { buildCreateAll } from '../../shared/sql/create';
 import { diffModels } from '../../shared/model/diff';
@@ -23,7 +24,7 @@ import { DEFAULT_DIAGRAM, syncLayout } from '../../shared/model/arrange';
 import { arrangeMode, emptyLayout, type Diagram, type Layout } from '../../shared/model/layout';
 import type { ModelError, SchemaModel } from '../../shared/model/types';
 import type { ConnRef, ManualConn, ReverseResult, SavePlan, SessionData, SessionTab, ShellKind } from '../../shared/ipc';
-import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
+import { VIEW_KEY, colKey, loadPref, savePref, type ViewState } from './view';
 import { neighborhood } from '../../shared/model/tree';
 import { applyCommands } from '../../shared/ai/commands';
 import { findSpotNear } from '../../shared/ai/place';
@@ -38,7 +39,7 @@ const view = reactive<ViewState>({
   nameMode: loadPref('nameMode', 'both', ['physical', 'logical', 'both'] as const),
   // 선 모양 기본값은 직선 (사용자 지정 2026-10-16). 이 PC 에서 고른 적이 있으면 그것을 쓴다
   edgeKind: loadPref('edgeKind', 'straight', ['smoothstep', 'straight', 'default'] as const),
-  compactOnZoomOut: false, compact: false,
+  compactOnZoomOut: false, compact: false, colSel: [],
 });
 watch(() => view.nameMode, v => savePref('nameMode', v));
 watch(() => view.edgeKind, v => savePref('edgeKind', v));
@@ -446,6 +447,7 @@ async function save() {
 /** 고른 폴더에 저장 미리보기를 보이고, 「저장」 이면 저장한다 (시험 모드는 폴더 고르기 창 없이 이것을 부른다) */
 async function saveWithPreview(picked: { dir: string; hasModel: boolean }) {
   if (!model.value) return;
+  keepViewport(); // 확대, 화면 위치도 layout.json 에 함께 저장한다 (2026-10-16 사용자 요청)
   const other = [...docs.values()].find(x => x !== cur.value && sameDir(x.modelDir.value, picked.dir));
   if (other) { message.value = `그 폴더는 ${titleOf(other.id)} 탭에 열려 있어 저장하지 않았다`; return; }
   const same = sameDir(picked.dir, modelDir.value);
@@ -467,6 +469,7 @@ function answerSave(ok: boolean) { const p = savePreview.value; savePreview.valu
 /** 고른 폴더에 저장 (시험 모드는 폴더 고르기 없이 이것을 부른다) */
 async function saveTo(dir: string) {
   if (!model.value) return;
+  keepViewport();
   pruneMembers(layout.value, model.value); // 지운 테이블을 그룹 소속에서 정리한다 (화면에서는 되돌리기를 위해 남겨 둔다)
   const r = await window.erd.model.save(dir, model.value, layout.value);
   dirty.value = false;
@@ -505,12 +508,19 @@ function setArrangeMode(mode: 'grid' | 'tree') {
 }
 
 // ---------- 그룹 탭 조작 (STEP 10) ----------
+/** 지금 화면 위치를 보이는 다이어그램에 적어 둔다 (탭을 떠날 때, 저장할 때). 배율은 소수 셋째 자리, 위치는 정수 */
+function keepViewport() {
+  const v = canvas.value?.viewportNow();
+  if (v && diagram.value) diagram.value.viewport = { x: Math.round(v.x), y: Math.round(v.y), zoom: Math.round(v.zoom * 1000) / 1000 };
+}
+
 function selectTab(name: string) {
   if (name !== DEFAULT_DIAGRAM && !membersOf(name)) return;
+  keepViewport();
   tab.value = name;
   refreshDiagram();
   version.value++;
-  fitKey.value++; // 탭을 바꾸면 전체 보기로
+  fitKey.value++; // 탭을 바꾸면 그 탭에서 마지막으로 본 자리로 (없으면 전체 보기)
 }
 
 /** 탭 구성 바꾸기 (layout.json 만 바뀐다). 실패하면 화면 아래에 이유를 보인다 */
@@ -631,6 +641,43 @@ function deleteFks(fks: { table: string; fk: string }[]) {
   if (edit(m => fks.reduce((acc, f) => dropFk(acc, f.table, f.fk), m))) message.value = `FK ${fks.map(f => f.fk).join(', ')} 를 지움 (저장 전, 되돌리기 가능)`;
 }
 
+// ---------- 컬럼 고르기, 복사, 붙여넣기 (2026-10-16 사용자 요청) ----------
+// 컬럼 행을 누르면 고르고(Shift, Ctrl 로 더하기), Ctrl+C 로 복사, 붙일 테이블을 고르고 Ctrl+V 로 그 테이블 맨 아래에 붙인다.
+// 복사한 컬럼은 다른 ERD 탭(다른 모델)에도 붙일 수 있다. 같은 이름이 있으면 건너뛴다
+view.onColumnClick = (table, column, add) => {
+  const k = colKey(table, column);
+  view.colSel = add ? (view.colSel.includes(k) ? view.colSel.filter(x => x !== k) : [...view.colSel, k]) : [k];
+};
+let colClipboard: { from: string; columns: Column[] } | null = null;
+function copyColumns(): boolean {
+  const m = model.value;
+  if (!m || !view.colSel.length) return false;
+  const cols = view.colSel.map(k => { const [t, c] = k.split('\t'); return m.tables.find(x => x.name === t)?.columns.find(x => x.name === c); })
+    .filter((c): c is Column => !!c).map(c => ({ ...c }));
+  if (!cols.length) return false;
+  const from = [...new Set(view.colSel.map(k => k.split('\t')[0]))].join(', ');
+  colClipboard = { from, columns: cols };
+  // 글로도 복사해 둔다 (메모장, 메신저에 붙일 때). 한 줄에 컬럼 하나, 모델 파일 표기
+  void navigator.clipboard?.writeText(cols.map(c => columnText(c, false)).join(NL)).catch(() => undefined);
+  message.value = `컬럼 ${cols.length}개를 복사했습니다 (${from}). 붙일 테이블을 고르고 Ctrl+V 를 누르세요`;
+  return true;
+}
+function pasteColumnsHere(): boolean {
+  if (!colClipboard || !model.value) return false;
+  const target = model.value.tables.find(t => t.id === pickId.value)?.name;
+  if (!target) { message.value = '붙일 테이블을 먼저 고르세요'; return true; }
+  let r: ReturnType<typeof pasteColumns> | null = null;
+  const clip = colClipboard;
+  if (!edit(m => { r = pasteColumns(m, target, clip.columns); return r.model; })) return true;
+  const res = r as ReturnType<typeof pasteColumns> | null;
+  if (!res) return true;
+  view.colSel = res.added.map(c => colKey(target, c));
+  message.value = res.added.length
+    ? `${target} 에 컬럼 ${res.added.length}개를 붙였습니다${res.skipped.length ? ` (같은 이름이 있어 건너뜀: ${res.skipped.join(', ')})` : ''}`
+    : `붙일 컬럼이 없습니다. ${target} 에 같은 이름이 모두 있습니다 (${res.skipped.join(', ')})`;
+  return true;
+}
+
 // ---------- 도메인 관리 패널 (STEP 10) ----------
 // 오른쪽 영역은 테이블 편집 패널 > 도메인 패널 > 미니 ERD 순서로 보인다
 const domainOpen = ref(false);
@@ -678,7 +725,7 @@ let erdSeq = 1;
 watch(activeTab, id => {
   const d = docs.get(id);
   if (!d || d === cur.value) return;
-  if (canvas.value) cur.value.viewport = canvas.value.viewportNow();
+  if (canvas.value) { keepViewport(); cur.value.viewport = canvas.value.viewportNow(); }
   cur.value = d;
   selected.value = [];
 });
@@ -733,6 +780,7 @@ window.addEventListener('keydown', e => {
   const el = e.target as HTMLElement;
   if (e.key === 'Escape' && menu.value) { menu.value = null; return; }
   if (e.key === 'Escape' && dlg.value) { answerDlg(''); return; }
+  if (e.key === 'Escape' && view.colSel.length && isErd(activeTab.value)) { view.colSel = []; return; }
   if (!isErd(activeTab.value) || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value || connectAsk.value || savePreview.value) return;
   // Delete: 고른 테이블을 모델에서 지운다 (확인 창). 입력 칸 안의 Delete 는 그대로 둔다 (STEP 10)
   if (e.key === 'Delete' && !el.closest('input, textarea, select, [contenteditable]')) {
@@ -748,6 +796,12 @@ window.addEventListener('keydown', e => {
   }
   // 되돌리기, 다시 하기는 ERD 탭에서만. 입력 칸 안에서는 그 칸의 글자 되돌리기를 그대로 둔다.
   // 단 Enter 로 막 더한 컬럼 이름 칸처럼 글자를 고치지 않은 칸(data-orig 와 같은 칸)은 모델 되돌리기로 넘긴다
+  // Ctrl+C, Ctrl+V: 고른 컬럼 복사, 고른 테이블에 붙이기. 입력 칸 안에서는 글자 복사 그대로
+  if (e.ctrlKey && !e.shiftKey && !el.closest('input, textarea, select, [contenteditable]')) {
+    const k = e.key.toLowerCase();
+    if (k === 'c' && copyColumns()) { e.preventDefault(); return; }
+    if (k === 'v' && pasteColumnsHere()) { e.preventDefault(); return; }
+  }
   const untouched = el instanceof HTMLInputElement && el.dataset.orig !== undefined && el.value === el.dataset.orig;
   if (!e.ctrlKey || (!untouched && el.closest('input, textarea, select, [contenteditable]'))) return;
   const k = e.key.toLowerCase();
@@ -1615,6 +1669,20 @@ window.__erdDomain = async (step: string, a?: string, b?: string) => {
   }));
 };
 
+/** 화면 위치 저장 시험: 'set' 으로 옮기고, 'saveReopen' 으로 dir 에 저장한 뒤 같은 폴더를 다시 열어 화면 위치를 돌려준다 */
+window.__erdViewport = async (step: string, arg?: string) => {
+  if (step === 'set') { const v = JSON.parse(arg!); canvas.value!.setViewportTo(v); await sleep(400); }
+  if (step === 'saveReopen') {
+    await saveTo(arg!);
+    activeTab.value = 'erd';
+    await openModel(arg!);
+    await nextTick(); await frames(10); await sleep(800);
+  }
+  if (step === 'tab') { selectTab(arg!); await nextTick(); await frames(10); await sleep(600); }
+  const v = canvas.value!.viewportNow();
+  return { x: Math.round(v.x), y: Math.round(v.y), zoom: Math.round(v.zoom * 1000) / 1000, saved: diagram.value?.viewport ?? null, tab: tab.value };
+};
+
 /** 저장 미리보기 시험: dir 에 저장 미리보기를 띄운다 (끝을 기다리지 않는다). 메인이 창을 읽고 「저장」 을 누른다 */
 window.__erdSavePreview = async (dir: string) => {
   void saveWithPreview({ dir, hasModel: true });
@@ -1763,9 +1831,9 @@ window.__erdBench = async () => {
                   <div class="erd-area">
                   <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName && !domainOpen">
                     <template #first>
-                      <ErdCanvas v-if="model && diagram && shown" :key="cur.id" ref="canvas" :initial-viewport="cur.viewport" :model="shown.model" :external="shown.external" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
+                      <ErdCanvas v-if="model && diagram && shown" :key="cur.id" ref="canvas" :initial-viewport="cur.viewport ?? diagram.viewport" :saved-viewport="diagram.viewport" :model="shown.model" :external="shown.external" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
                                  @pin="onPin" @select="onSelect" @open="n => { editId = ''; miniName = n; }" @menu="onMenu"
-                                 connectable :can-connect="canConnect" @connect="onConnectTables" @select-fks="f => (selectedFks = f)" />
+                                 connectable :can-connect="canConnect" @connect="onConnectTables" @pane-click="view.colSel = []" @select-fks="f => (selectedFks = f)" />
                       <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 ERD 폴더를 여세요.</p>
                     </template>
                     <template #second>
@@ -1957,6 +2025,7 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .mini .muted { color: var(--muted); }
 .mini-body { flex: 1; min-height: 0; position: relative; }
 .empty { padding: 24px; color: var(--muted); }
+.ag-cell.is-null { color: var(--muted); font-style: italic; }
 .pane.canvas { display: flex; flex-direction: column; }
 .erd-area { flex: 1; min-height: 0; position: relative; }
 .dialog.ask p { white-space: pre-line; margin-top: 0; }

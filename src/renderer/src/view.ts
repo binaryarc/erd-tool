@@ -13,7 +13,13 @@ export interface ViewState {
   compactOnZoomOut: boolean;
   /** 지금 컬럼 행을 숨기고 있는지 (캔버스가 정한다) */
   compact: boolean;
+  /** 고른 컬럼 (`테이블\t컬럼`). 복사, 붙여넣기용 (2026-10-16 사용자 요청) */
+  colSel: string[];
+  /** 컬럼 행을 눌렀을 때. add 면 고른 것에 더하거나 뺀다 (Shift, Ctrl) */
+  onColumnClick?: (table: string, column: string, add: boolean) => void;
 }
+
+export const colKey = (table: string, column: string) => `${table}\t${column}`;
 
 export const COMPACT_ZOOM = 0.4;
 export const VIEW_KEY: InjectionKey<ViewState> = Symbol('erd-view');
