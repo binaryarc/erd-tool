@@ -9,7 +9,10 @@ import TerminalPanel from './components/TerminalPanel.vue';
 import SplitPane from './components/SplitPane.vue';
 import TableEditor from './components/TableEditor.vue';
 import ExportTab from './components/ExportTab.vue';
-import { EditHistory, addColumn, addFk, addTable, updateTable } from '../../shared/model/edit';
+import DiagramTabs from './components/DiagramTabs.vue';
+import TablePickDialog from './components/TablePickDialog.vue';
+import { EditHistory, addColumn, addFk, addTable, dropTable, updateTable } from '../../shared/model/edit';
+import { TabError, addMembers, createTab, deleteTab, forgetIds, groupTabs, groupView, newTabName, prefixTabs, pruneMembers, removeMembers, renameTab } from '../../shared/model/group-tabs';
 import { buildCreateAll } from '../../shared/sql/create';
 import { diffModels } from '../../shared/model/diff';
 import { buildJoinSelect } from '../../shared/sql/join';
@@ -52,10 +55,34 @@ const fitKey = ref(0);
 
 window.erd.settings.get().then(s => { if (s.modelDir) modelDir.value = s.modelDir; });
 
+// ---------- 그룹 탭 (STEP 10) ----------
+// 보이는 다이어그램 이름. 「전체」 는 모델 전체, 그룹 탭은 소속 테이블만 거른 모델을 캔버스에 넘긴다.
+// 수정 명령은 항상 전체 모델에 적용하고, 그룹 탭 화면은 그 결과를 다시 거른다.
+const tab = ref(DEFAULT_DIAGRAM);
+const tabNames = computed(() => { void version.value; return groupTabs(layout.value); });
+const membersOf = (name: string) => layout.value.diagrams[name]?.members;
+/** 캔버스에 넘길 모델과 그리지 않은 FK (그룹 탭일 때) */
+const shown = computed(() => {
+  void version.value;
+  const m = model.value;
+  if (!m) return null;
+  const mem = membersOf(tab.value);
+  return mem ? groupView(m, mem) : { model: m, external: undefined };
+});
+/** 보이는 다이어그램을 모델에 맞춘다 (그룹 탭이면 소속 테이블만 넘겨 그 탭의 위치를 맞춘다) */
+function refreshDiagram() {
+  const m = model.value;
+  if (!m) return;
+  const mem = membersOf(tab.value);
+  diagram.value = syncLayout(mem ? groupView(m, mem).model : m, layout.value, tab.value);
+}
+
 function show(m: SchemaModel, l: Layout) {
   model.value = m;
   layout.value = l;
-  diagram.value = syncLayout(m, l, DEFAULT_DIAGRAM);
+  pruneMembers(l, m);
+  if (!membersOf(tab.value)) tab.value = DEFAULT_DIAGRAM;
+  refreshDiagram();
   version.value++;
   fitKey.value++;
   history.clear();
@@ -78,7 +105,7 @@ const editName = computed(() => model.value?.tables.find(t => t.id === editId.va
 
 function setModel(m: SchemaModel) {
   model.value = m;
-  diagram.value = syncLayout(m, layout.value, DEFAULT_DIAGRAM);
+  refreshDiagram();
   version.value++;
   dirty.value = true;
   syncHistory();
@@ -131,6 +158,12 @@ async function newTable() {
   let name = 'new_table';
   for (let i = 2; names.has(name); i++) name = `new_table_${i}`;
   if (!edit(m => addTable(m, name, { withCommon: m.common.length > 0 }))) return;
+  // 그룹 탭에서 만들면 그 그룹에도 넣는다. 지운 테이블의 ID 가 다시 쓰였을 수 있어 다른 그룹 소속에서는 먼저 뺀다
+  const id = model.value.tables.find(t => t.name === name)!.id;
+  forgetIds(layout.value, [id]);
+  if (membersOf(tab.value)) addMembers(layout.value, tab.value, [id]);
+  refreshDiagram();
+  version.value++;
   openEditor(name);
   await nextTick();
   await canvas.value?.focusTable(name);
@@ -192,10 +225,14 @@ function setPins(p: Pins) {
 }
 
 async function aiApply(lines: string[]): Promise<string> {
+  // AI 변경은 「전체」 탭에서 보여 준다. 그룹 탭이면 다른 탭에만 있는 테이블의 크기를 찾지 못한다 (STEP 10)
+  if (tab.value !== DEFAULT_DIAGRAM) { selectTab(DEFAULT_DIAGRAM); await nextTick(); }
   const before = needModel();
   const beforePinned = pinsNow();
   const r = applyCommands(before, lines); // 실패하면 여기서 끝나고 아무것도 바뀌지 않는다
   history.push(before);
+  const oldIds = new Set(before.tables.map(t => t.id));
+  forgetIds(layout.value, r.model.tables.filter(t => !oldIds.has(t.id)).map(t => t.id));
   setModel(r.model);
   const placed: string[] = [];
   try {
@@ -309,7 +346,7 @@ window.erd.mcp.onCall((id, tool, args) => {
       let text: string;
       if (tool === 'erd_overview') text = overview(needModel());
       else if (tool === 'erd_tables') text = tablesText(needModel(), (args.names as string[]) ?? []);
-      else if (tool === 'erd_view_state') { needModel(); text = viewStateText(model.value!, diagram.value!, canvas.value!.boxes(), canvas.value!.zoom(), DEFAULT_DIAGRAM); }
+      else if (tool === 'erd_view_state') { needModel(); text = viewStateText(shown.value!.model, diagram.value!, canvas.value!.boxes(), canvas.value!.zoom(), tab.value); }
       else if (tool === 'erd_apply') text = await aiApply((args.commands as string[]) ?? []);
       else if (tool === 'erd_undo') text = aiUndo();
       else if (tool === 'erd_export') text = await aiExport(args);
@@ -381,6 +418,7 @@ async function save() {
 /** 고른 폴더에 저장 (시험 모드는 폴더 고르기 없이 이것을 부른다) */
 async function saveTo(dir: string) {
   if (!model.value) return;
+  pruneMembers(layout.value, model.value); // 지운 테이블을 그룹 소속에서 정리한다 (화면에서는 되돌리기를 위해 남겨 둔다)
   const r = await window.erd.model.save(dir, model.value, layout.value);
   dirty.value = false;
   message.value = `ERD 저장 (${dir}): 바뀐 파일 ${r.written.length}개, 그대로 ${r.unchanged.length}개, 지운 파일 ${r.removed.length}개`;
@@ -408,6 +446,110 @@ function setArrangeMode(mode: 'grid' | 'tree') {
   diagram.value.pinned = {};
   version.value++;
   dirty.value = true;
+}
+
+// ---------- 그룹 탭 조작 (STEP 10) ----------
+function selectTab(name: string) {
+  if (name !== DEFAULT_DIAGRAM && !membersOf(name)) return;
+  tab.value = name;
+  refreshDiagram();
+  version.value++;
+  fitKey.value++; // 탭을 바꾸면 전체 보기로
+}
+
+/** 탭 구성 바꾸기 (layout.json 만 바뀐다). 실패하면 화면 아래에 이유를 보인다 */
+function tabOp(f: () => void, done: string): boolean {
+  try { f(); }
+  catch (e) { if (!(e instanceof TabError)) throw e; message.value = `안 됨: ${e.message}`; return false; }
+  refreshDiagram();
+  version.value++;
+  dirty.value = true;
+  message.value = done;
+  return true;
+}
+const idsOf = (names: string[]) => names.map(n => model.value!.tables.find(t => t.name === n)?.id).filter((x): x is string => !!x);
+
+function addTab() {
+  const name = newTabName(layout.value);
+  if (tabOp(() => createTab(layout.value, name), `그룹 탭 ${name} 을 만듦 (저장 전). 테이블 우클릭이나 「테이블 추가」 로 넣는다`)) selectTab(name);
+}
+function onRenameTab(from: string, to: string) {
+  if (tabOp(() => renameTab(layout.value, from, to), `탭 이름을 ${to} 로 바꿈 (저장 전)`) && tab.value === from) tab.value = to;
+}
+async function onRemoveTab(name: string) {
+  const n = membersOf(name)?.length ?? 0;
+  if (await askDlg(`그룹 탭 「${name}」 을 지울까요?\n탭만 지우고 테이블 ${n}개는 모델에 그대로 남는다.`, [{ label: '탭 지우기', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
+  if (tab.value === name) selectTab(DEFAULT_DIAGRAM);
+  tabOp(() => deleteTab(layout.value, name), `그룹 탭 ${name} 을 지움 (저장 전)`);
+}
+function onPrefixTabs() {
+  let made: string[] = [];
+  if (tabOp(() => { made = prefixTabs(layout.value, model.value!); }, '') ) {
+    message.value = made.length ? `접두어 그룹 탭 ${made.length}개를 만듦 (${made.join(', ')}, 저장 전)` : '새로 만들 접두어 그룹 탭이 없다';
+    if (made.length) selectTab(made[0]);
+  }
+}
+function addToGroup(names: string[], group: string) {
+  let added: string[] = [];
+  tabOp(() => { added = addMembers(layout.value, group, idsOf(names)); }, '');
+  message.value = `「${group}」 탭에 ${added.length}개 넣음 (저장 전)`;
+}
+function newGroupWith(names: string[]) {
+  const name = newTabName(layout.value);
+  tabOp(() => createTab(layout.value, name, idsOf(names)), `「${name}」 탭을 만들어 ${names.length}개를 넣음 (저장 전)`);
+}
+function removeFromGroup(names: string[]) {
+  tabOp(() => removeMembers(layout.value, tab.value, idsOf(names)), `「${tab.value}」 탭에서 ${names.length}개를 뺌. 모델에는 남아 있다 (저장 전)`);
+}
+
+/** 모델에서 테이블 지우기 (Delete 키, 우클릭 메뉴). 항상 확인 창에 함께 지워지는 FK 수를 보인다 (결정 13) */
+async function deleteTables(names: string[]) {
+  const m = model.value;
+  if (!m || !names.length) return;
+  const gone = new Set(names);
+  const pointing = m.tables.filter(t => !gone.has(t.name)).reduce((n, t) => n + t.fks.filter(f => gone.has(f.refTable)).length, 0);
+  const own = m.tables.filter(t => gone.has(t.name)).reduce((n, t) => n + t.fks.length, 0);
+  const inGroup = membersOf(tab.value) ? `\n이 그룹에서만 빼려면 취소하고 우클릭 메뉴의 「이 그룹에서 빼기」 를 쓴다.` : '';
+  const text = `${names.length === 1 ? names[0] : `테이블 ${names.length}개`} 를 모델에서 지울까요? (모든 탭에서 없어진다, 되돌리기 가능)\n`
+    + `이 테이블을 가리키는 다른 테이블의 FK ${pointing}개, 이 테이블의 FK ${own}개도 함께 지운다.${inGroup}`;
+  if (await askDlg(text, [{ label: '모델에서 삭제', value: 'ok' }, { label: '취소', value: '' }]) !== 'ok') return;
+  if (edit(x => names.reduce((acc, n) => dropTable(acc, n), x))) message.value = `${names.join(', ')} 를 모델에서 지움 (저장 전)`;
+}
+
+// 확인 창 (window.confirm 대신: 시험 모드에서 막히지 않고 버튼을 여러 개 둘 수 있다)
+const dlg = ref<{ text: string; buttons: { label: string; value: string }[]; resolve: (v: string) => void } | null>(null);
+const askDlg = (text: string, buttons: { label: string; value: string }[]) =>
+  new Promise<string>(resolve => { dlg.value?.resolve(''); dlg.value = { text, buttons, resolve }; });
+function answerDlg(v: string) { const d = dlg.value; dlg.value = null; d?.resolve(v); }
+
+// 우클릭 메뉴: 테이블 위면 그 테이블(고른 것 중이면 고른 것 모두), 빈 곳이면 테이블 추가
+const menu = ref<{ x: number; y: number; names: string[] } | null>(null);
+function onMenu(e: { x: number; y: number; name?: string }) {
+  const names = e.name ? (selected.value.includes(e.name) ? [...selected.value] : [e.name]) : [];
+  menu.value = { x: e.x, y: e.y, names };
+}
+/** 메뉴의 「그룹에 추가」 대상: 고른 테이블이 모두 들어 있지는 않은 그룹 탭 */
+const menuGroups = computed(() => {
+  const mm = menu.value;
+  if (!mm?.names.length || !model.value) return [];
+  const ids = idsOf(mm.names);
+  return tabNames.value.filter(n => n !== tab.value && !ids.every(id => membersOf(n)!.includes(id)));
+});
+/** 메뉴를 닫고 실행한다. 고른 테이블 이름은 닫기 전에 받아 둔다 */
+function runMenu(f: (names: string[]) => void) { const names = menu.value?.names ?? []; menu.value = null; f(names); }
+window.addEventListener('mousedown', e => { if (menu.value && !(e.target as HTMLElement).closest('.ctx')) menu.value = null; }, true);
+
+// 그룹 탭에 기존 테이블 가져오기
+const pickOpen = ref(false);
+const pickTables = computed(() => {
+  void version.value;
+  const mem = new Set(membersOf(tab.value) ?? []);
+  return (model.value?.tables ?? []).filter(t => !mem.has(t.id)).map(t => ({ name: t.name, comment: t.comment }));
+});
+const picker = ref<InstanceType<typeof TablePickDialog>>();
+function onPick(names: string[]) {
+  pickOpen.value = false;
+  addToGroup(names, tab.value);
 }
 
 // 미니 ERD: 더블클릭한 테이블과 FK 로 바로 이어진 테이블만, 항상 트리로
@@ -461,7 +603,14 @@ function toggleTerm() {
 window.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleTerm(); }
   const el = e.target as HTMLElement;
-  if (activeTab.value !== 'erd' || pwAsk.value || closeAsk.value) return;
+  if (e.key === 'Escape' && menu.value) { menu.value = null; return; }
+  if (e.key === 'Escape' && dlg.value) { answerDlg(''); return; }
+  if (activeTab.value !== 'erd' || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value) return;
+  // Delete: 고른 테이블을 모델에서 지운다 (확인 창). 입력 칸 안의 Delete 는 그대로 둔다 (STEP 10)
+  if (e.key === 'Delete' && !el.closest('input, textarea, select, [contenteditable]')) {
+    if (selected.value.length) { e.preventDefault(); void deleteTables([...selected.value]); }
+    return;
+  }
   // Enter: 고른 테이블(없으면 편집 중인 테이블)에 컬럼을 더한다 (STEP 10). 입력 칸, 버튼 위의 Enter 는 그대로 둔다
   if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing && !el.closest('input, textarea, select, button, [contenteditable]')) {
     const name = model.value?.tables.find(t => t.id === pickId.value)?.name;
@@ -989,7 +1138,38 @@ window.__erdProbe = (table?: string) => {
   return JSON.parse(JSON.stringify({
     selected: selected.value, editor: editName.value, canUndo: canUndo.value, canRedo: canRedo.value, message: message.value,
     columns: t?.columns.map(c => `${c.name} ${c.type}${c.notNull ? ' NN' : ''}`), focused: a?.tagName === 'INPUT' ? a.value : a?.tagName,
+    ...groupState(),
   }));
+};
+/** 그룹 탭 상태: 보이는 탭, 탭별 소속 이름과 고정 위치, 캔버스에 그려진 테이블과 선 수, 외부 FK 배지, 열린 창 */
+function groupState() {
+  const name = (id: string) => model.value?.tables.find(t => t.id === id)?.name ?? `(없음 ${id})`;
+  const tabs: Record<string, { members: string[]; pinned: Record<string, [number, number]> }> = {};
+  for (const n of tabNames.value) {
+    const d = layout.value.diagrams[n];
+    tabs[n] = { members: d.members!.map(name), pinned: Object.fromEntries(Object.entries(d.pinned).map(([id, p]) => [name(id), p])) };
+  }
+  const main = '.pane.canvas .split > .pane:first-child';
+  return {
+    tab: tab.value, tabs, modelTables: model.value?.tables.length,
+    nodes: Array.from(document.querySelectorAll(`${main} .vue-flow__node-table .head b`)).map(e => e.textContent).sort(),
+    edges: document.querySelectorAll(`${main} .vue-flow__edge`).length,
+    extBadges: Array.from(document.querySelectorAll(`${main} .vue-flow__node-table .ext`)).map(e => `${e.closest('.head')?.querySelector('b')?.textContent}: ${e.textContent}`),
+    dialog: dlg.value?.text ?? null, pick: pickOpen.value, menu: menu.value ? Array.from(document.querySelectorAll('.ctx button')).map(e => e.textContent?.trim()) : null,
+    mini: miniName.value, miniTables: Array.from(document.querySelectorAll('.mini .vue-flow__node-table .head b')).map(e => e.textContent).sort(),
+    dirty: dirty.value,
+  };
+}
+/** 시험용: 지금 모델을 dir 에 저장하고 다시 열어 그룹 탭 상태를 저장 전과 비교한다 */
+window.__erdSaveReopen = async (dir: string) => {
+  const before = groupState();
+  const saved = await saveTo(dir);
+  const keep = tab.value;
+  await openModel(dir);
+  selectTab(keep);
+  await nextTick(); await frames(10); await sleep(600);
+  const after = groupState();
+  return JSON.parse(JSON.stringify({ written: saved?.written, before: before.tabs, after: after.tabs, same: JSON.stringify(before.tabs) === JSON.stringify(after.tabs), tab: after.tab, nodes: after.nodes }));
 };
 
 window.__erdAuto = async ({ scenario, beDir, profile, modelDir: dir, exportDir, measure, dbms }) => {
@@ -1044,7 +1224,7 @@ window.__erdBench = async () => {
     <header>
       <button title="저장해 둔 ERD 모델 폴더를 연다" @click="openModel()">ERD 폴더 열기</button>
       <button :disabled="!model || !!aiBase" :title="aiBase ? 'AI 변경을 확정하거나 취소한 뒤 저장한다' : 'ERD 모델을 저장할 폴더를 골라 저장한다'" @click="save">ERD 저장{{ dirty ? ' *' : '' }}</button>
-      <button :disabled="!model" title="새 테이블을 만들고 편집 패널을 연다" @click="newTable">테이블 추가</button>
+      <button :disabled="!model" title="새 테이블을 만들고 편집 패널을 연다. 그룹 탭에서 만들면 그 그룹에도 들어간다" @click="newTable">새 테이블</button>
       <button :disabled="!canUndo" title="Ctrl+Z" @click="undo">되돌리기</button>
       <button :disabled="!canRedo" title="Ctrl+Y" @click="redo">다시 하기</button>
       <button :disabled="!model" title="모델 전체 CREATE 문을 새 SQL 탭에 넣는다" @click="createAll">전체 CREATE</button>
@@ -1104,10 +1284,11 @@ window.__erdBench = async () => {
                     <button @click="aiCancel">취소</button>
                   </div>
                   <!-- 테이블을 더블클릭하면 오른쪽에 미니 ERD 가 열린다 (그 테이블과 FK 로 바로 이어진 테이블만) -->
+                  <div class="erd-area">
                   <SplitPane dir="row" fixed="second" :initial="560" :min="260" storage-key="mini" :hide-fixed="!miniName && !editName">
                     <template #first>
-                      <ErdCanvas v-if="model && diagram" ref="canvas" :model="model" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
-                                 @pin="onPin" @select="onSelect" @open="n => { editId = ''; miniName = n; }" />
+                      <ErdCanvas v-if="model && diagram && shown" ref="canvas" :model="shown.model" :external="shown.external" :diagram="diagram" :version="version" :fit-key="fitKey" :highlight="aiChanged"
+                                 @pin="onPin" @select="onSelect" @open="n => { editId = ''; miniName = n; }" @menu="onMenu" />
                       <p v-else class="empty">왼쪽에서 DB 를 불러오거나, 위에서 ERD 폴더를 여세요.</p>
                     </template>
                     <template #second>
@@ -1126,6 +1307,9 @@ window.__erdBench = async () => {
                       </section>
                     </template>
                   </SplitPane>
+                  </div>
+                  <DiagramTabs v-if="model" :all="DEFAULT_DIAGRAM" :tabs="tabNames" :active="tab" :can-prefix="!tabNames.length"
+                               @select="selectTab" @add="addTab" @rename="onRenameTab" @remove="onRemoveTab" @prefix="onPrefixTabs" @pick="pickOpen = true" />
                 </div>
                 <div v-for="t in tabs.filter(x => x.kind === 'sql')" v-show="activeTab === t.id" :key="t.id" class="pane">
                   <SqlTab :ref="el => setTabRef(t.id, el)" :tab-id="t.id" :schema="model" :initial-sql="t.initialSql" :initial-conn="t.initialConn"
@@ -1157,6 +1341,30 @@ window.__erdBench = async () => {
           <button type="button" @click="answerPw(false)">취소</button>
         </div>
       </form>
+    </div>
+    <div v-if="menu" class="ctx" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @contextmenu.prevent>
+      <template v-if="menu.names.length">
+        <div class="ctx-title">{{ menu.names.length === 1 ? menu.names[0] : `테이블 ${menu.names.length}개` }}</div>
+        <div class="ctx-sub">그룹에 추가</div>
+        <button v-for="g in menuGroups" :key="g" class="ind" @click="runMenu(n => addToGroup(n, g))">{{ g }}</button>
+        <button class="ind" @click="runMenu(newGroupWith)">새 그룹 만들어 추가</button>
+        <button v-if="tab !== DEFAULT_DIAGRAM" @click="runMenu(removeFromGroup)">이 그룹에서 빼기 (모델에는 남김)</button>
+        <button v-if="menu.names.length === 1" @click="runMenu(n => openEditor(n[0]))">테이블 편집</button>
+        <button class="danger" @click="runMenu(deleteTables)">모델에서 삭제 (Delete)</button>
+      </template>
+      <template v-else>
+        <button v-if="tab !== DEFAULT_DIAGRAM" @click="runMenu(() => (pickOpen = true))">테이블 추가 (이 그룹에 없는 테이블)</button>
+        <button @click="runMenu(() => newTable())">새 테이블</button>
+      </template>
+    </div>
+    <TablePickDialog v-if="pickOpen" ref="picker" :group="tab" :tables="pickTables" @pick="onPick" @close="pickOpen = false" />
+    <div v-if="dlg" class="modal">
+      <div class="dialog ask">
+        <p>{{ dlg.text }}</p>
+        <div class="row">
+          <button v-for="b in dlg.buttons" :key="b.label" @click="answerDlg(b.value)">{{ b.label }}</button>
+        </div>
+      </div>
     </div>
     <div v-if="closeAsk" class="modal">
       <div class="dialog">
@@ -1224,5 +1432,15 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .mini .muted { color: var(--muted); }
 .mini-body { flex: 1; min-height: 0; position: relative; }
 .empty { padding: 24px; color: var(--muted); }
+.pane.canvas { display: flex; flex-direction: column; }
+.erd-area { flex: 1; min-height: 0; position: relative; }
+.dialog.ask p { white-space: pre-line; margin-top: 0; }
+.ctx { position: fixed; z-index: 60; min-width: 200px; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); padding: 3px 0; font-size: 12px; }
+.ctx button { text-align: left; border: none; background: transparent; color: var(--fg); padding: 3px 12px; cursor: pointer; }
+.ctx button:hover { background: var(--sel-bg); }
+.ctx .ind { padding-left: 24px; }
+.ctx .danger { color: var(--warn); }
+.ctx-title { padding: 2px 12px 4px; font-weight: bold; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
+.ctx-sub { padding: 2px 12px; color: var(--muted); }
 .warn { color: var(--warn); }
 </style>
