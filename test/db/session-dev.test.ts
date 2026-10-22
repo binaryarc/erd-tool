@@ -5,7 +5,7 @@ import { resolve, type Target } from '../../src/main/db/connect';
 import { allowWrite, closeSession, commitTx, fetchMore, openSession, rollbackTx, runSql } from '../../src/main/db/session';
 import type { ConnRef } from '../../src/shared/ipc';
 
-const BE = process.env.ERD_BE_DIR ?? 'C:/work/workspace/shop-be';
+const BE = process.env.ERD_BE_DIR ?? ''; // test/.env.local 에서 읽는다. 없으면 아래에서 건너뛴다
 let skip = '';
 try { passwordOf(getProfile(BE, 'dev'), BE); } catch (e) { skip = (e as Error).message; }
 

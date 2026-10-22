@@ -4,13 +4,13 @@ import { emptyLayout } from '../../src/shared/model/layout';
 import { detectCommon, groupsFromErdGroupsJson } from '../../src/shared/model/groups';
 import { isEmptyDiff, mergeModel } from '../../src/shared/model/merge';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
-import { SHOP_GROUPS } from '../helpers/fixtures';
+import { SAMPLE_GROUPS } from '../helpers/fixtures';
 
 const cols = (n: number): Column[] => Array.from({ length: n }, (_, i) => ({ name: 'c' + i, type: 'integer', notNull: false }));
 const table = (id: string, name: string, n = 1, extra: Partial<Table> = {}): Table =>
   ({ id, name, comment: '', columns: cols(n), pk: [], fks: [], uniques: [], indexes: [], ...extra });
 const model = (tables: Table[]): SchemaModel =>
-  ({ version: 1, groups: SHOP_GROUPS, common: [], sequences: [], tables, functions: [] });
+  ({ version: 1, groups: SAMPLE_GROUPS, common: [], sequences: [], tables, functions: [] });
 
 /** 「그룹 격자」 정렬을 고른 배치 */
 const gridLayout = () => { const l = emptyLayout(); l.diagrams['전체'] = { mode: 'grid', pinned: {} }; return l; };
@@ -21,7 +21,7 @@ describe('배치', () => {
     const l = emptyLayout();
     expect(syncLayout(m, l)).toEqual({ pinned: {} });
     l.diagrams['전체'].mode = 'grid';
-    expect(Object.keys(syncLayout(m, l).groups!).sort()).toEqual(['mdm', 'wms']);
+    expect(Object.keys(syncLayout(m, l).groups!).sort()).toEqual(['mst', 'whs']);
     l.diagrams['전체'].mode = 'tree';
     expect(syncLayout(m, l).groups).toBeUndefined();
   });
@@ -30,7 +30,7 @@ describe('배치', () => {
     const m = model([table('t1', 'mst_a', 3), table('t2', 'mst_b', 10), table('t3', 'mst_c', 1)]);
     const l = gridLayout();
     const d = syncLayout(m, l);
-    d.groups!.mdm.rule.cols = 2;
+    d.groups!.mst.rule.cols = 2;
     const { positions } = arrange(m, d);
     const top = positions.get('t1')!.y;
     expect(positions.get('t2')).toEqual({ x: NODE.width + DEFAULT_RULE.gap, y: top });
@@ -40,13 +40,13 @@ describe('배치', () => {
   it('테이블 폭이 다르면 그룹 칸 폭은 가장 넓은 테이블에 맞추고, 넓어진 그룹이 겹치면 뒤 그룹을 민다', () => {
     const m = model([table('t1', 'whs_a'), table('t2', 'whs_b'), table('t3', 'mst_a')]);
     const d = syncLayout(m, gridLayout());
-    d.groups!.wms.rule.cols = 2;
+    d.groups!.whs.rule.cols = 2;
     const wide = 500;
     const { positions, groups } = arrange(m, d, t => (t.name === 'whs_a' ? wide : NODE.width));
     expect(positions.get('t2')!.x).toBe(wide + DEFAULT_RULE.gap); // 칸 폭 = 가장 넓은 테이블
-    const [wms, mdm] = groups;
-    expect(mdm.x).toBeGreaterThanOrEqual(wms.x + wms.width); // 겹치지 않음
-    expect(d.groups!.mdm.rule.origin[0]).toBeLessThan(mdm.x); // 저장된 시작점은 그대로
+    const [whs, mst] = groups;
+    expect(mst.x).toBeGreaterThanOrEqual(whs.x + whs.width); // 겹치지 않음
+    expect(d.groups!.mst.rule.origin[0]).toBeLessThan(mst.x); // 저장된 시작점은 그대로
   });
 
   it('새 그룹은 앞 그룹 오른쪽에, 끌어 옮긴 테이블은 그 좌표에 놓는다', () => {
@@ -54,20 +54,20 @@ describe('배치', () => {
     const d = syncLayout(m, gridLayout());
     d.pinned.t2 = [5000, 700];
     const { positions, groups } = arrange(m, d);
-    expect(d.groups!.wms.rule.origin[0]).toBe(0); // 그룹 규칙 순서(wms 먼저)
-    expect(d.groups!.mdm.rule.origin[0]).toBeGreaterThan(4 * NODE.width);
+    expect(d.groups!.whs.rule.origin[0]).toBe(0); // 그룹 규칙 순서(whs 먼저)
+    expect(d.groups!.mst.rule.origin[0]).toBeGreaterThan(4 * NODE.width);
     expect(positions.get('t2')).toEqual({ x: 5000, y: 700 });
-    expect(groups.map(g => g.name).sort()).toEqual(['mdm', 'wms']);
+    expect(groups.map(g => g.name).sort()).toEqual(['mst', 'whs']);
   });
 
   it('모델이 바뀌면 없어진 ID 는 순서와 pinned 에서 빼고 새 테이블은 뒤에 붙인다', () => {
     const l = gridLayout();
     const d = syncLayout(model([table('t1', 'mst_b'), table('t2', 'mst_a')]), l);
-    expect(d.groups!.mdm.order).toEqual(['t2', 't1']); // 이름순
-    d.groups!.mdm.order = ['t1', 't2']; // 사람이 바꾼 순서
+    expect(d.groups!.mst.order).toEqual(['t2', 't1']); // 이름순
+    d.groups!.mst.order = ['t1', 't2']; // 사람이 바꾼 순서
     d.pinned.t2 = [1, 1];
     syncLayout(model([table('t1', 'mst_b'), table('t3', 'mst_0')]), l);
-    expect(d.groups!.mdm.order).toEqual(['t1', 't3']);
+    expect(d.groups!.mst.order).toEqual(['t1', 't3']);
     expect(d.pinned).toEqual({});
   });
 });
@@ -102,11 +102,11 @@ describe('리버스 결과 맞추기', () => {
 });
 
 describe('그룹 규칙과 공통 컬럼', () => {
-  it('허브 erd-groups.json 을 그룹 규칙으로 바꾼다', () => {
+  it('그룹 규칙 파일 erd-groups.json 을 그룹 규칙으로 바꾼다', () => {
     expect(groupsFromErdGroupsJson({
-      grp_rules: [{ prefix: 'whs_', grp: 'wms' }, { prefix: 'mst_', grp: 'mdm' }, { prefix: 'sm_', grp: 'sm' }, { prefix: 'sif_', grp: 'sif' }, { prefix: 'wes_', grp: 'wes' }],
-      grp_default: 'sm',
-    })).toEqual(SHOP_GROUPS);
+      grp_rules: [{ prefix: 'whs_', grp: 'whs' }, { prefix: 'mst_', grp: 'mst' }, { prefix: 'sys_', grp: 'sys' }, { prefix: 'sio_', grp: 'sio' }, { prefix: 'wcs_', grp: 'wcs' }],
+      grp_default: 'sys',
+    })).toEqual(SAMPLE_GROUPS);
   });
 
   it('여러 테이블 끝에 똑같이 있는 컬럼 묶음을 공통 컬럼으로 고른다', () => {

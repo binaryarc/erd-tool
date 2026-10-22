@@ -15,7 +15,7 @@ tags:
 
 # {{group}} 그룹 테이블 정의서
 
-> - ERD 도구가 스키마 모델에서 만든 문서다({{generatedAt}}). 업무 설명은 허브 `40-schema` 원본 문서에 있다.
+> - ERD 도구가 스키마 모델에서 만든 문서다({{generatedAt}}).
 > - 테이블 {{tableCount}}개, 컬럼 {{columnCount}}개, FK {{fkCount}}개
 > - NULL 칸: `N` 은 NOT NULL, `Y` 는 NULL 허용
 

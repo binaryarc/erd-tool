@@ -36,30 +36,30 @@ describe('JOIN SELECT 만들기', () => {
   const model: SchemaModel = {
     version: 1, groups: [], common: [], sequences: [], functions: [],
     tables: [
-      t('mst_biz'),
+      t('mst_brand'),
       t('mst_wh'),
-      t('mst_biz_wh', [
-        { name: 'f1', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] },
+      t('mst_brand_wh', [
+        { name: 'f1', columns: ['brand_seq'], refTable: 'mst_brand', refColumns: ['brand_seq'] },
         { name: 'f2', columns: ['wh_seq'], refTable: 'mst_wh', refColumns: ['wh_seq'] },
       ]),
-      t('sm_log'),
+      t('sys_log'),
     ],
   };
 
   it('직접 FK 로 잇는다', () => {
-    expect(buildJoinSelect(model, ['mst_biz_wh', 'mst_biz'])).toBe([
+    expect(buildJoinSelect(model, ['mst_brand_wh', 'mst_brand'])).toBe([
       'SELECT bw.*, b.*',
-      '  FROM mst_biz_wh bw',
-      '  JOIN mst_biz b ON b.biz_seq = bw.biz_seq',
+      '  FROM mst_brand_wh bw',
+      '  JOIN mst_brand b ON b.brand_seq = bw.brand_seq',
       'LIMIT 100;',
     ].join('\n'));
   });
 
   it('두 단계 경로면 중간 테이블도 넣고, 이어지지 않는 테이블은 주석으로 알린다', () => {
-    const sql = buildJoinSelect(model, ['mst_biz', 'mst_wh', 'sm_log']);
-    expect(sql).toContain('FROM mst_biz b');
-    expect(sql).toContain('JOIN mst_biz_wh bw ON bw.biz_seq = b.biz_seq');
+    const sql = buildJoinSelect(model, ['mst_brand', 'mst_wh', 'sys_log']);
+    expect(sql).toContain('FROM mst_brand b');
+    expect(sql).toContain('JOIN mst_brand_wh bw ON bw.brand_seq = b.brand_seq');
     expect(sql).toContain('JOIN mst_wh w ON w.wh_seq = bw.wh_seq');
-    expect(sql).toContain('-- FK 로 이어지지 않아 뺀 테이블: sm_log');
+    expect(sql).toContain('-- FK 로 이어지지 않아 뺀 테이블: sys_log');
   });
 });

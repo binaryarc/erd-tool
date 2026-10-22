@@ -11,15 +11,15 @@ const table = (id: string, name: string, extra: Partial<Table> = {}): Table =>
   ({ id, name, comment: '', columns: [col(name.split('_').pop() + '_seq')], pk: [name.split('_').pop() + '_seq'], fks: [], uniques: [], indexes: [], ...extra });
 const fk = (name: string, column: string, refTable: string, refColumn: string) => ({ name, columns: [column], refTable, refColumns: [refColumn] });
 
-// mst_biz ← mst_wh ← whs_stock (wms 그룹에서 mst_wh 로 가는 FK), sm_user 는 혼자
+// mst_brand ← mst_wh ← whs_stock (whs 그룹에서 mst_wh 로 가는 FK), sys_user 는 혼자
 const model: SchemaModel = {
-  version: 2, groups: [{ name: 'mdm', prefix: 'mst_' }, { name: 'wms', prefix: 'whs_' }, { name: 'sm', prefix: 'sm_', isDefault: true }],
+  version: 2, groups: [{ name: 'mst', prefix: 'mst_' }, { name: 'whs', prefix: 'whs_' }, { name: 'sys', prefix: 'sys_', isDefault: true }],
   common: [], sequences: [], functions: [],
   tables: [
-    table('t1', 'mst_biz'),
-    table('t2', 'mst_wh', { columns: [col('wh_seq'), col('biz_seq')], fks: [fk('fk_wh_biz', 'biz_seq', 'mst_biz', 'biz_seq')] }),
+    table('t1', 'mst_brand'),
+    table('t2', 'mst_wh', { columns: [col('wh_seq'), col('brand_seq')], fks: [fk('fk_wh_brand', 'brand_seq', 'mst_brand', 'brand_seq')] }),
     table('t3', 'whs_stock', { columns: [col('stock_seq'), col('wh_seq')], fks: [fk('fk_stock_wh', 'wh_seq', 'mst_wh', 'wh_seq')] }),
-    table('t4', 'sm_user'),
+    table('t4', 'sys_user'),
   ],
 };
 
@@ -27,9 +27,9 @@ describe('그룹 탭 (STEP 10)', () => {
   it('그룹 탭 화면은 소속 테이블만 두고, 밖으로 이어진 FK 는 양쪽 테이블에 적는다', () => {
     const v = groupView(model, ['t2', 't3']);
     expect(v.model.tables.map(t => t.name)).toEqual(['mst_wh', 'whs_stock']);
-    expect(v.model.tables.find(t => t.id === 't2')!.fks.map(f => f.name)).toEqual(['fk_wh_biz']); // FK 배지는 남는다 (선은 캔버스가 그리지 않는다)
-    expect(Object.fromEntries(v.external)).toEqual({ t2: ['→ mst_biz (fk_wh_biz)'] });
-    expect(Object.fromEntries(groupView(model, ['t1']).external)).toEqual({ t1: ['← mst_wh (fk_wh_biz)'] });
+    expect(v.model.tables.find(t => t.id === 't2')!.fks.map(f => f.name)).toEqual(['fk_wh_brand']); // FK 배지는 남는다 (선은 캔버스가 그리지 않는다)
+    expect(Object.fromEntries(v.external)).toEqual({ t2: ['→ mst_brand (fk_wh_brand)'] });
+    expect(Object.fromEntries(groupView(model, ['t1']).external)).toEqual({ t1: ['← mst_wh (fk_wh_brand)'] });
   });
 
   it('탭 만들기, 이름 바꾸기, 지우기. 「전체」 와 같은 이름은 막는다', () => {
@@ -63,7 +63,7 @@ describe('그룹 탭 (STEP 10)', () => {
   it('지운 테이블의 소속은 저장할 때 정리한다. 새 테이블 ID 가 다시 쓰이면 다른 그룹 소속에서 먼저 뺀다', () => {
     const l = emptyLayout();
     createTab(l, 'A', ['t1', 't4']);
-    const m = dropTable(model, 'sm_user');
+    const m = dropTable(model, 'sys_user');
     expect(l.diagrams.A.members).toEqual(['t1', 't4']); // 되돌리기로 돌아오면 소속도 돌아오게 남겨 둔다
     forgetIds(l, ['t4']); // 새 테이블이 t4 를 받았다
     expect(l.diagrams.A.members).toEqual(['t1']);
@@ -74,11 +74,11 @@ describe('그룹 탭 (STEP 10)', () => {
 
   it('접두어 그룹마다 탭을 만들고 이미 있는 이름은 건너뛴다', () => {
     const l = emptyLayout();
-    createTab(l, 'wms', []);
-    expect(prefixTabs(l, model)).toEqual(['mdm', 'sm']);
-    expect(l.diagrams.mdm.members).toEqual(['t1', 't2']);
-    expect(l.diagrams.sm.members).toEqual(['t4']);
-    expect(groupTabs(l)).toEqual(['wms', 'mdm', 'sm']);
+    createTab(l, 'whs', []);
+    expect(prefixTabs(l, model)).toEqual(['mst', 'sys']);
+    expect(l.diagrams.mst.members).toEqual(['t1', 't2']);
+    expect(l.diagrams.sys.members).toEqual(['t4']);
+    expect(groupTabs(l)).toEqual(['whs', 'mst', 'sys']);
   });
 
   it('layout.json 으로 저장하고 다시 읽어도 탭 순서, 소속, 위치가 같다. 탭이 없으면 예전 모양 그대로다', () => {

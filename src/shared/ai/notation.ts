@@ -27,7 +27,7 @@ export function tableText(model: SchemaModel, t: Table): string {
   const cols = collapse ? t.columns.slice(0, t.columns.length - model.common.length) : t.columns;
   const singlePk = t.pk.length === 1 ? t.pk[0] : undefined;
   const inlineFk = new Map<string, string>();
-  // 참조 동작, DEFERRABLE 은 FK 표시 뒤에 붙인다 (예: FK>mst_biz.biz_seq DEFERRABLE)
+  // 참조 동작, DEFERRABLE 은 FK 표시 뒤에 붙인다 (예: FK>mst_brand.brand_seq DEFERRABLE)
   for (const f of t.fks) if (f.columns.length === 1) inlineFk.set(f.columns[0], `${inlineFk.has(f.columns[0]) ? inlineFk.get(f.columns[0]) + ' ' : ''}FK>${f.refTable}.${f.refColumns[0]}${fkOptions(f)}`);
   const group = groupOf(t.name, model.groups);
   return [

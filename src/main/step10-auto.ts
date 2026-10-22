@@ -45,7 +45,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
 
   if (part === 'enter') {
     // 완료 기준: 테이블을 고르고 Enter 세 번 → 컬럼 3개(NULL 허용), Ctrl+Z 세 번 → 원래 모델
-    const table = 'mst_biz_wh';
+    const table = 'mst_brand_wh';
     const p = await nodeAt(table);
     if (!p) throw new Error(`${table} 노드를 못 찾았다`);
     out.before = await probe(table);
@@ -64,7 +64,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     out.afterTwoUndo = await probe(table);
     for (let i = 0; i < 3; i++) await key('Z', ['control']);
     out.afterUndo = await probe(table);
-    // 새 테이블 직후 Enter: 캔버스에 mst_biz_wh 가 골라져 있어도 새 테이블에 첫 컬럼이 생긴다
+    // 새 테이블 직후 Enter: 캔버스에 mst_brand_wh 가 골라져 있어도 새 테이블에 첫 컬럼이 생긴다
     await clickText('header button', '새 테이블');
     await sleep(800);
     await js(`document.activeElement && document.activeElement.blur()`); // 버튼 위 Enter 는 버튼 누르기라 포커스를 뺀다
@@ -78,7 +78,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     // 마지막 화면 1회차: ERD 탭 1(model-g)에 Enter 로 컬럼 하나, 그룹 탭 만들어 보기. ERD 탭 2(model-h)는 저장된 상태로 열고 화면 이동.
     // SQL 탭에 글자를 넣고 dev 에 접속. 보던 탭은 ERD 탭 1. 끝나면 메인이 그대로 닫는다(X 버튼과 같은 길로 마지막 화면을 쓴다)
     const s = (step: string, arg?: string) => js(`window.__erdSession(${JSON.stringify(step)}, ${JSON.stringify(arg ?? null)})`);
-    const p = await nodeAt('mst_biz_wh');
+    const p = await nodeAt('mst_brand_wh');
     await click(p!.x, p!.y);
     await key('Enter');
     await js(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
@@ -105,8 +105,8 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     const pt = async (step: string, a: string, b?: string) => { const p = await c(step, a, b) as { x: number; y: number } | null; if (!p) throw new Error(`위치를 못 찾았다: ${step} ${a} ${b ?? ''}`); return p; };
     const dragTo = async (from: { x: number; y: number }, to: { x: number; y: number }) => drag(from, to.x - from.x, to.y - from.y);
     out.prep = await c('prep', process.env.ERD_BE_DIR!);
-    // 1. 자식에 컬럼이 없는 경우: mst_biz 의 biz_seq 연결점에서 끌어 시험 테이블 몸통(연결점이 아닌 곳)에 놓는다 → 새 컬럼 biz_seq
-    await dragTo(await pt('handle', 'mst_biz', 's-biz_seq'), await pt('body', 'mst_erd_probe'));
+    // 1. 자식에 컬럼이 없는 경우: mst_brand 의 brand_seq 연결점에서 끌어 시험 테이블 몸통(연결점이 아닌 곳)에 놓는다 → 새 컬럼 brand_seq
+    await dragTo(await pt('handle', 'mst_brand', 's-brand_seq'), await pt('body', 'mst_erd_probe'));
     out.askNew = await c('state');
     await clickText('.dialog.conn button', '만들기');
     out.afterNew = await c('state');
@@ -146,8 +146,8 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
       const r = [...(t?.querySelectorAll('.row') ?? [])].find(e => e.querySelector('.name')?.textContent === ${JSON.stringify(col)});
       if (!r) return null; const b = r.querySelector('.name').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; })()`);
     const selCount = () => js<number>(`document.querySelectorAll('.pane.canvas .split > .pane:first-child .row.sel').length`);
-    await nodeAt('mst_biz'); // 그 테이블로 화면을 옮긴다
-    const a = await rowAt('mst_biz', 'biz_nm'), b = await rowAt('mst_biz', 'ceo_nm');
+    await nodeAt('mst_brand'); // 그 테이블로 화면을 옮긴다
+    const a = await rowAt('mst_brand', 'brand_nm'), b = await rowAt('mst_brand', 'ceo_nm');
     if (!a || !b) throw new Error('컬럼 행을 못 찾았다');
     await click(a.x, a.y);
     await click(b.x, b.y, ['shift']);
@@ -191,7 +191,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     await sleep(800);
     out.main = await edgeInfo('.pane.canvas .split > .pane:first-child');
     if (shot) fs.writeFileSync(`${shot}-main.png`, (await wc.capturePage()).toPNG());
-    const p = await nodeAt('mst_biz');
+    const p = await nodeAt('mst_brand');
     await click(p!.x, p!.y);
     wc.sendInputEvent({ type: 'mouseDown', x: Math.round(p!.x), y: Math.round(p!.y), button: 'left', clickCount: 2 });
     wc.sendInputEvent({ type: 'mouseUp', x: Math.round(p!.x), y: Math.round(p!.y), button: 'left', clickCount: 2 });
@@ -202,7 +202,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
   } catch (e) { out.error = (e as Error).message; }
   if (part === 'savepreview') try {
     // 예전 형식(접두어 그룹 파일 나눔, 트리인데 layout.json 에 그룹 격자 항목) 모델 폴더를 열고 같은 폴더에 저장:
-    // 미리보기 창에 새로 씀(tables.erd), 바뀜(_index.erd, layout.json), 지움(mdm.erd 등)이 나오고, 「저장」 을 누르면 그대로 된다
+    // 미리보기 창에 새로 씀(tables.erd), 바뀜(_index.erd, layout.json), 지움(mst.erd 등)이 나오고, 「저장」 을 누르면 그대로 된다
     const dir = process.env.ERD_SAVE_DIR!;
     const readDir = () => fs.readdirSync(dir).sort();
     out.before = { files: readDir(), layoutGroups: Object.keys(JSON.parse(fs.readFileSync(`${dir}/layout.json`, 'utf8')).diagrams?.['전체']?.groups ?? {}) };
@@ -263,26 +263,26 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     const u = (step: string, a?: string, b?: string) => js<Record<string, unknown> | null>(`window.__erdUndo(${JSON.stringify(step)}, ${JSON.stringify(a ?? null)}, ${JSON.stringify(b ?? null)})`);
     const head = async (name: string) => { const p = await js<{ x: number; y: number } | null>(`(() => { const t = [...document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table')].find(e => e.querySelector('.head b')?.textContent === ${JSON.stringify(name)}); const r = t?.querySelector('.head')?.getBoundingClientRect(); return r ? { x: r.x + 30, y: r.y + r.height / 2 } : null; })()`); if (!p) throw new Error(`${name} 머리를 못 찾았다`); return p; };
     const blur = () => js(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
-    await u('fit', 'mst_biz,mst_wh');
+    await u('fit', 'mst_brand,mst_wh');
     // 1. 한 테이블 끌기 → 되돌리기 → 다시 하기
-    await drag(await head('mst_biz'), 150, 80);
-    out.moved = await u('state', 'mst_biz');
+    await drag(await head('mst_brand'), 150, 80);
+    out.moved = await u('state', 'mst_brand');
     await blur(); await key('Z', ['control']);
-    out.moveUndone = await u('state', 'mst_biz');
+    out.moveUndone = await u('state', 'mst_brand');
     await key('Y', ['control']);
-    out.moveRedone = await u('state', 'mst_biz');
+    out.moveRedone = await u('state', 'mst_brand');
     // 2. 두 테이블을 골라 함께 끌기 → 되돌리기 한 번으로 둘 다 돌아온다
-    await u('fit', 'mst_biz,mst_wh');
-    const pb = await head('mst_biz'), pw = await head('mst_wh');
+    await u('fit', 'mst_brand,mst_wh');
+    const pb = await head('mst_brand'), pw = await head('mst_wh');
     await click(pb.x, pb.y);
     wc.sendInputEvent({ type: 'keyDown', keyCode: 'Control' }); // Vue Flow 는 Ctrl 키 눌림을 따로 본다
     await click(pw.x, pw.y, ['control']);
     wc.sendInputEvent({ type: 'keyUp', keyCode: 'Control' });
     await sleep(200);
     await drag(await head('mst_wh'), -60, 120);
-    out.multiMoved = await u('state', 'mst_biz', 'mst_wh');
+    out.multiMoved = await u('state', 'mst_brand', 'mst_wh');
     await blur(); await key('Z', ['control']);
-    out.multiUndone = await u('state', 'mst_biz', 'mst_wh');
+    out.multiUndone = await u('state', 'mst_brand', 'mst_wh');
     // 3. 자동 정렬 → 되돌리기
     await clickText('header button', '자동 정렬');
     out.arranged = await u('state');
@@ -307,8 +307,8 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     await clickText('header button', '새 테이블');
     await sleep(600);
     await blur();
-    await u('place', 'new_table', 'mst_biz');
-    const from = await js<{ x: number; y: number }>(`(() => { const t = [...document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table')].find(e => e.querySelector('.head b')?.textContent === 'mst_biz'); const r = t.querySelector('.vue-flow__handle[data-handleid="s-biz_seq"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+    await u('place', 'new_table', 'mst_brand');
+    const from = await js<{ x: number; y: number }>(`(() => { const t = [...document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table')].find(e => e.querySelector('.head b')?.textContent === 'mst_brand'); const r = t.querySelector('.vue-flow__handle[data-handleid="s-brand_seq"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
     const to = await head('new_table');
     await drag(from, to.x + 20 - from.x, to.y + 30 - from.y);
     out.connectAsk = await u('state', 'new_table');
@@ -325,7 +325,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     await clickText('.dtabs button', '+');
     out.newTab = await probe();
     await clickText('.dtabs button', '테이블 추가');
-    for (const name of ['mst_biz', 'mst_biz_wh', 'mst_biz_center']) {
+    for (const name of ['mst_brand', 'mst_brand_wh', 'mst_brand_center']) {
       await js(`document.querySelector('.pick .q').select()`);
       await typeText(name);
       await clickText('.pick li b', name); // 이름 글자를 누르면 그 줄 체크 칸이 켜진다 (label 안)
@@ -334,16 +334,16 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     await clickText('.pick .row button', '3개 넣기');
     await sleep(800);
     out.afterPick = await probe();
-    // 2. mst_biz_wh 를 우클릭 → 새 그룹 만들어 추가. 두 그룹에서 각각 다른 자리로 끈다
-    let p = await nodeAt('mst_biz_wh');
+    // 2. mst_brand_wh 를 우클릭 → 새 그룹 만들어 추가. 두 그룹에서 각각 다른 자리로 끈다
+    let p = await nodeAt('mst_brand_wh');
     await click(p!.x, p!.y, [], 'right');
     out.menu = await probe();
     await clickText('.ctx button', '새 그룹 만들어 추가');
-    p = await nodeAt('mst_biz_wh');
+    p = await nodeAt('mst_brand_wh');
     await drag(p!, 300, 120);
     await clickText('.dtabs button', '그룹 2');
     await sleep(800);
-    p = await nodeAt('mst_biz_wh');
+    p = await nodeAt('mst_brand_wh');
     await drag(p!, -200, 260);
     out.twoGroups = await probe();
     // 3. 그룹 1 에서 새 테이블 → 그 그룹과 전체에 모두 보인다
@@ -355,10 +355,10 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     await clickText('.dtabs button', '전체');
     await sleep(800);
     out.newTableInAll = { nodes: ((await probe()) as { nodes: string[] }).nodes.filter(n => n.startsWith('new_table')) };
-    // 4. 그룹 1 에서 mst_biz_center 를 Delete → 확인 창 → 모델에서 삭제. Ctrl+Z 로 소속까지 돌아온다
+    // 4. 그룹 1 에서 mst_brand_center 를 Delete → 확인 창 → 모델에서 삭제. Ctrl+Z 로 소속까지 돌아온다
     await clickText('.dtabs button', '그룹 1');
     await sleep(800);
-    p = await nodeAt('mst_biz_center');
+    p = await nodeAt('mst_brand_center');
     await click(p!.x, p!.y);
     await js(`document.activeElement && document.activeElement.blur && document.activeElement.blur()`);
     await key('Delete');
@@ -371,7 +371,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     // 5. 그룹 2 에서 더블클릭하면 다른 그룹(전체 모델 기준) 연결 테이블까지 미니 ERD 에 나온다
     await clickText('.dtabs button', '그룹 2');
     await sleep(800);
-    p = await nodeAt('mst_biz_wh');
+    p = await nodeAt('mst_brand_wh');
     await click(p!.x, p!.y, [], 'left', 1);
     wc.sendInputEvent({ type: 'mouseDown', x: Math.round(p!.x), y: Math.round(p!.y), button: 'left', clickCount: 2 });
     wc.sendInputEvent({ type: 'mouseUp', x: Math.round(p!.x), y: Math.round(p!.y), button: 'left', clickCount: 2 });

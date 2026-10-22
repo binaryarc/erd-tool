@@ -66,6 +66,8 @@ export interface Settings {
   exportDirs?: { flyway?: string; md?: string; history?: string; compare?: string };
   /** 쓰기로 여는 BE 프로필 이름 (없으면 dev, local). 나머지는 읽기 전용. 화면 없이 settings.json 을 고쳐 바꾼다 */
   writableProfiles?: string[];
+  /** 리버스로 모델이 처음 생길 때 쓸 그룹 규칙 파일(erd-groups.json). 없으면 모델 폴더 안의 erd-groups.json, 그것도 없으면 그룹 하나. 화면 없이 settings.json 을 고쳐 바꾼다 */
+  groupRulesFile?: string;
 }
 
 /** 내보내기로 쓸 새 파일 (폴더 없는 이름) */

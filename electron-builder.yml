@@ -1,6 +1,5 @@
 # Windows 설치 파일 빌드 설정 (STEP 11). npm run dist → dist/ERD Tool Setup {버전}.exe
 # 설정 키는 electron-builder 26.15.3 의 설정 스키마(app-builder-lib/scheme.json)로 확인했다.
-appId: kr.co.shop.erdtool
 productName: ERD Tool
 directories:
   output: dist

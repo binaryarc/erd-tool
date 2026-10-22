@@ -1,0 +1,80 @@
+# DB 시험(test/db)용 컨테이너. 내 PC 에서만 쓰는 시험 DB 이고 127.0.0.1 에만 연다. 실데이터는 넣지 않는다.
+# 비밀번호와 포트는 같은 폴더의 .env 에서 읽는다(.env.example 을 복사해 만든다, git 에 올리지 않는다).
+#   docker compose -f docker/docker-compose.yml up -d
+# 시험 쪽 접속 정보는 test/.env.local 에 적는다(test/.env.example 참고).
+name: erd-tool-testdb
+
+services:
+  # 빈 DB erdtest. PostgreSQL 시험이 처음 돌 때 예시 스키마(test/fixtures/seed-postgres.sql)를 넣는다
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: erd
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?docker/.env 에 PG_PASSWORD 를 넣으세요}
+      POSTGRES_DB: erdtest
+    ports:
+      - "127.0.0.1:${PG_PORT:-25432}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "erd", "-d", "erdtest"]
+      interval: 2s
+      retries: 30
+
+  # 시험은 관리 계정 sa 로 붙는다
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_PASSWORD:?docker/.env 에 MSSQL_PASSWORD 를 넣으세요}
+      MSSQL_PID: Developer
+    ports:
+      - "127.0.0.1:${MSSQL_PORT:-1433}:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
+      interval: 5s
+      retries: 30
+
+  # SQL Server 는 DB 를 저절로 만들지 않아, 처음 한 번 erdtest 를 만들고 끝난다
+  mssql-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_PASSWORD}
+    entrypoint: ["/bin/bash", "-c", "/opt/mssql-tools18/bin/sqlcmd -C -S mssql -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q \"IF DB_ID('erdtest') IS NULL CREATE DATABASE erdtest\""]
+    depends_on:
+      mssql:
+        condition: service_healthy
+    restart: "no"
+
+  # 시험 계정 erd. root 도 같은 비밀번호 (시험이 root 로 시험용 DB 를 만들고 지운다)
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:?docker/.env 에 MYSQL_PASSWORD 를 넣으세요}
+      MYSQL_DATABASE: erdtest
+      MYSQL_USER: erd
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  # 시험 계정 erd (FREEPDB1). system 도 같은 비밀번호 (시험이 system 으로 시험용 계정을 만들고 지운다)
+  oracle:
+    image: gvenzl/oracle-free:23-slim
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:?docker/.env 에 ORACLE_PASSWORD 를 넣으세요}
+      APP_USER: erd
+      APP_USER_PASSWORD: ${ORACLE_PASSWORD}
+    ports:
+      - "127.0.0.1:${ORACLE_PORT:-1521}:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+
+volumes:
+  pg-data:
+  mssql-data:
+  mysql-data:
+  oracle-data:

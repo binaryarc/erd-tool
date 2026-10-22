@@ -3,7 +3,7 @@ import { parseModel, serializeModel } from '../../src/shared/model/erd-format';
 import { validateModel } from '../../src/shared/model/validate';
 import { emptyLayout, parseLayout, serializeLayout } from '../../src/shared/model/layout';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
-import { SHOP_GROUPS } from '../helpers/fixtures';
+import { SAMPLE_GROUPS } from '../helpers/fixtures';
 
 const COMMON: Column[] = [
   { name: 'reg_id', type: 'varchar(50)', notNull: true, comment: '등록자_ID' },
@@ -14,7 +14,7 @@ const table = (id: string, name: string, extra: Partial<Table> = {}): Table => (
   id, name, comment: '', columns: [{ name: 'seq', type: 'integer', notNull: true }], pk: ['seq'], fks: [], uniques: [], indexes: [], ...extra,
 });
 
-const model = (tables: Table[]): SchemaModel => ({ version: 1, groups: SHOP_GROUPS, common: COMMON, sequences: [], tables, functions: [] });
+const model = (tables: Table[]): SchemaModel => ({ version: 1, groups: SAMPLE_GROUPS, common: COMMON, sequences: [], tables, functions: [] });
 
 /** 저장 → 읽기 → 저장 */
 function roundTrip(m: SchemaModel) {
@@ -26,12 +26,12 @@ function roundTrip(m: SchemaModel) {
 describe('.erd 형식', () => {
   it('저장 → 읽기 → 저장이 바이트 단위로 같다', () => {
     const m = model([
-      table('t1', 'mst_biz', { comment: 'MST_사업장', columns: [{ name: 'biz_seq', type: 'integer', notNull: true, default: "nextval('mst_biz_seq'::regclass)", comment: '사업장_SEQ' }, ...COMMON], pk: ['biz_seq'] }),
-      table('t2', 'mst_biz_wh', {
-        columns: [{ name: 'biz_seq', type: 'integer', notNull: true }, { name: 'wh_seq', type: 'integer', notNull: true }],
-        pk: ['biz_seq', 'wh_seq'],
-        fks: [{ name: 'fk_wh_biz', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] }],
-        indexes: [{ name: 'ix_lower', columns: ['lower(wh_seq::text, 1)', 'biz_seq'], unique: true }],
+      table('t1', 'mst_brand', { comment: 'MST_사업장', columns: [{ name: 'brand_seq', type: 'integer', notNull: true, default: "nextval('mst_brand_seq'::regclass)", comment: '사업장_SEQ' }, ...COMMON], pk: ['brand_seq'] }),
+      table('t2', 'mst_brand_wh', {
+        columns: [{ name: 'brand_seq', type: 'integer', notNull: true }, { name: 'wh_seq', type: 'integer', notNull: true }],
+        pk: ['brand_seq', 'wh_seq'],
+        fks: [{ name: 'fk_wh_brand', columns: ['brand_seq'], refTable: 'mst_brand', refColumns: ['brand_seq'] }],
+        indexes: [{ name: 'ix_lower', columns: ['lower(wh_seq::text, 1)', 'brand_seq'], unique: true }],
       }),
     ]);
     const { first, parsed, second } = roundTrip(m);
@@ -41,20 +41,20 @@ describe('.erd 형식', () => {
   });
 
   it('테이블은 넣은 순서와 상관없이 이름순으로 저장된다', () => {
-    const files = serializeModel(model([table('t2', 'mst_wh'), table('t1', 'mst_biz'), table('t3', 'mst_center')]));
+    const files = serializeModel(model([table('t2', 'mst_wh'), table('t1', 'mst_brand'), table('t3', 'mst_center')]));
     const heads = files['tables.erd'].split('\n').filter(l => l && !l.startsWith(' '));
-    expect(heads).toEqual(['mst_biz @t1', 'mst_center @t3', 'mst_wh @t2']);
+    expect(heads).toEqual(['mst_brand @t1', 'mst_center @t3', 'mst_wh @t2']);
   });
 
   it('테이블은 접두어 그룹과 상관없이 tables.erd 한 파일에 쓴다 (2026-10-16 사용자 지정). 테이블이 없으면 그 파일도 없다', () => {
-    const files = serializeModel(model([table('t1', 'mst_biz'), table('t2', 'whs_iw_h'), table('t3', 'flyway_schema_history')]));
+    const files = serializeModel(model([table('t1', 'mst_brand'), table('t2', 'whs_in_h'), table('t3', 'flyway_schema_history')]));
     expect(Object.keys(files).sort()).toEqual(['_index.erd', 'tables.erd']);
-    expect(files['tables.erd'].split('\n').filter(l => l && !l.startsWith(' '))).toEqual(['flyway_schema_history @t3', 'mst_biz @t1', 'whs_iw_h @t2']);
+    expect(files['tables.erd'].split('\n').filter(l => l && !l.startsWith(' '))).toEqual(['flyway_schema_history @t3', 'mst_brand @t1', 'whs_in_h @t2']);
     expect(Object.keys(serializeModel(model([])))).toEqual(['_index.erd']);
   });
 
-  it('예전처럼 접두어 그룹마다 나뉜 파일(mdm.erd, wms.erd)도 그대로 읽는다', () => {
-    const old = { '_index.erd': 'erd-model 2\ndb postgresql public\ngroup mdm prefix=mst_ default\ngroup wms prefix=whs_\n', 'mdm.erd': 'mst_a @t1\n  seq integer PK\n', 'wms.erd': 'whs_b @t2\n  seq integer PK\n' };
+  it('예전처럼 접두어 그룹마다 나뉜 파일(mst.erd, whs.erd)도 그대로 읽는다', () => {
+    const old = { '_index.erd': 'erd-model 2\ndb postgresql public\ngroup mst prefix=mst_ default\ngroup whs prefix=whs_\n', 'mst.erd': 'mst_a @t1\n  seq integer PK\n', 'whs.erd': 'whs_b @t2\n  seq integer PK\n' };
     const p = parseModel(old);
     expect(validateModel(p)).toEqual([]);
     expect(p.model.tables.map(t => t.name)).toEqual(['mst_a', 'whs_b']);
@@ -89,28 +89,28 @@ describe('.erd 형식', () => {
   });
 
   it('시퀀스와 그룹 규칙을 _index.erd 로 보존한다', () => {
-    const m = { ...model([table('t1', 'mst_biz')]), sequences: [{ name: 'z_seq', start: 1, inc: 1 }, { name: 'a_seq', start: 100, inc: -1 }] };
+    const m = { ...model([table('t1', 'mst_brand')]), sequences: [{ name: 'z_seq', start: 1, inc: 1 }, { name: 'a_seq', start: 100, inc: -1 }] };
     const { first, parsed } = roundTrip(m);
     expect(first['_index.erd']).toBe([
-      'erd-model 3', 'db postgresql public', 'group wms prefix=whs_', 'group mdm prefix=mst_', 'group sm prefix=sm_ default', 'group sif prefix=sif_', 'group wes prefix=wes_',
+      'erd-model 3', 'db postgresql public', 'group whs prefix=whs_', 'group mst prefix=mst_', 'group sys prefix=sys_ default', 'group sio prefix=sio_', 'group wcs prefix=wcs_',
       'common reg_id varchar(50) NN #등록자_ID', 'common reg_dt timestamp NN =now() #등록_일시',
       'seq a_seq start=100 inc=-1', 'seq z_seq start=1 inc=1', '',
     ].join('\n'));
-    expect(parsed.model.groups).toEqual(SHOP_GROUPS);
+    expect(parsed.model.groups).toEqual(SAMPLE_GROUPS);
   });
 
   it('형식 버전 1 파일은 PostgreSQL, public 으로 읽고, 저장하면 지금 버전과 db 줄을 쓴다 (STEP 9)', () => {
-    const v1 = { '_index.erd': 'erd-model 1\ngroup mdm prefix=mst_ default\n', 'mdm.erd': 'mst_a @t1\n  seq integer PK\n' };
+    const v1 = { '_index.erd': 'erd-model 1\ngroup mst prefix=mst_ default\n', 'mst.erd': 'mst_a @t1\n  seq integer PK\n' };
     const p = parseModel(v1);
     expect(p.errors).toEqual([]);
     expect([p.model.dialect, p.model.schema]).toEqual([undefined, undefined]);
     const out = serializeModel(p.model);
-    expect(out['_index.erd']).toBe('erd-model 3\ndb postgresql public\ngroup mdm prefix=mst_ default\n');
-    expect(out['tables.erd']).toBe(v1['mdm.erd']); // 테이블 줄은 그대로 (파일 이름만 tables.erd)
+    expect(out['_index.erd']).toBe('erd-model 3\ndb postgresql public\ngroup mst prefix=mst_ default\n');
+    expect(out['tables.erd']).toBe(v1['mst.erd']); // 테이블 줄은 그대로 (파일 이름만 tables.erd)
   });
 
   it('DB 종류와 스키마를 보존하고, 모르는 DB 종류와 버전은 오류다', () => {
-    const { parsed } = roundTrip({ ...model([table('t1', 'mst_biz')]), dialect: 'sqlserver', schema: 'dbo' });
+    const { parsed } = roundTrip({ ...model([table('t1', 'mst_brand')]), dialect: 'sqlserver', schema: 'dbo' });
     expect([parsed.model.dialect, parsed.model.schema]).toEqual(['sqlserver', 'dbo']);
     expect(parseModel({ '_index.erd': 'erd-model 2\ndb db2 x\n' }).errors.map(e => e.message)).toEqual(['db 줄 형식이 아닙니다: db db2 x']);
     expect(parseModel({ '_index.erd': 'erd-model 4\n' }).errors.map(e => e.message)).toEqual(['지원하지 않는 형식 버전: 4']);
@@ -120,8 +120,8 @@ describe('.erd 형식', () => {
 describe('검증', () => {
   it('이름 중복, ID 중복, 없는 FK 대상을 파일과 줄 번호로 알려준다', () => {
     const files = {
-      '_index.erd': 'erd-model 1\ngroup mdm prefix=mst_ default\n',
-      'mdm.erd': [
+      '_index.erd': 'erd-model 1\ngroup mst prefix=mst_ default\n',
+      'mst.erd': [
         'mst_a @t1',
         '  seq integer PK',
         'mst_a @t2',
@@ -138,11 +138,11 @@ describe('검증', () => {
     const errors = validateModel(parseModel(files));
     const text = errors.map(e => `${e.file}:${e.line} ${e.message}`);
     expect(text).toEqual(expect.arrayContaining([
-      'mdm.erd:5 mst_b: ID @t1 가 mst_a 와(과) 겹칩니다',
-      'mdm.erd:3 테이블 이름 mst_a 이 2번 나옵니다',
-      'mdm.erd:7 mst_b: FK fk_b_a 의 참조 테이블 mst_none 이(가) 없습니다',
-      'mdm.erd:8 mst_b: FK fk_b_a2 의 참조 컬럼 mst_a.nope 이(가) 없습니다',
-      'mdm.erd:9 mst_c: ID 형식이 t숫자가 아닙니다 (@x9)',
+      'mst.erd:5 mst_b: ID @t1 가 mst_a 와(과) 겹칩니다',
+      'mst.erd:3 테이블 이름 mst_a 이 2번 나옵니다',
+      'mst.erd:7 mst_b: FK fk_b_a 의 참조 테이블 mst_none 이(가) 없습니다',
+      'mst.erd:8 mst_b: FK fk_b_a2 의 참조 컬럼 mst_a.nope 이(가) 없습니다',
+      'mst.erd:9 mst_c: ID 형식이 t숫자가 아닙니다 (@x9)',
     ]));
   });
 
@@ -154,11 +154,11 @@ describe('검증', () => {
 describe('layout.json', () => {
   it('키를 정렬해 저장하고 두 번 저장해도 같다', () => {
     const l = emptyLayout();
-    l.diagrams['전체'] = { pinned: { t5: [1200, 300] }, groups: { mdm: { order: ['t2', 't1'], rule: { origin: [0, 0], gap: 40, cols: 3 } } } };
+    l.diagrams['전체'] = { pinned: { t5: [1200, 300] }, groups: { mst: { order: ['t2', 't1'], rule: { origin: [0, 0], gap: 40, cols: 3 } } } };
     const first = serializeLayout(l);
     expect(serializeLayout(parseLayout(first))).toBe(first);
     expect(first.indexOf('"cols"')).toBeLessThan(first.indexOf('"gap"'));
-    expect(parseLayout(first).diagrams['전체'].groups!.mdm.order).toEqual(['t2', 't1']); // 순서 배열은 그대로
+    expect(parseLayout(first).diagrams['전체'].groups!.mst.order).toEqual(['t2', 't1']); // 순서 배열은 그대로
   });
 });
 

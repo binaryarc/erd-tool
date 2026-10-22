@@ -6,12 +6,12 @@ import type { DiffItem } from '../../src/shared/model/diff';
 const now = new Date(2026, 9, 22, 13, 5);
 const items: DiffItem[] = [
   { kind: 'table', change: 'add', table: 'mst_probe', name: 'mst_probe', detail: '2개 컬럼' },
-  { kind: 'column', change: 'drop', table: 'mst_biz', name: 'old_col', detail: 'varchar(10)', danger: '컬럼 값이 사라집니다' },
-  { kind: 'column', change: 'alter', table: 'mst_biz', name: 'biz_nm', detail: '타입 a | b → c', danger: undefined },
+  { kind: 'column', change: 'drop', table: 'mst_brand', name: 'old_col', detail: 'varchar(10)', danger: '컬럼 값이 사라집니다' },
+  { kind: 'column', change: 'alter', table: 'mst_brand', name: 'brand_nm', detail: '타입 a | b → c', danger: undefined },
 ];
 
 describe('DB 비교 결과 MD', () => {
-  const md = buildCompareMd({ items, fromLabel: 'dev (shop-dev)', toLabel: '지금 ERD', now, alter: 'ALTER TABLE mst_biz DROP COLUMN old_col;\n' });
+  const md = buildCompareMd({ items, fromLabel: 'dev (shop-dev)', toLabel: '지금 ERD', now, alter: 'ALTER TABLE mst_brand DROP COLUMN old_col;\n' });
 
   it('머리에 두 쪽, 시각, 차이 수, 위험 수', () => {
     expect(md).toContain('- 왼쪽 (지금 모습): dev (shop-dev)\n- 오른쪽 (바꿀 모습): 지금 ERD\n- 비교 시각: 2026-10-22 13:05\n- 차이 3개, 위험 1개\n\n## 1. 요약\n');
@@ -20,11 +20,11 @@ describe('DB 비교 결과 MD', () => {
     expect(md).toContain('| No. | 종류 | 추가 | 삭제 | 변경 | 이름 바꿈 |');
     expect(md).toContain('| 1 | 테이블 | 1 | 0 | 0 | 0 |');
     expect(md).toContain('| 2 | 컬럼 | 0 | 1 | 1 | 0 |');
-    expect(md).toContain('| 2 | 컬럼 | 삭제 | mst_biz | old_col | varchar(10) | 컬럼 값이 사라집니다 |');
-    expect(md).toContain('| 3 | 컬럼 | 변경 | mst_biz | biz_nm | 타입 a \\| b → c |  |');
+    expect(md).toContain('| 2 | 컬럼 | 삭제 | mst_brand | old_col | varchar(10) | 컬럼 값이 사라집니다 |');
+    expect(md).toContain('| 3 | 컬럼 | 변경 | mst_brand | brand_nm | 타입 a \\| b → c |  |');
   });
   it('ALTER 는 sql 코드 블록으로 담는다', () => {
-    expect(md).toContain('```sql\nALTER TABLE mst_biz DROP COLUMN old_col;\n```');
+    expect(md).toContain('```sql\nALTER TABLE mst_brand DROP COLUMN old_col;\n```');
   });
   it('좁혀 담으면 머리에 적고, 차이가 없으면 같다고만 쓴다', () => {
     expect(buildCompareMd({ items: items.slice(1, 2), fromLabel: 'a', toLabel: 'b', now, filter: '컬럼, 위험만' })).toContain('- 차이 1개, 위험 1개\n- 좁힌 조건: 컬럼, 위험만 (보이는 줄만 담고 ALTER 는 뺌)\n');

@@ -63,10 +63,10 @@ describe('Spring 표준 키와 yml (spring.datasource.*, application-{프로필}
     ]);
   });
 
-  it('shop 의 db.* 키는 지금처럼 읽는다', () => {
+  it('db.* 키(Spring 표준이 아닌 BE 규칙)는 지금처럼 읽는다', () => {
     const be = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-be-'));
     fs.mkdirSync(path.join(be, 'src/main/resources'), { recursive: true });
-    fs.writeFileSync(path.join(be, 'src/main/resources/application-dev.properties'), 'db.url=jdbc:log4jdbc:postgresql://localhost:15432/shop-dev\ndb.username=shop\ndb.password=ENC(x)\n');
-    expect(pick(be)).toEqual([{ name: 'dev', driver: 'postgresql', host: 'localhost', port: 15432, database: 'shop-dev', user: 'shop', passwordRaw: 'ENC(x)', readOnly: false }]);
+    fs.writeFileSync(path.join(be, 'src/main/resources/application-dev.properties'), 'db.url=jdbc:log4jdbc:postgresql://localhost:15432/shop-dev\ndb.username=app_user\ndb.password=ENC(x)\n');
+    expect(pick(be)).toEqual([{ name: 'dev', driver: 'postgresql', host: 'localhost', port: 15432, database: 'shop-dev', user: 'app_user', passwordRaw: 'ENC(x)', readOnly: false }]);
   });
 });

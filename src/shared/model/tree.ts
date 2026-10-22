@@ -96,7 +96,7 @@ export function arrangeTree(model: SchemaModel, size: TreeSize): Map<string, { x
 
   // 배치 A: 줄 폭을 전체 넓이가 화면 비율(ASPECT) 사각형이 되게 정하고 위에서 아래로 (2026-10-16 사용자 요청: 한눈에 많이)
   const a = pack(linked, lone, Math.max(colW, ...linked.map(l => l.width), Math.sqrt(areaOf(linked, lone) * ASPECT)), colW, size);
-  // 배치 B: 가장 큰 묶음이 아주 길면(shop 는 41개 묶음이 다른 것을 다 합친 것보다 길다) 그 묶음을 왼쪽에 두고
+  // 배치 B: 가장 큰 묶음이 아주 길면(실측한 117개 테이블 스키마는 41개 묶음이 다른 것을 다 합친 것보다 길다) 그 묶음을 왼쪽에 두고
   // 나머지를 그 오른쪽에 그 높이 안에 들어가게 쌓는다
   let best = a;
   if (linked.length) {

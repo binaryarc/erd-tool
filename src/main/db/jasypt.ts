@@ -1,4 +1,4 @@
-// Jasypt ENC(...) 복호화 — PBEWithMD5AndDES, 고정 salt (STEP 1 시험으로 허브 db-target.ps1 과 같은 결과 확인)
+// Jasypt ENC(...) 복호화 — PBEWithMD5AndDES, 고정 salt (STEP 1 시험으로 Java Jasypt 와 같은 결과 확인)
 // 마스터키는 환경변수 JASYPT_ENCRYPTOR_PASSWORD(없으면 Windows 사용자 환경변수)에서만 읽고 어디에도 남기지 않는다.
 // 풀지 못하면 오류를 던지고, 그때는 화면이 비밀번호를 묻는다(passwords.ts). 다른 방식(AES 등)은 지원하지 않고 입력으로 대신한다.
 // Node 내장 crypto 의 des-cbc 는 OpenSSL 3 기본 설정에서 막혀 있어 crypto-js 를 쓴다.

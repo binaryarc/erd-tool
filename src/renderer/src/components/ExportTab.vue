@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 내보내기 (STEP 7, 설계 8-1): 지금 ERD 모델로 허브 40-schema 모양 MD 와 메뉴 물리 테이블 목록 조각을 만든다.
+// 내보내기 (STEP 7, 설계 8-1): 지금 ERD 모델로 그룹별 테이블 정의서 MD 와 메뉴 물리 테이블 목록 조각을 만든다.
 // 폴더는 내보낼 때마다 고르고 마지막 위치를 기억한다. 파일 이름에 시각을 붙이지 않고 같은 이름은 덮어쓴다(사용자 지정 2026-10-16).
 // Flyway 파일은 DB 비교 탭의 「Flyway 파일 만들기」 에서 만든다(두 쪽 차이가 필요하다).
 import { ref } from 'vue';
@@ -63,7 +63,7 @@ defineExpose({
     <template v-else>
       <div class="box">
         <h4>스키마 문서 (MD)</h4>
-        <p class="muted">그룹마다 테이블 정의서 한 개(컬럼, PK, FK, UNIQUE, 인덱스)와 색인 00-tables-overview 를 만듭니다. 허브 40-schema 모양입니다. 같은 이름 파일이 있으면 덮어씁니다.</p>
+        <p class="muted">그룹마다 테이블 정의서 한 개(컬럼, PK, FK, UNIQUE, 인덱스)와 색인 00-tables-overview 를 만듭니다. 같은 이름 파일이 있으면 덮어씁니다.</p>
         <p>그룹 {{ model.groups.length }}개, 테이블 {{ model.tables.length }}개</p>
         <button @click="run(schemaFiles)">폴더 골라 만들기</button>
       </div>

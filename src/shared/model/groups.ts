@@ -3,7 +3,7 @@
 import { sameColumn } from './erd-format';
 import type { Column, GroupRule, Table } from './types';
 
-/** 허브 erd-groups.json ({ grp_rules: [{prefix, grp}], grp_default }) → 그룹 규칙 */
+/** 그룹 규칙 파일 erd-groups.json ({ grp_rules: [{prefix, grp}], grp_default }) → 그룹 규칙 */
 export function groupsFromErdGroupsJson(json: { grp_rules?: { prefix: string; grp: string }[]; grp_default?: string }): GroupRule[] {
   const rules: GroupRule[] = (json.grp_rules ?? []).map(r => ({ name: r.grp, prefix: r.prefix }));
   const def = json.grp_default;

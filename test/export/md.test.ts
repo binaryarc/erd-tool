@@ -7,15 +7,15 @@ const col = (name: string, type: string, extra: Partial<Column> = {}): Column =>
 const table = (id: string, name: string, columns: Column[], extra: Partial<Table> = {}): Table =>
   ({ id, name, comment: '', columns, pk: [], fks: [], uniques: [], indexes: [], ...extra });
 const model: SchemaModel = {
-  version: 1, common: [], sequences: [{ name: 'mst_biz_seq', start: 1, inc: 1 }], functions: [],
-  groups: [{ name: 'wms', prefix: 'whs_' }, { name: 'mdm', prefix: 'mst_' }, { name: 'sm', prefix: 'sm_', isDefault: true }],
+  version: 1, common: [], sequences: [{ name: 'mst_brand_seq', start: 1, inc: 1 }], functions: [],
+  groups: [{ name: 'whs', prefix: 'whs_' }, { name: 'mst', prefix: 'mst_' }, { name: 'sys', prefix: 'sys_', isDefault: true }],
   tables: [
-    table('t2', 'mst_wh', [col('wh_seq', 'integer', { notNull: true }), col('biz_seq', 'integer')], {
-      pk: ['wh_seq'], comment: '창고', fks: [{ name: 'fk_wh_biz', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] }],
+    table('t2', 'mst_wh', [col('wh_seq', 'integer', { notNull: true }), col('brand_seq', 'integer')], {
+      pk: ['wh_seq'], comment: '창고', fks: [{ name: 'fk_wh_brand', columns: ['brand_seq'], refTable: 'mst_brand', refColumns: ['brand_seq'] }],
       indexes: [{ name: 'ix_wh_lower', columns: ['lower(wh_nm)'], unique: true }],
     }),
-    table('t1', 'mst_biz', [col('biz_seq', 'integer', { notNull: true, default: "nextval('mst_biz_seq'::regclass)", comment: '사업장 | SEQ' }),
-      col('memo', 'text', { comment: '줄\n바꿈' })], { pk: ['biz_seq'], comment: '사업장' }),
+    table('t1', 'mst_brand', [col('brand_seq', 'integer', { notNull: true, default: "nextval('mst_brand_seq'::regclass)", comment: '사업장 | SEQ' }),
+      col('memo', 'text', { comment: '줄\n바꿈' })], { pk: ['brand_seq'], comment: '사업장' }),
     table('t3', 'flyway_schema_history', [col('version', 'varchar(50)')]),
   ],
 };
@@ -32,22 +32,22 @@ describe('MD 템플릿', () => {
 describe('스키마 MD', () => {
   const files = buildSchemaDocs(model, now);
   it('색인과 테이블 있는 그룹마다 한 파일, 이름에 시각을 붙이지 않는다', () => {
-    expect(files.map(f => f.name)).toEqual(['00-tables-overview.md', 'mdm-tables.md', 'sm-tables.md']);
+    expect(files.map(f => f.name)).toEqual(['00-tables-overview.md', 'mst-tables.md', 'sys-tables.md']);
   });
   it('그룹 문서: 테이블 목록, 컬럼 정의, FK, 인덱스. 표 칸의 | 와 줄바꿈을 지킨다', () => {
-    const mdm = files[1].content;
-    expect(mdm).toContain('| 1 | mst_biz | 사업장 |\n| 2 | mst_wh | 창고 |');
-    expect(mdm).toContain("| 1 | biz_seq | integer | N | nextval('mst_biz_seq'::regclass) | PK | 사업장 \\| SEQ |");
-    expect(mdm).toContain('| 2 | memo | text | Y |  |  | 줄 바꿈 |');
-    expect(mdm).toContain('FK\n\n| No. | 이름 | 컬럼 | 참조 |\n|---|---|---|---|\n| 1 | fk_wh_biz | biz_seq | mst_biz(biz_seq) |');
-    expect(mdm).toContain('| 1 | ix_wh_lower | lower(wh_nm) | UNIQUE |');
-    expect(mdm).not.toContain('UNIQUE 제약'); // 없는 절은 빠진다
-    expect(mdm).not.toMatch(/\{\{|\}\}/);
-    expect(mdm).not.toMatch(/\n\n\n/);
+    const mst = files[1].content;
+    expect(mst).toContain('| 1 | mst_brand | 사업장 |\n| 2 | mst_wh | 창고 |');
+    expect(mst).toContain("| 1 | brand_seq | integer | N | nextval('mst_brand_seq'::regclass) | PK | 사업장 \\| SEQ |");
+    expect(mst).toContain('| 2 | memo | text | Y |  |  | 줄 바꿈 |');
+    expect(mst).toContain('FK\n\n| No. | 이름 | 컬럼 | 참조 |\n|---|---|---|---|\n| 1 | fk_wh_brand | brand_seq | mst_brand(brand_seq) |');
+    expect(mst).toContain('| 1 | ix_wh_lower | lower(wh_nm) | UNIQUE |');
+    expect(mst).not.toContain('UNIQUE 제약'); // 없는 절은 빠진다
+    expect(mst).not.toMatch(/\{\{|\}\}/);
+    expect(mst).not.toMatch(/\n\n\n/);
   });
   it('색인: 그룹별 수와 문서 링크, 가운뎃점 없음, 같은 입력은 같은 출력', () => {
     const o = files[0].content;
-    expect(o).toContain('| 1 | mdm | `mst_` | 2 | [mdm-tables.md](./mdm-tables.md) |');
+    expect(o).toContain('| 1 | mst | `mst_` | 2 | [mst-tables.md](./mst-tables.md) |');
     expect(o).toContain('테이블 3개, FK 1개, 시퀀스 1개, 함수 0개');
     for (const f of files) expect(f.content).not.toContain(String.fromCharCode(0xb7)); // 가운뎃점
     expect(buildSchemaDocs(model, now)).toEqual(files);

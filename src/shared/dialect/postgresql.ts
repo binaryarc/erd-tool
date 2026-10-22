@@ -1,5 +1,5 @@
 // PostgreSQL 규칙 (STEP 9 전에는 sql/alter.ts, model/pg-types.ts, sql/complete.ts 에 흩어져 있던 것)
-// flyway 선택 사항(STEP 7): 허브 03-flyway-migration.md 4절대로 스키마 접두어(모델의 스키마, 없으면 public)를 붙이고 여러 번 실행해도 안전하게 쓴다
+// flyway 선택 사항(STEP 7): 스키마 접두어(모델의 스키마, 없으면 public)를 붙이고 여러 번 실행해도 안전하게 쓴다
 //   (IF NOT EXISTS, IF EXISTS, 제약 추가는 pg_constraint 를 확인하는 DO 블록).
 
 import { isProcedure } from '../model/diff';

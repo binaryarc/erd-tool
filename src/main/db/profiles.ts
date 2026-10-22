@@ -1,5 +1,5 @@
 // BE 레포의 application-{프로파일}.properties (또는 .yml, .yaml) 에서 접속 프로필을 만든다 (설계 5장)
-// 키는 shop 의 db.url, db.username, db.password 를 먼저 보고, 없으면 Spring 표준 spring.datasource.* 를 본다 (2026-10-22)
+// 키는 BE 고유 키 db.url, db.username, db.password 를 먼저 보고, 없으면 Spring 표준 spring.datasource.* 를 본다 (2026-10-22)
 // 비밀번호는 접속할 때만 복호화하고 화면으로 보내지 않는다.
 
 import fs from 'node:fs';
@@ -82,7 +82,7 @@ export function listProfiles(beDir: string): Profile[] {
   const profiles: Profile[] = [];
   for (const name of [...byName.keys()].sort()) {
     const c = byName.get(name)!;
-    // shop 키를 먼저, 없으면 Spring 표준 키
+    // db.* 키를 먼저, 없으면 Spring 표준 키
     const p = { url: c['db.url'] ?? c['spring.datasource.url'], user: c['db.username'] ?? c['spring.datasource.username'], password: c['db.password'] ?? c['spring.datasource.password'] };
     const m = parseJdbcUrl(p.url ?? '');
     const kind = m ? JDBC[m.driver] : undefined;

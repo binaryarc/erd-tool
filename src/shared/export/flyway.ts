@@ -1,4 +1,4 @@
-// 차이 → Flyway 마이그레이션 파일 (STEP 7, 설계 8-2). 형식 정본은 허브 patterns/20-database/30-convention/03-flyway-migration.md 2~5절.
+// 차이 → Flyway 마이그레이션 파일 (STEP 7, 설계 8-2). 이름은 V{번호}__{설명}.sql, 본문은 여러 번 실행해도 안전한 문장.
 // 본문은 buildAlter 의 flyway 선택 사항(모델의 스키마 접두어, 여러 번 실행해도 안전한 문장)으로 만들고,
 // 맨 아래에 반대 방향 ALTER 를 한 줄마다 "-- " 를 붙인 ROLLBACK 주석 블록으로 둔다(Flyway 커뮤니티는 undo 없음).
 // 파일을 만들 뿐 DB 에 실행하지 않는다.
@@ -31,7 +31,7 @@ export function nextVersion(fileNames: string[]): number {
   return max + 1;
 }
 
-/** 설명은 영문 소문자 snake_case (허브 규칙 2절) */
+/** 설명은 영문 소문자 snake_case */
 export const validDescription = (d: string) => /^[a-z][a-z0-9_]*$/.test(d);
 
 /** 차이로 설명을 미리 채운다: 테이블 하나만 바뀌면 add_x, drop_x, alter_x. 여럿이면 change_schema */
@@ -120,7 +120,7 @@ export function buildFlyway(i: FlywayInput): FlywayFile {
     ...body(down.sql).split('\n').map(l => (l ? '-- ' + l : '--')),
     '',
   ].join('\n');
-  // 함수 정의 등에 달러+중괄호가 섞이면 Flyway 기동이 멈춘다 (허브 규칙 4절 3번)
+  // 함수 정의 등에 달러+중괄호가 섞이면 Flyway 기동이 멈춘다 (Flyway 가 플레이스홀더로 해석)
   if (sql.includes('${')) throw new Error('달러+중괄호 형태가 들어 있어 Flyway 가 플레이스홀더로 해석합니다. 그 부분을 고친 뒤 다시 만드세요');
 
   const historyLine = `| ${dateTime(i.now)} | ${i.menuCode || '-'} | ${tables.map(t => '`' + t + '`').join(', ')} | ${summary} — ${fileName} | - | - |`;

@@ -1003,8 +1003,8 @@ async function sqlScenario(beDir: string, dir: string) {
   };
   out.suggest = {
     afterFrom: await typeAndRead('select * from mst_b'),
-    afterAliasDot: await typeAndRead('select b.', ' from mst_biz b'),
-    afterWhere: await typeAndRead('select * from mst_biz b where bi'),
+    afterAliasDot: await typeAndRead('select b.', ' from mst_brand b'),
+    afterWhere: await typeAndRead('select * from mst_brand b where bi'),
     start: await typeAndRead('se'),
   };
 
@@ -1016,7 +1016,7 @@ async function sqlScenario(beDir: string, dir: string) {
   out.ghost = Array.from(document.querySelectorAll('[class*=ghost-text]')).map(e => e.textContent).join('');
 
   // ERD 에서 고른 테이블로 SELECT 만들어 실행
-  const join = buildJoinSelect(model.value!, ['mst_biz_wh', 'mst_biz', 'mst_wh']);
+  const join = buildJoinSelect(model.value!, ['mst_brand_wh', 'mst_brand', 'mst_wh']);
   ed.setValue(join);
   ed.setSelection(ed.getModel()!.getFullModelRange());
   const jr = await tab.run();
@@ -1111,7 +1111,7 @@ async function step5Scenario(beDir: string, dir: string) {
   // ERD 에만 컬럼 하나를 더한다 (화면 모델만, 파일 저장 안 함) → dev 와 비교 → dev 에 적용 → 전체 실행 → 롤백
   const original = model.value!;
   const probe = 'erd_tool_probe';
-  model.value = { ...original, tables: original.tables.map(t => t.name === 'mst_biz' ? { ...t, columns: [...t.columns, { name: probe, type: 'varchar(10)', notNull: false }] } : t) };
+  model.value = { ...original, tables: original.tables.map(t => t.name === 'mst_brand' ? { ...t, columns: [...t.columns, { name: probe, type: 'varchar(10)', notNull: false }] } : t) };
   compare.value!.setRight('be:dev');
   compare.value!.setLeft('be:dev');
   await sleep(200);
@@ -1127,10 +1127,10 @@ async function step5Scenario(beDir: string, dir: string) {
   out.applyTab = { title: sqlTab.title, conn: sqlTab.initialConn, state: tab.state() };
   out.runAll = await tab.runAll();
   out.afterRun = tab.state();
-  const check = await window.erd.sql.run(sqlTab.id, `select ${probe} from mst_biz limit 0`);
+  const check = await window.erd.sql.run(sqlTab.id, `select ${probe} from mst_brand limit 0`);
   out.columnExistsInTx = !check.error;
   await tab.tx('rollback');
-  const after = await window.erd.sql.run(sqlTab.id, `select ${probe} from mst_biz limit 0`);
+  const after = await window.erd.sql.run(sqlTab.id, `select ${probe} from mst_brand limit 0`);
   out.columnGoneAfterRollback = !!after.error && /does not exist/.test(after.error.message);
   await tab.tx('rollback');
   model.value = original;
@@ -1179,16 +1179,16 @@ async function step6Scenario(beDir: string, dir: string) {
     await nextTick(); await frames(3);
     editor.value!.addColumnDraft({ name: 'probe_seq', type: 'int', pk: true, comment: '시험 SEQ' });
     await nextTick();
-    editor.value!.addColumnDraft({ name: 'biz_seq', type: 'integer', comment: '사업장' });
+    editor.value!.addColumnDraft({ name: 'brand_seq', type: 'integer', comment: '사업장' });
     await nextTick();
-    editor.value!.addFkDraft('mst_biz', ['biz_seq']);
+    editor.value!.addFkDraft('mst_brand', ['brand_seq']);
     await nextTick(); await frames(10); await sleep(800);
     const t = model.value!.tables.find(x => x.name === probe)!;
     out.edited = { tempName, editor: editName.value, columns: t.columns.map(c => `${c.name} ${c.type}${c.notNull ? ' NN' : ''}`), pk: t.pk, fks: t.fks,
       node: Array.from(document.querySelectorAll('.vue-flow__node-table .head b')).some(e => e.textContent === probe),
       edge: !!document.querySelector(`.vue-flow__edge[data-id="${t.id}:${t.fks[0]?.name}"]`), canUndo: canUndo.value, message: message.value };
     // 잘못된 수정은 막히고 모델은 그대로
-    const bad = edit(m => updateTable(m, probe, { name: 'mst_biz' }));
+    const bad = edit(m => updateTable(m, probe, { name: 'mst_brand' }));
     out.badEdit = { applied: bad, message: message.value };
     out.apply = await applyAndCommit();
     out.afterApply = await diffDev(); // 다시 불러오면 차이 0 (완료 기준)
@@ -1230,8 +1230,8 @@ async function step7Scenario(beDir: string, dir: string, exportDir: string) {
   const probe = 'mst_erd_probe';
   edit(m => addTable(m, probe, { comment: 'ERD 도구 시험', withCommon: true }));
   edit(m => addColumn(m, probe, { name: 'probe_seq', type: 'int', notNull: false, pk: true }));
-  edit(m => addColumn(m, probe, { name: 'biz_seq', type: 'integer', notNull: false, comment: '사업장' }));
-  edit(m => addFk(m, probe, { name: 'fk_mst_erd_probe_mst_biz', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] }));
+  edit(m => addColumn(m, probe, { name: 'brand_seq', type: 'integer', notNull: false, comment: '사업장' }));
+  edit(m => addFk(m, probe, { name: 'fk_mst_erd_probe_mst_brand', columns: ['brand_seq'], refTable: 'mst_brand', refColumns: ['brand_seq'] }));
 
   // Flyway: 왼쪽 dev, 오른쪽 지금 ERD
   await applyToDb();
@@ -1248,7 +1248,7 @@ async function step7Scenario(beDir: string, dir: string, exportDir: string) {
   await nextTick(); await frames(5);
   const md = await exporter.value!.writeSchema(`${exportDir}/md`);
   const again = await exporter.value!.writeSchema(`${exportDir}/md`);
-  const menu = await exporter.value!.writeMenu(`${exportDir}/md`, 'MENU01', ['mst_biz', probe]);
+  const menu = await exporter.value!.writeMenu(`${exportDir}/md`, 'MENU01', ['mst_brand', probe]);
   out.md = { files: md.map(p => p.split(/[\\/]/).pop()), againWritten: again.length, menu: menu.map(p => p.split(/[\\/]/).pop()),
     error: document.querySelector('.export .warn')?.textContent ?? '' };
 
@@ -1258,7 +1258,7 @@ async function step7Scenario(beDir: string, dir: string, exportDir: string) {
 }
 
 /**
- * STEP 8 시험 (완료 기준): 내장 터미널에서 실제 Claude Code 에 「mst_biz_wh 에 sort_no 컬럼 추가하고 mst_biz_center 옆에 둬」 라고 하면
+ * STEP 8 시험 (완료 기준): 내장 터미널에서 실제 Claude Code 에 「mst_brand_wh 에 sort_no 컬럼 추가하고 mst_brand_center 옆에 둬」 라고 하면
  * ERD 에 강조된 변경이 나타나고 다른 테이블 위치는 바뀌지 않는다. 모델 파일은 저장하지 않는다(메인이 캡처 뒤 취소한다).
  * prompt 를 주면 그 문장으로, measure 면 토큰 측정용 짧은 요청 두 개(도구 부름, 안 부름)를 json 출력으로 돌린다.
  */
@@ -1302,12 +1302,12 @@ async function step8Scenario(beDir: string, dir: string, exportDir: string, meas
     return JSON.parse(JSON.stringify(out)); // 측정만 한다 (완료 기준 문장은 다시 돌리지 않는다)
   }
 
-  const prompt = 'mst_biz_wh 에 sort_no 컬럼 추가하고 mst_biz_center 옆에 둬';
+  const prompt = 'mst_brand_wh 에 sort_no 컬럼 추가하고 mst_brand_center 옆에 둬';
   out.claudeSeconds = await run(claude(prompt), 300_000);
   await nextTick(); await frames(10); await sleep(1000);
   const m = model.value!;
-  const wh = m.tables.find(t => t.name === 'mst_biz_wh')!;
-  const center = m.tables.find(t => t.name === 'mst_biz_center')!;
+  const wh = m.tables.find(t => t.name === 'mst_brand_wh')!;
+  const center = m.tables.find(t => t.name === 'mst_brand_center')!;
   const after = canvas.value!.boxes();
   const moved = [...before].filter(([id, b]) => id !== wh.id && (after.get(id)?.x !== b.x || after.get(id)?.y !== b.y)).map(([id]) => nameOf(id));
   const c = after.get(center.id)!, w = after.get(wh.id)!;
@@ -1322,11 +1322,11 @@ async function step8Scenario(beDir: string, dir: string, exportDir: string, meas
     saveDisabled: (document.querySelector('header button:nth-of-type(2)') as HTMLButtonElement | null)?.disabled ?? null,
   };
   out.terminalTail = term.bufferText().split('\n').map(l => l.trimEnd()).filter(Boolean).slice(-12);
-  await canvas.value!.focusTable('mst_biz_wh');
+  await canvas.value!.focusTable('mst_brand_wh');
   return JSON.parse(JSON.stringify(out));
 }
 /** STEP 8 시험 끝: 확정 대기를 취소해 원래 모델로 (저장하지 않음) */
-window.__erdAiCancel = () => { aiCancel(); return { pending: !!aiBase.value, tables: model.value?.tables.length, sortNo: !!model.value?.tables.find(t => t.name === 'mst_biz_wh')?.columns.some(c => c.name === 'sort_no') }; };
+window.__erdAiCancel = () => { aiCancel(); return { pending: !!aiBase.value, tables: model.value?.tables.length, sortNo: !!model.value?.tables.find(t => t.name === 'mst_brand_wh')?.columns.some(c => c.name === 'sort_no') }; };
 
 /** 자동완성 목록 시험: dev 에 접속한 SQL 탭에서 글자를 쳐 목록을 띄우고, 항목 글자와 글자색, 배경색을 잰다 (화면은 메인이 캡처) */
 async function suggestScenario(beDir: string) {
@@ -1471,7 +1471,7 @@ window.__erdSaveReopen = async (dir: string) => {
 function sessionState() {
   const erd = (id: string) => {
     const d = docs.get(id)!;
-    const t = d.model.value?.tables.find(x => x.name === 'mst_biz_wh');
+    const t = d.model.value?.tables.find(x => x.name === 'mst_brand_wh');
     return { dir: d.modelDir.value.split(/[\\/]/).pop(), title: titleOf(id), dirty: d.dirty.value, tables: d.model.value?.tables.length, whColumns: t?.columns.map(c => c.name),
       diagram: d.tab.value, groupTabs: groupTabs(d.layout.value), viewport: d === cur.value && canvas.value ? canvas.value.viewportNow() : d.viewport };
   };
@@ -1540,18 +1540,18 @@ window.__erdConnect = async (step: string, a?: string, b?: string) => {
     edit(m => addTable(m, PROBE + '_cpk', { comment: '복합 PK 시험 테이블' }));
     edit(m => addColumn(m, PROBE + '_cpk', { name: 'a_seq', type: 'integer', notNull: true, pk: true }));
     edit(m => addColumn(m, PROBE + '_cpk', { name: 'b_seq', type: 'integer', notNull: true, pk: true }));
-    // 시험 테이블을 mst_biz 오른쪽, mst_wh 를 그 아래에 고정해 셋이 한 화면에 보이게
+    // 시험 테이블을 mst_brand 오른쪽, mst_wh 를 그 아래에 고정해 셋이 한 화면에 보이게
     await nextTick(); await frames(10);
     const boxes = canvas.value!.boxes();
     const id = (n: string) => model.value!.tables.find(t => t.name === n)!.id;
-    const biz = boxes.get(id('mst_biz'))!;
+    const biz = boxes.get(id('mst_brand'))!;
     diagram.value!.pinned[id(PROBE)] = [biz.x + biz.w + 160, biz.y];
     diagram.value!.pinned[id('mst_wh')] = [biz.x + biz.w + 160, biz.y + 200];
     diagram.value!.pinned[id(PROBE + '_nopk')] = [biz.x + biz.w + 560, biz.y];
     diagram.value!.pinned[id(PROBE + '_cpk')] = [biz.x + biz.w + 560, biz.y + 200];
     version.value++;
     await nextTick(); await frames(10);
-    await canvas.value!.fitView({ nodes: [id('mst_biz'), id(PROBE), id('mst_wh'), id(PROBE + '_cpk'), id(PROBE + '_nopk')], padding: 0.1 });
+    await canvas.value!.fitView({ nodes: [id('mst_brand'), id(PROBE), id('mst_wh'), id(PROBE + '_cpk'), id(PROBE + '_nopk')], padding: 0.1 });
     await sleep(400); // 화면 맞추기가 끝난 뒤 위치를 읽게
     await sleep(800);
     return { before: await diffDev() };

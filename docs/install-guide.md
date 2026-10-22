@@ -3,7 +3,6 @@ title: ERD Tool 설치 안내
 description: 부서원이 ERD Tool 설치 파일로 설치하고 처음 실행할 때, 그리고 관리자가 설치 파일을 다시 만들 때 읽는다
 status: draft
 version: 0.1.0
-agent_usage: guide
 tags:
   - erd
   - install
@@ -11,7 +10,7 @@ tags:
 
 # ERD Tool 설치 안내
 
-> 숨은 전제: 사내 Windows 10, 11 x64 PC 이고, DB 접속 정보는 BE 레포(`shop-be` 등)의 `application-{프로필}.properties` 에서 읽는다. 설치 파일만으로 실행되며 Node.js, Java 같은 개발 도구는 필요 없다.
+> 숨은 전제: 사내 Windows 10, 11 x64 PC 이고, DB 접속 정보는 BE 레포의 `application-{프로필}.properties` (또는 `.yml`) 에서 읽거나 「직접 입력」 으로 넣는다. 설치 파일만으로 실행되며 Node.js, Java 같은 개발 도구는 필요 없다.
 
 ## 1. 준비물
 
@@ -19,7 +18,7 @@ tags:
 |---|---|---|---|
 | 1 | 설치 파일 `ERD-Tool-Setup-{버전}.exe` | 필요 | 관리자에게 받는다 |
 | 2 | 마스터키 환경변수 `JASYPT_ENCRYPTOR_PASSWORD` | BE 폴더로 접속할 때 필요 | properties 의 `ENC(...)` 비밀번호를 푸는 키. 없으면 접속할 때마다 비밀번호를 묻는다 |
-| 3 | BE 레포 폴더 | BE 폴더로 접속할 때 필요 | `src/main/resources/application-*.properties` 가 든 폴더 |
+| 3 | BE 레포 폴더 | BE 폴더로 접속할 때 필요 | `src/main/resources`, `src/main/resources/prop`, `src/main/resources` 중 한 곳에 `application-*.properties` 나 `.yml` 이 든 폴더 |
 | 4 | PowerShell 7 | 없어도 됨 | 내장 터미널 기본 셸. 없으면 Windows 에 들어 있는 PowerShell 5.1 을 쓴다 |
 | 5 | Git for Windows (Git Bash) | 없어도 됨 | 내장 터미널에서 Git Bash 를 고를 때만 |
 | 6 | Claude Code 또는 Codex | 없어도 됨 | 내장 터미널의 「AI 연결」 을 쓸 때만 |
@@ -48,21 +47,21 @@ tags:
 |---|---|---|
 | 1 | BE 폴더 고르기 | 왼쪽 「BE 폴더에서」 → 「찾기」 로 BE 레포 폴더 |
 | 2 | 접속 시험 | 목록에서 dev, test 등을 골라 「접속 시험」. 운영(prod)은 읽기 전용으로 표시된다 |
-| 3 | ERD 열기 | 「ERD 폴더 열기」 로 BE 레포의 `docs/erd/model`, 또는 「DB 에서 불러오기」 |
+| 3 | ERD 열기 | 「ERD 폴더 열기」 로 저장해 둔 모델 폴더(기본값 BE 레포의 `docs/erd/model`), 또는 「DB 에서 불러오기」 |
 | 4 | 직접 입력 접속 (BE 폴더가 없을 때) | 왼쪽 「직접 입력」 에 DB 종류, 호스트, 포트, DB, 계정을 넣는다 |
 
-- test, 운영 DB 에는 도구에서 바로 적용하지 않는다. 「DB 비교」 에서 Flyway 파일을 만들어 그 파일로 반영한다(작업계획서 STEP 5, 7).
+- test, 운영 DB 에는 도구에서 바로 적용하지 않는다. 「DB 비교」 에서 Flyway 파일을 만들어 그 파일로 반영한다.
 - 껐다 켜면 마지막 화면(ERD 탭, 저장 안 한 변경, SQL 탭 글자와 접속)이 그대로 열린다.
 
 ## 5. 설정이 저장되는 곳
 
 | No. | 내용 | 위치 |
 |---|---|---|
-| 1 | 화면 설정, 접속 목록, 쿼리 이력, 마지막 화면(`session.json`) | `%APPDATA%\ERD Tool` |
+| 1 | 화면 설정, 접속 목록, 쿼리 이력, 마지막 화면(`session.json`) | `%APPDATA%\erd-tool` |
 | 2 | 저장한 DB 비밀번호 | 같은 폴더, Windows 계정 암호화(다른 PC, 다른 계정에서는 풀리지 않는다) |
 | 3 | ERD 모델 | 「ERD 저장」 때 고른 폴더 (보통 BE 레포 `docs/erd/model`) |
 
-- 프로그램을 지워도 이 폴더는 남는다. 깨끗이 지우려면 제거한 뒤 `%APPDATA%\ERD Tool` 을 지운다.
+- 프로그램을 지워도 이 폴더는 남는다. 깨끗이 지우려면 제거한 뒤 `%APPDATA%\erd-tool` 을 지운다.
 
 ## 6. 제거
 
@@ -82,7 +81,7 @@ tags:
 | No. | 할 일 | 명령 |
 |---|---|---|
 | 1 | 의존성 설치 | `npm ci` |
-| 2 | 시험 | `npm test` (dev DB, 도커 시험 DB 가 없으면 DB 시험은 건너뛴다) |
+| 2 | 시험 | `npm test`. DB 시험은 `test/.env.example` 을 `test/.env.local` 로 복사해 BE 폴더를 넣어야 돌고, 없으면 건너뛴다 |
 | 3 | 설치 파일 빌드 | `npm run dist` → `dist/ERD-Tool-Setup-{버전}.exe` |
 
 - 버전은 `package.json` 의 `version` 이다. 올린 뒤 빌드한다.

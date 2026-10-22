@@ -1,4 +1,4 @@
--- SQL Server 어댑터 시험용 스키마 (STEP 9). 도커 erd-mssql 의 erdtest DB, dbo 스키마. 시험 시작에 지우고 다시 넣는다.
+-- SQL Server 어댑터 시험용 스키마 (STEP 9). 도커 SQL Server 의 erdtest DB, dbo 스키마. 시험 시작에 지우고 다시 넣는다.
 -- 단일과 복합 PK, 복합 FK, ON DELETE CASCADE, UNIQUE, 일반과 UNIQUE 인덱스, identity, 기본값, 계산 컬럼, 코멘트, CHECK, 시퀀스, 뷰(경고 확인용)
 IF OBJECT_ID('dbo.erd_v_order', 'V') IS NOT NULL DROP VIEW dbo.erd_v_order;
 IF OBJECT_ID('dbo.erd_order_item', 'U') IS NOT NULL DROP TABLE dbo.erd_order_item;

@@ -1,6 +1,7 @@
-// 통합 시험 (STEP 9): Oracle 어댑터 (Thin 모드). 도커 erd-oracle (WSL) 이 떠 있지 않으면 건너뛴다.
+// 통합 시험 (STEP 9): Oracle 어댑터 (Thin 모드). 접속 정보(ERD_ORACLE_URL)가 없거나 DB 가 떠 있지 않으면 건너뛴다 (docker/docker-compose.yml).
 // 시험 스키마(test/fixtures/seed-oracle.sql)를 ERD 계정에 다시 넣는다. DDL 이 바로 커밋되므로
 // 전체 CREATE 와 ALTER 는 system 으로 만든 ERD_SCRATCH 계정에서 시험한 뒤 계정째 지운다.
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,13 +18,16 @@ import type { SchemaModel } from '../../src/shared/model/types';
 import { buildAlter } from '../../src/shared/sql/alter';
 import { buildCreateAll } from '../../src/shared/sql/create';
 import { splitStatements } from '../../src/shared/sql/text';
+import { envTarget, missing } from '../helpers/db-targets';
 
-const T: Target = { dialect: 'oracle', host: '127.0.0.1', port: 1521, database: 'FREEPDB1', user: 'erd', password: 'test-password', readOnly: false };
+const T = envTarget('ERD_ORACLE_URL', 'oracle')!;
+// system 은 시험 계정과 같은 비밀번호로 둔다 (docker/docker-compose.yml)
 const SYSTEM: Target = { ...T, user: 'system' };
-const SCRATCH: Target = { ...T, user: 'erd_scratch', password: 'test-password2' };
+// 시험이 만들고 지우는 계정이라 비밀번호는 실행마다 새로 만든다
+const SCRATCH: Target = { ...T, user: 'erd_scratch', password: 'S' + randomBytes(8).toString('hex') };
 
-let skip = '';
-try {
+let skip = T ? '' : missing('ERD_ORACLE_URL');
+if (T) try {
   const c = await oracleAdapter.connect(T, false);
   await c.close();
 } catch (e) { skip = (e as Error).message; }

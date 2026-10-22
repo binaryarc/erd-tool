@@ -12,14 +12,14 @@ const size = { width: () => 200, height: (x: Table) => 24 + x.columns.length * 1
 
 // biz ← center ← wh,   biz ← user,   log (홀로),   code (홀로)
 const m = model([
-  t('t1', 'mst_biz'), t('t2', 'mst_center', ['mst_biz']), t('t3', 'mst_wh', ['mst_center']),
-  t('t4', 'mst_user', ['mst_biz']), t('t5', 'sm_log'), t('t6', 'sm_code'), t('t7', 'self_ref', ['self_ref']),
+  t('t1', 'mst_brand'), t('t2', 'mst_center', ['mst_brand']), t('t3', 'mst_wh', ['mst_center']),
+  t('t4', 'mst_user', ['mst_brand']), t('t5', 'sys_log'), t('t6', 'sys_code'), t('t7', 'self_ref', ['self_ref']),
 ]);
 
 describe('트리 배치', () => {
   it('FK 로 이어진 묶음을 큰 것부터 나눈다 (자기 참조는 잇지 않는다)', () => {
     expect(components(m).map(c => c.map(x => x.name))).toEqual([
-      ['mst_biz', 'mst_center', 'mst_user', 'mst_wh'], ['self_ref'], ['sm_code'], ['sm_log'],
+      ['mst_brand', 'mst_center', 'mst_user', 'mst_wh'], ['self_ref'], ['sys_code'], ['sys_log'],
     ]);
   });
 
@@ -52,7 +52,7 @@ describe('트리 배치', () => {
 describe('바로 이어진 테이블', () => {
   it('참조하는 쪽과 참조되는 쪽을 모두 담고, 바깥으로 가는 FK 는 뺀다', () => {
     const n = neighborhood(m, 'mst_center');
-    expect(n.tables.map(x => x.name).sort()).toEqual(['mst_biz', 'mst_center', 'mst_wh']);
-    expect(n.tables.flatMap(x => x.fks.map(f => `${x.name}>${f.refTable}`)).sort()).toEqual(['mst_center>mst_biz', 'mst_wh>mst_center']);
+    expect(n.tables.map(x => x.name).sort()).toEqual(['mst_brand', 'mst_center', 'mst_wh']);
+    expect(n.tables.flatMap(x => x.fks.map(f => `${x.name}>${f.refTable}`)).sort()).toEqual(['mst_center>mst_brand', 'mst_wh>mst_center']);
   });
 });
