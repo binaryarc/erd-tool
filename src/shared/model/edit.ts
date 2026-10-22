@@ -412,6 +412,9 @@ export class EditHistory<T = SchemaModel> {
     return next;
   }
   clear() { this.past = []; this.future = []; }
+  /** 지금 기록을 떠 둔다. 하다가 실패한 작업(AI 적용)은 load 로 그 전 기록으로 돌아간다 */
+  save(): { past: T[]; future: T[] } { return { past: [...this.past], future: [...this.future] }; }
+  load(s: { past: T[]; future: T[] }) { this.past = [...s.past]; this.future = [...s.future]; }
   get canUndo() { return this.past.length > 0; }
   get canRedo() { return this.future.length > 0; }
 }

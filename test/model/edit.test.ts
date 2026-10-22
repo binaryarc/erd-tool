@@ -163,6 +163,31 @@ describe('Oracle 이름 대소문자 (STEP 9)', () => {
   });
 });
 
+describe('되돌리기 기록 저장, 복원 (AI 적용이 실패했을 때)', () => {
+  it('실패한 변경을 넣었다 빼도 되돌리기, 다시 하기 칸이 실패 전과 같다', () => {
+    const h = new EditHistory<string>();
+    h.push('a'); h.push('b');
+    expect(h.undo('c')).toBe('b'); // 다시 하기 칸에 c
+    const saved = h.save();
+    h.push('b'); // 실패할 변경 직전 모습 (다시 하기 칸이 비워진다)
+    h.load(saved);
+    expect(h.canRedo).toBe(true);
+    expect(h.redo('b')).toBe('c'); // 실패한 모델이 아니라 실패 전의 다시 하기
+    expect(h.undo('c')).toBe('b');
+    expect(h.undo('b')).toBe('a');
+    expect(h.canUndo).toBe(false);
+  });
+  it('저장한 상태는 그 뒤 수정과 섞이지 않는다', () => {
+    const h = new EditHistory<string>();
+    h.push('a');
+    const saved = h.save();
+    h.push('x'); h.push('y');
+    h.load(saved);
+    expect(h.undo('b')).toBe('a');
+    expect(h.canUndo).toBe(false);
+  });
+});
+
 describe('Enter 로 컬럼 추가 (STEP 10)', () => {
   it('column_N 은 그 테이블에 없는 첫 번호, NULL 허용 기본 타입으로 공통 컬럼 앞에 들어가고 하나가 되돌리기 한 번이다', () => {
     const h = new EditHistory();
