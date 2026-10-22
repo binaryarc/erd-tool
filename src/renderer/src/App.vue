@@ -311,6 +311,7 @@ function aiUndo(): string {
 
 /** 사람의 「확정」: 강조만 푼다 (저장은 「저장」 버튼으로) */
 function aiConfirm() {
+  aiTab.value = null;
   aiBase.value = null;
   aiStepsOf().length = 0;
   version.value++;
@@ -320,6 +321,7 @@ function aiConfirm() {
 function aiCancel() {
   const base = aiBase.value;
   if (!base || !model.value) return;
+  aiTab.value = null;
   history.push(model.value);
   setModel(base.model);
   setPins(base.pinned);
@@ -371,12 +373,34 @@ async function aiCompare(args: { from?: string; to?: string; kind?: string; alte
 }
 
 const cleanError = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
+// AI 가 쓰는 ERD 탭 (2026-10-22 재현: AI 가 읽은 뒤 사람이 다른 ERD 탭으로 옮기면 그 탭이 고쳐졌다).
+// 첫 도구 호출 때의 ERD 탭에 묶고, 그 뒤 호출은 그 탭을 화면에 띄운 다음 처리한다.
+// 확정, 취소, 그 탭 닫기, 사람이 탭 제목의 「AI 연결」 을 눌러 풀 때까지 묶어 둔다
+const aiTab = ref<string | null>(null);
+async function toAiTab() {
+  if (!aiTab.value || !docs.has(aiTab.value)) aiTab.value = cur.value.id;
+  if (cur.value.id === aiTab.value && activeTab.value === aiTab.value) return;
+  activeTab.value = aiTab.value;
+  await nextTick();
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); // 캔버스가 그려져야 테이블 크기를 잰다
+  message.value = `AI 가 ${titleOf(aiTab.value)} 탭에서 작업해 그 탭으로 옮겼습니다`;
+}
+/** 탭 제목의 「AI 연결」 을 눌러 푼다. 확정 대기 중인 AI 변경이 있으면 확정이나 취소가 먼저다 */
+function releaseAiTab() {
+  const d = aiTab.value ? docs.get(aiTab.value) : undefined;
+  if (d?.aiBase.value) { message.value = '확정 대기 중인 AI 변경을 확정하거나 취소하면 AI 연결이 풀립니다'; return; }
+  aiTab.value = null;
+  message.value = 'AI 연결을 풀었습니다. 다음 AI 호출은 그때 보고 있는 ERD 탭에서 합니다';
+}
+
 let aiQueue: Promise<unknown> = Promise.resolve();
 // 도구 호출은 하나씩 처리한다 (AI 가 한꺼번에 불러도 모델이 섞이지 않게)
 window.erd.mcp.onCall((id, tool, args) => {
   aiQueue = aiQueue.then(async () => {
     try {
       let text: string;
+      await toAiTab();
       if (tool === 'erd_overview') text = overview(needModel());
       else if (tool === 'erd_tables') text = tablesText(needModel(), (args.names as string[]) ?? []);
       else if (tool === 'erd_view_state') { needModel(); text = viewStateText(shown.value!.model, diagram.value!, canvas.value!.boxes(), canvas.value!.zoom(), tab.value); }
@@ -852,6 +876,7 @@ async function closeTab(t: Tab) {
       if (activeTab.value === t.id) activeTab.value = next.id;
     }
     docs.delete(t.id);
+    if (aiTab.value === t.id) aiTab.value = null;
   }
   if (t.kind === 'sql') {
     if (t.dirty) {
@@ -1817,7 +1842,7 @@ window.__erdBench = async () => {
                 <nav class="tabs">
                   <button v-for="t in tabs" :key="t.id" :class="{ on: t.id === activeTab, erd: t.kind === 'erd' }" :data-tab="t.id"
                           :title="t.kind === 'erd' ? (docs.get(t.id)?.modelDir.value || '빈 ERD 탭') : ''" @click="activeTab = t.id">
-                    <template v-if="t.kind === 'erd'">{{ titleOf(t.id) }}<b v-if="docs.get(t.id)?.dirty.value" class="warn"> *</b></template>
+                    <template v-if="t.kind === 'erd'">{{ titleOf(t.id) }}<b v-if="docs.get(t.id)?.dirty.value" class="warn"> *</b><span v-if="aiTab === t.id" class="ai-link" title="AI 도구가 이 탭에만 적용됩니다. 확정 대기 중인 변경이 없으면 눌러서 풉니다" @click.stop="releaseAiTab"> AI 연결</span></template>
                     <template v-else>{{ t.title }}<b v-if="t.dirty" class="warn"> *</b></template>
                     <span v-if="t.kind !== 'erd' || tabs.filter(x => x.kind === 'erd').length > 1" class="x" title="닫기" @click.stop="closeTab(t)">×</span>
                   </button>
@@ -2015,6 +2040,7 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .tabs button.on { background: var(--bg); font-weight: bold; border-color: var(--accent); }
 .tabs .add { background: transparent; border-style: dashed; border-bottom-style: none; } /* border-style 이 아래 테두리를 굵은 점선으로 되살리지 않게 */
 .tabs .x { margin-left: 6px; color: var(--muted); }
+.tabs .ai-link { margin-left: 6px; padding: 0 4px; font-size: 11px; font-weight: normal; color: #f08c00; border: 1px solid #f08c00; border-radius: 3px; }
 /* 위 영역 탭줄: 탭과 탭 여는 버튼을 모두 같은 크기 사각형으로 (사용자 요청 2026-10-16). 왼쪽 접속 패널의 .tabs 는 건드리지 않는다 */
 /* 모양은 그대로 아래 화면에 붙은 탭(아래 테두리 없음)이고, 고른 탭은 탭줄 아래 선을 덮어 화면과 이어진다 */
 .workarea > .tabs button { box-sizing: border-box; flex: none; width: 112px; height: 24px; padding: 0 4px; font-size: 12px; /* 가장 긴 「SELECT 만들기 (1)」 이 잘리지 않는 폭 */
