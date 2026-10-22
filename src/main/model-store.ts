@@ -58,7 +58,14 @@ export async function saveModel(dir: string, model: SchemaModel, layout: Layout)
   for (const name of written) {
     const file = path.join(dir, name);
     await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, out[name], 'utf8');
+    // 임시 파일에 쓰고 바꿔 끼운다 (쓰는 도중 꺼지거나 디스크가 차도 앞 내용이 남게. settings.ts 와 같은 방식)
+    try {
+      await fs.writeFile(file + '.tmp', out[name], 'utf8');
+      await fs.rename(file + '.tmp', file);
+    } catch (e) {
+      await fs.unlink(file + '.tmp').catch(() => {});
+      throw e;
+    }
   }
   for (const f of removed) await fs.unlink(path.join(dir, f));
   return { written, unchanged, removed };

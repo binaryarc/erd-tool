@@ -63,6 +63,8 @@ export interface Settings {
   connSource?: ConnSource;
   /** 내보내기 종류별 마지막 위치 (Flyway 폴더, MD 폴더, 이력 파일) */
   exportDirs?: { flyway?: string; md?: string; history?: string };
+  /** 쓰기로 여는 BE 프로필 이름 (없으면 dev, local). 나머지는 읽기 전용. 화면 없이 settings.json 을 고쳐 바꾼다 */
+  writableProfiles?: string[];
 }
 
 /** 내보내기로 쓸 새 파일 (폴더 없는 이름) */

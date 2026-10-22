@@ -23,7 +23,8 @@ async function readDb(name: string): Promise<SchemaModel> {
   } finally { await client.close(); }
 }
 
-const v19 = [...fs.readFileSync(`${BE}/src/main/resource/db/migration/V19__add_mapping_table_unique_index.sql`, 'utf8')
+// 건너뛸 때는 읽지 않는다 (도커 시험용 BE 에는 test 프로필도 Flyway 파일도 없다)
+const v19 = skip ? [] : [...fs.readFileSync(`${BE}/src/main/resource/db/migration/V19__add_mapping_table_unique_index.sql`, 'utf8')
   .matchAll(/INDEX IF NOT EXISTS "([^"]+)"/g)].map(m => m[1]);
 
 describe.skipIf(!!skip)('dev 와 test 비교', () => {

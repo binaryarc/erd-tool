@@ -14,7 +14,8 @@ import { splitStatements } from '../../src/shared/sql/text';
 import type { SchemaModel } from '../../src/shared/model/types';
 
 const BE = process.env.ERD_BE_DIR ?? 'C:/work/workspace/shop-be';
-const MODEL_DIR = `${BE}/docs/erd/model`;
+// 도커 시험 DB(ERD_BE_DIR 가 WSL 의 시험용 BE)일 때는 모델이 그 폴더에 없어 따로 준다
+const MODEL_DIR = process.env.ERD_MODEL_DIR ?? `${BE}/docs/erd/model`;
 let skip = '';
 try { passwordOf(getProfile(BE, 'dev'), BE); } catch (e) { skip = (e as Error).message; }
 

@@ -8,7 +8,7 @@ import { forgetPassword, hasSavedPassword, setPasswordAsker, setSecretStore } fr
 import { profileKey } from './db/connect';
 import { readDb, reverse, testConnection, testDraft } from './db/reverse';
 import { loadCatalog } from './db/catalog';
-import { getProfile, listProfiles, passwordOf, toInfo } from './db/profiles';
+import { getProfile, listProfiles, passwordOf, setWritableProfiles, toInfo } from './db/profiles';
 import { allowWrite, closeAll, closeSession, commitTx, dirtyTabs, fetchMore, openSession, rollbackTx, runSql } from './db/session';
 import { addHistory, listHistory, setHistoryDir } from './history';
 import { loadModel, modelDirOfFile, planSave, saveModel } from './model-store';
@@ -101,6 +101,7 @@ async function startAi() {
 }
 
 function registerIpc(win: BrowserWindow) {
+  setWritableProfiles(getSettings().writableProfiles);
   ipcMain.handle(IPC.pickFolder, async (_e, defaultPath?: string) => {
     const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];

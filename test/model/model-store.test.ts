@@ -1,7 +1,8 @@
+import fsp from 'node:fs/promises';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadModel, modelDirOfFile, planSave, saveModel } from '../../src/main/model-store';
 import { emptyLayout } from '../../src/shared/model/layout';
 import type { SchemaModel } from '../../src/shared/model/types';
@@ -53,5 +54,33 @@ describe('모델 폴더 저장', () => {
     fs.writeFileSync(path.join(dir, 'old.erd'), 'x @t9\n  seq integer PK\n');
     const plan = await planSave(dir, model(['mst_biz', 'whs_iw_h']), emptyLayout());
     expect(plan).toMatchObject({ added: [], changed: ['tables.erd'], unchanged: ['_index.erd', 'layout.json'], removed: ['old.erd'] });
+  });
+});
+
+describe('모델 폴더 원자적 저장', () => {
+  it('쓰는 도중 오류가 나면 원래 파일이 원래 내용 그대로 남고 .tmp 도 남지 않는다', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-'));
+    await saveModel(dir, model(['mst_biz']), emptyLayout());
+    const before = fs.readFileSync(path.join(dir, 'tables.erd'), 'utf8');
+    const real = fsp.writeFile;
+    const spy = vi.spyOn(fsp, 'writeFile').mockImplementation(async (file, data, opt) => {
+      await real(file, String(data).slice(0, 10), opt as BufferEncoding); // 반쪽만 쓰고 죽은 것처럼
+      throw new Error('디스크 가득 참');
+    });
+    try {
+      await expect(saveModel(dir, model(['mst_biz', 'whs_iw_h']), emptyLayout())).rejects.toThrow('디스크 가득 참');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(fs.readFileSync(path.join(dir, 'tables.erd'), 'utf8')).toBe(before);
+    expect(fs.readdirSync(dir).filter(f => f.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('저장을 마친 뒤 폴더에 .tmp 파일이 남지 않는다', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-'));
+    await saveModel(dir, { ...model(['mst_biz']), functions: [{ name: 'fn_a', args: '', definition: 'select 1' }] }, emptyLayout());
+    await saveModel(dir, model(['mst_biz', 'whs_iw_h']), emptyLayout());
+    const all = [...fs.readdirSync(dir), ...fs.readdirSync(path.join(dir, 'functions'))];
+    expect(all.filter(f => f.endsWith('.tmp'))).toEqual([]);
   });
 });
