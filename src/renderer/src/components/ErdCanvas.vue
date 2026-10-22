@@ -10,6 +10,7 @@ import '@vue-flow/core/dist/style.css';
 import '@vue-flow/controls/dist/style.css';
 import '@vue-flow/minimap/dist/style.css';
 import TableNode, { type TableNodeData } from './TableNode.vue';
+import ErdEdge, { type ErdEdgeData } from './ErdEdge.vue';
 import { arrange, tableHeight } from '../../../shared/model/arrange';
 import { arrangeTree } from '../../../shared/model/tree';
 import { arrangeMode, type Diagram } from '../../../shared/model/layout';
@@ -92,14 +93,16 @@ const nodes = computed<Node[]>(() => {
   return [...groupNodes, ...tableNodes];
 });
 
-const edges = computed<Edge[]>(() => {
-  const idOf = new Map(props.model.tables.map(t => [t.name, t.id]));
-  return props.model.tables.flatMap(t => t.fks.filter(f => idOf.has(f.refTable)).map(f => ({
-    id: `${t.id}:${f.name}`, source: t.id, target: idOf.get(f.refTable)!, type: view.edgeKind,
-    // 축소 보기에서는 컬럼 연결점이 없으니 머리 연결점으로
-    sourceHandle: view.compact ? 's-*' : 's-' + f.columns[0],
-    targetHandle: view.compact ? 't-*' : 't-' + f.refColumns[0],
-  })));
+// 선 끝은 ErdEdge 가 두 테이블 위치로 직접 정한다 (가장 가까운 면, 2026-10-22). 연결점은 선 끌어 FK 만들기에만 쓴다
+const edges = computed<Edge<ErdEdgeData>[]>(() => {
+  const byName = new Map(props.model.tables.map(t => [t.name, t]));
+  return props.model.tables.flatMap(t => t.fks.filter(f => byName.has(f.refTable)).map(f => {
+    const p = byName.get(f.refTable)!;
+    return {
+      id: `${t.id}:${f.name}`, source: t.id, target: p.id, type: 'erd',
+      data: { kind: view.edgeKind, compact: view.compact, sRow: t.columns.findIndex(c => c.name === f.columns[0]), tRow: p.columns.findIndex(c => c.name === f.refColumns[0]) },
+    };
+  }));
 });
 
 const { viewport, setViewport, fitView, findNode, getSelectedNodes, getSelectedEdges } = useVueFlow(props.flowId);
@@ -255,6 +258,9 @@ defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoo
            @node-context-menu="onNodeMenu" @pane-context-menu="onPaneMenu" @pane-click="emit('paneClick')">
     <template #node-table="{ data }">
       <TableNode :data="data" />
+    </template>
+    <template #edge-erd="p">
+      <ErdEdge v-bind="p" />
     </template>
     <template #node-group="{ data }">
       <div class="group-box"><span>{{ data.name }}</span></div>

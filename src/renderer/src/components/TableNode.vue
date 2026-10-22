@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// exerd 모양 테이블 노드: 머리(물리명, 논리명), 몸통(PK, FK 표시와 컬럼). 컬럼 행마다 좌우 연결점.
+// exerd 모양 테이블 노드: 머리(물리명, 논리명), 몸통(PK, FK 표시와 컬럼). 마우스를 올리면 컬럼 행마다 좌우 연결점.
 // 크기는 shared/model/arrange.ts 의 NODE 와 같아야 한다 (배치 계산에 쓴다).
-import { computed, inject } from 'vue';
-import { Handle, Position } from '@vue-flow/core';
+import { computed, inject, nextTick, ref, watch } from 'vue';
+import { Handle, Position, useNodeId, useVueFlow } from '@vue-flow/core';
 import { VIEW_KEY, colKey, type ViewState } from '../view';
 
 export interface TableNodeData {
@@ -30,6 +30,16 @@ const selKey = computed(() => {
 });
 const selCols = computed(() => new Set(selKey.value ? selKey.value.split('\n') : []));
 
+// 컬럼 줄 연결점은 마우스를 올린 테이블에만 띄운다. 연결점은 선 끌어 FK 만들기에만 쓰고(선 끝은 ErdEdge 가 계산),
+// 모든 줄에 늘 두면 117개 테이블에서 3,732개라 화면을 움직일 때 느렸다 (2026-10-22 측정).
+// 이 테이블에서 선을 끌기 시작했으면 마우스가 나가도 놓을 때까지 둔다
+const nodeId = useNodeId();
+const { connectionStartHandle, updateNodeInternals } = useVueFlow();
+const hover = ref(false);
+const showRowHandles = computed(() => hover.value || connectionStartHandle.value?.nodeId === nodeId);
+// 새로 띄운 연결점 위치를 Vue Flow 에 다시 알린다 (컬럼 순서가 바뀌었으면 예전 위치가 남아 있다)
+watch(showRowHandles, async v => { if (v && nodeId) { await nextTick(); updateNodeInternals([nodeId]); } });
+
 const title = (d: TableNodeData) =>
   view.nameMode === 'physical' ? d.name : view.nameMode === 'logical' ? d.comment || d.name : d.name;
 const extTitle = (xs: string[]) => ['이 그룹 밖 테이블과 이어진 FK (선은 그리지 않습니다)', ...xs].join(String.fromCharCode(10));
@@ -38,7 +48,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
 </script>
 
 <template>
-  <div class="tbl" :class="{ compact: view.compact, focus: data.focus, ai: data.ai }" :style="{ width: data.width + 'px' }">
+  <div class="tbl" :class="{ compact: view.compact, focus: data.focus, ai: data.ai }" :style="{ width: data.width + 'px' }" @mouseenter="hover = true" @mouseleave="hover = false">
     <div class="head" :title="data.comment">
       <b>{{ title(data) }}</b>
       <span v-if="view.nameMode === 'both' && data.comment" class="logical">{{ data.comment }}</span>
@@ -51,14 +61,14 @@ const colName = (c: TableNodeData['columns'][number]) =>
       <!-- 컬럼 행을 누르면 그 컬럼을 고른다 (Shift 나 Ctrl 을 누르고 누르면 더한다). Ctrl+C, Ctrl+V 로 다른 테이블에 붙인다 -->
       <div v-for="c in data.columns" :key="c.name" class="row" :class="{ pk: c.pk, sel: selCols.has(c.name) }" :title="c.comment"
            @click="e => view.onColumnClick?.(data.name, c.name, e.shiftKey || e.ctrlKey)">
-        <Handle :id="'t-' + c.name" type="target" :position="Position.Left" class="h" />
+        <Handle v-if="showRowHandles" :id="'t-' + c.name" type="target" :position="Position.Left" class="h" />
         <!-- 키 표시: PK, FK, NN(NOT NULL). PK 는 NOT NULL 이 당연해 NN 을 따로 적지 않는다 -->
         <span class="key"><i v-if="c.pk" class="pk">PK</i><i v-if="c.fk" class="fk">FK</i><i v-if="c.notNull && !c.pk" class="nn">NN</i></span>
         <span class="name" :class="{ nn: c.notNull }">{{ colName(c) }}</span>
         <span v-if="view.nameMode === 'both' && c.comment" class="logical">{{ c.comment }}</span>
         <span class="type">{{ c.type }}</span>
         <i v-if="c.domain" class="dom" :title="`도메인 ${c.domain}`">{{ c.domain }}</i>
-        <Handle :id="'s-' + c.name" type="source" :position="Position.Right" class="h" />
+        <Handle v-if="showRowHandles" :id="'s-' + c.name" type="source" :position="Position.Right" class="h" />
       </div>
     </template>
   </div>
