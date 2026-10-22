@@ -108,7 +108,7 @@ export function pruneMembers(l: Layout, m: SchemaModel): void {
   if (l.tabs && !l.tabs.length) delete l.tabs;
 }
 
-/** 접두어 그룹(모델의 그룹 규칙, 예: mdm, wms)마다 탭을 만든다. 이미 있는 이름은 건너뛴다. 만든 탭 이름을 돌려준다 */
+/** 접두어 그룹(모델의 그룹 규칙, 예: mst, whs)마다 탭을 만든다. 이미 있는 이름은 건너뛴다. 만든 탭 이름을 돌려준다 */
 export function prefixTabs(l: Layout, m: SchemaModel): string[] {
   const made: string[] = [];
   for (const g of m.groups) {

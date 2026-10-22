@@ -1,4 +1,4 @@
--- MySQL 어댑터 시험용 스키마 (STEP 9). 도커 erd-mysql 의 erdtest DB. 시험 시작에 지우고 다시 넣는다.
+-- MySQL 어댑터 시험용 스키마 (STEP 9). 도커 MySQL 의 erdtest DB. 시험 시작에 지우고 다시 넣는다.
 -- 단일과 복합 PK, 복합 FK, ON DELETE CASCADE, UNIQUE, 일반과 UNIQUE 인덱스, AUTO_INCREMENT, 기본값, 생성 컬럼, 코멘트, CHECK, 뷰(경고 확인용)
 DROP VIEW IF EXISTS erd_v_order;
 DROP TABLE IF EXISTS erd_order_item;

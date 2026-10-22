@@ -1,6 +1,7 @@
 // 통합 시험 (STEP 7 완료 기준): 화면 수정으로 만든 Flyway 파일을 로컬 dev 에 적용하고 다시 리버스하면 모델 차이가 0 이다.
 // Flyway 처럼 파일 하나를 한 트랜잭션에서 실행하고, 같은 연결로 public 을 다시 읽어 비교한 뒤 끝에 롤백한다. dev 에 커밋하지 않는다.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { ensurePgSample } from '../helpers/pg-sample';
 import { connect, resolve } from '../../src/main/db/connect';
 import { getProfile, passwordOf } from '../../src/main/db/profiles';
 import { postgresAdapter } from '../../src/main/db/adapters/postgres';
@@ -11,7 +12,7 @@ import { buildFlyway } from '../../src/shared/export/flyway';
 import { splitStatements } from '../../src/shared/sql/text';
 import type { SchemaModel } from '../../src/shared/model/types';
 
-const BE = process.env.ERD_BE_DIR ?? 'C:/work/workspace/shop-be';
+const BE = process.env.ERD_BE_DIR ?? ''; // test/.env.local 에서 읽는다. 없으면 아래에서 건너뛴다
 let skip = '';
 try { passwordOf(getProfile(BE, 'dev'), BE); } catch (e) { skip = (e as Error).message; }
 
@@ -27,6 +28,7 @@ const differences = (a: SchemaModel, b: SchemaModel) =>
   diffModels(a, b).filter(d => !(d.kind === 'function' && d.change === 'alter')).map(d => `${d.kind} ${d.change} ${d.table ?? ''}.${d.name}: ${d.detail}`);
 
 describe.skipIf(!!skip)('STEP 7 Flyway 파일을 dev 에 적용 (롤백)', () => {
+  beforeAll(() => ensurePgSample(BE), 60_000); // 예시 스키마(test/fixtures/seed-postgres.sql)가 없으면 넣는다
   it('적용 뒤 다시 읽으면 차이 0, 두 번 실행해도 오류 없음, ROLLBACK 블록으로 원래대로', async () => {
     const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
     try {
@@ -41,16 +43,16 @@ describe.skipIf(!!skip)('STEP 7 Flyway 파일을 dev 에 적용 (롤백)', () =>
       // 화면에서 하는 것과 같은 수정: 새 테이블, PK 컬럼, FK, 기존 테이블 컬럼 추가와 코멘트
       let edited = addTable(before, 'mst_erd_probe', { comment: 'ERD 도구 시험' });
       edited = addColumn(edited, 'mst_erd_probe', { name: 'probe_seq', type: 'int', notNull: false, pk: true });
-      edited = addColumn(edited, 'mst_erd_probe', { name: 'biz_seq', type: 'integer', notNull: false, comment: '사업장' });
-      edited = addFk(edited, 'mst_erd_probe', { name: 'fk_mst_erd_probe_mst_biz', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] });
-      edited = addColumn(edited, 'mst_biz', { name: 'erd_sort_no', type: 'integer', notNull: true, default: '0' });
-      edited = updateColumn(edited, 'mst_biz', 'biz_nm', { comment: '사업장 이름 (시험)' });
+      edited = addColumn(edited, 'mst_erd_probe', { name: 'brand_seq', type: 'integer', notNull: false, comment: '사업장' });
+      edited = addFk(edited, 'mst_erd_probe', { name: 'fk_mst_erd_probe_mst_brand', columns: ['brand_seq'], refTable: 'mst_brand', refColumns: ['brand_seq'] });
+      edited = addColumn(edited, 'mst_brand', { name: 'erd_sort_no', type: 'integer', notNull: true, default: '0' });
+      edited = updateColumn(edited, 'mst_brand', 'brand_nm', { comment: '사업장 이름 (시험)' });
 
       const file = buildFlyway({ from: before, to: edited, version: 999, description: 'erd_tool_probe', fromLabel: 'dev', toLabel: '지금 ERD', now: new Date() });
       await run(client, file.sql);
       expect(differences(await read(edited), edited)).toEqual([]);
 
-      // 여러 번 실행해도 안전한가 (허브 규칙 4절 2번)
+      // 여러 번 실행해도 안전한가 (IF NOT EXISTS, DO 블록)
       await run(client, file.sql);
       expect(differences(await read(edited), edited)).toEqual([]);
 
@@ -73,7 +75,7 @@ describe.skipIf(!!skip)('STEP 7 Flyway 파일을 dev 에 적용 (롤백)', () =>
     try {
       await client.exec('BEGIN');
       await client.exec(`CREATE SCHEMA ${S}`);
-      await client.exec(`CREATE TABLE ${S}.mst_biz (biz_seq integer PRIMARY KEY, biz_nm varchar(50))`);
+      await client.exec(`CREATE TABLE ${S}.mst_brand (brand_seq integer PRIMARY KEY, brand_nm varchar(50))`);
       const read = async (like: SchemaModel): Promise<SchemaModel> => {
         const r = await postgresAdapter.reverse(client, S);
         return { ...like, tables: r.tables, sequences: r.sequences, functions: r.functions };
@@ -82,9 +84,9 @@ describe.skipIf(!!skip)('STEP 7 Flyway 파일을 dev 에 적용 (롤백)', () =>
       const before = await read(empty);
       let edited = addTable(before, 'mst_erd_probe', { comment: 'ERD 도구 시험' });
       edited = addColumn(edited, 'mst_erd_probe', { name: 'probe_seq', type: 'integer', notNull: true, pk: true });
-      edited = addColumn(edited, 'mst_erd_probe', { name: 'biz_seq', type: 'integer', notNull: false });
-      edited = addFk(edited, 'mst_erd_probe', { name: 'fk_mst_erd_probe_mst_biz', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] });
-      edited = updateColumn(edited, 'mst_biz', 'biz_nm', { name: 'biz_name' });
+      edited = addColumn(edited, 'mst_erd_probe', { name: 'brand_seq', type: 'integer', notNull: false });
+      edited = addFk(edited, 'mst_erd_probe', { name: 'fk_mst_erd_probe_mst_brand', columns: ['brand_seq'], refTable: 'mst_brand', refColumns: ['brand_seq'] });
+      edited = updateColumn(edited, 'mst_brand', 'brand_nm', { name: 'brand_name' });
 
       const file = buildFlyway({ from: before, to: edited, version: 999, description: 'erd_tool_probe', fromLabel: 'dev', toLabel: '지금 ERD', now: new Date() });
       expect(file.sql).not.toContain('public.');

@@ -2,3 +2,5 @@ node_modules/
 dist/
 out/
 *.log
+test/.env.local
+docker/.env

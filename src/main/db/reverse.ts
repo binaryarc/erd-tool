@@ -36,18 +36,14 @@ async function test(open: () => Promise<{ conn: DbConn; adapter: DbAdapter; targ
   }
 }
 
-/** 허브 docs-hub/spec/{BE 이름에서 -be 뗀 값}/_knowledge/.../erd-groups.json */
-function hubGroups(beDir: string): GroupRule[] | null {
-  const project = path.basename(beDir).replace(/-be$/, '');
-  const file = path.join(path.dirname(beDir), 'docs-hub', 'spec', project, '_knowledge',
-    'patterns', '20-database', '40-schema', 'erd-groups.json');
-  if (!fs.existsSync(file)) return null;
-  return groupsFromErdGroupsJson(JSON.parse(fs.readFileSync(file, 'utf8')));
+/** 그룹 규칙 파일 erd-groups.json: 설정에 지정한 파일(groupRulesFile), 없으면 모델 폴더 안의 erd-groups.json. 둘 다 없으면 null */
+function readGroupRules(modelDir: string, groupRulesFile?: string): GroupRule[] | null {
+  const file = [groupRulesFile, path.join(modelDir, 'erd-groups.json')].find(f => f && fs.existsSync(f));
+  return file ? groupsFromErdGroupsJson(JSON.parse(fs.readFileSync(file, 'utf8'))) : null;
 }
 
-/** hubBeDir: 그룹 규칙(erd-groups.json)을 찾을 BE 폴더. BE 프로필이면 그 폴더, 직접 입력이면 설정의 BE 폴더(없어도 됨) */
-export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string): Promise<ReverseResult> {
-  const beDir = ref.source === 'be' ? ref.beDir : hubBeDir;
+/** groupRulesFile: 모델이 처음 생길 때 쓸 그룹 규칙 파일 (설정의 groupRulesFile, 없어도 됨) */
+export async function reverse(ref: ConnRef, modelDir: string, groupRulesFile?: string): Promise<ReverseResult> {
   const loaded = fs.existsSync(path.join(modelDir, '_index.erd')) ? await loadModel(modelDir) : null;
   const prev = loaded?.model ?? null;
   const { conn, adapter, target } = await connectRef(ref, true);
@@ -63,7 +59,7 @@ export async function reverse(ref: ConnRef, modelDir: string, hubBeDir?: string)
       version: MODEL_VERSION,
       dialect: adapter.dialect,
       schema,
-      groups: prev?.groups.length ? prev.groups : ((beDir && hubGroups(beDir)) || [{ name: 'main', isDefault: true }]),
+      groups: prev?.groups.length ? prev.groups : (readGroupRules(modelDir, groupRulesFile) ?? [{ name: 'main', isDefault: true }]),
       common: prev?.common.length ? prev.common : detectCommon(raw.tables),
       ...(prev?.domains ? { domains: prev.domains } : {}),
       sequences: raw.sequences,

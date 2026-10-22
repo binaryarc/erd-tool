@@ -153,7 +153,7 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.manualRemove, (_e, id: string) => removeManual(id));
   ipcMain.handle(IPC.dbCatalog, (_e, ref: ConnRef) => loadCatalog(ref));
   ipcMain.handle(IPC.dbRead, (_e, ref: ConnRef) => readDb(ref));
-  ipcMain.handle(IPC.dbReverse, (_e, ref: ConnRef, modelDir: string) => reverse(ref, modelDir, getSettings().beDir));
+  ipcMain.handle(IPC.dbReverse, (_e, ref: ConnRef, modelDir: string) => reverse(ref, modelDir, getSettings().groupRulesFile));
 
   // SQL 탭 (설계 5장). 성공한 문장은 리터럴을 지워 이력에 남긴다
   ipcMain.handle(IPC.sqlOpen, (_e, tabId: string, ref: ConnRef, label: string) => openSession(tabId, ref, label));
@@ -264,12 +264,10 @@ function createWindow() {
     win.webContents.once('did-finish-load', async () => {
       console.log('[loaded]');
       const args = { scenario: auto, beDir: process.env.ERD_BE_DIR, profile: process.env.ERD_PROFILE ?? 'dev', modelDir: process.env.ERD_MODEL_DIR, exportDir: process.env.ERD_EXPORT_DIR, measure: process.env.ERD_MEASURE, dbms: process.env.ERD_DBMS, part: process.env.ERD_STEP10 };
-      //   ERD_AUTO=step7  ERD_EXPORT_DIR(시험용 임시 폴더)에 Flyway, 이력, MD 파일을 만든다. 이력 파일은 허브 원본을 그 폴더로 복사해 쓴다
-      if (auto === 'step7' && args.exportDir && args.beDir) {
-        const be = args.beDir.replace(/[\\/]+$/, '');
-        const hub = path.join(path.dirname(be), 'docs-hub', 'spec', path.basename(be).replace(/-be$/, ''), '_knowledge/patterns/20-database/40-schema/99-migration-history.md');
+      //   ERD_AUTO=step7  ERD_EXPORT_DIR(시험용 임시 폴더)에 Flyway, 이력, MD 파일을 만든다. 이력 파일은 「변경 이력」 표만 든 시험용 파일을 그 폴더에 만들어 쓴다
+      if (auto === 'step7' && args.exportDir) {
         fs.mkdirSync(args.exportDir, { recursive: true });
-        fs.copyFileSync(hub, path.join(args.exportDir, '99-migration-history.md'));
+        fs.writeFileSync(path.join(args.exportDir, '99-migration-history.md'), '# 마이그레이션 이력\n\n## 변경 이력\n\n| 반영일시 | 메뉴 | 테이블 | 내용 | 반영자 | 비고 |\n|---|---|---|---|---|---|\n');
       }
       try {
         const out = await win.webContents.executeJavaScript(`window.__erdAuto(${JSON.stringify(args)})`);

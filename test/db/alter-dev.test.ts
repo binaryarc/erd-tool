@@ -11,7 +11,7 @@ import { updateColumn, updateTable } from '../../src/shared/model/edit';
 import { splitStatements } from '../../src/shared/sql/text';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
 
-const BE = process.env.ERD_BE_DIR ?? 'C:/work/workspace/shop-be';
+const BE = process.env.ERD_BE_DIR ?? ''; // test/.env.local 에서 읽는다. 없으면 아래에서 건너뛴다
 let skip = '';
 try { passwordOf(getProfile(BE, 'dev'), BE); } catch (e) { skip = (e as Error).message; }
 
@@ -24,24 +24,24 @@ const empty = model([]);
 
 // 기본값은 PostgreSQL 이 돌려주는 모양 그대로 적는다 (다시 읽었을 때 글자가 같아야 비교된다)
 const A = model([
-  table('erd_biz', [col('biz_seq', 'integer', { notNull: true, comment: '사업장 SEQ' }), col('biz_nm', 'varchar(100)'), col('memo', 'text'),
-    col('use_yn', 'char(1)', { notNull: true, default: "'Y'::bpchar" })], { pk: ['biz_seq'], comment: '사업장' }),
-  table('erd_wh', [col('wh_seq', 'integer', { notNull: true }), col('biz_seq', 'integer')], {
-    pk: ['wh_seq'], fks: [{ name: 'fk_wh_biz', columns: ['biz_seq'], refTable: 'erd_biz', refColumns: ['biz_seq'] }],
-    indexes: [{ name: 'ix_wh_biz', columns: ['biz_seq'], unique: false }],
+  table('erd_brand', [col('brand_seq', 'integer', { notNull: true, comment: '사업장 SEQ' }), col('brand_nm', 'varchar(100)'), col('memo', 'text'),
+    col('use_yn', 'char(1)', { notNull: true, default: "'Y'::bpchar" })], { pk: ['brand_seq'], comment: '사업장' }),
+  table('erd_wh', [col('wh_seq', 'integer', { notNull: true }), col('brand_seq', 'integer')], {
+    pk: ['wh_seq'], fks: [{ name: 'fk_wh_brand', columns: ['brand_seq'], refTable: 'erd_brand', refColumns: ['brand_seq'] }],
+    indexes: [{ name: 'ix_wh_brand', columns: ['brand_seq'], unique: false }],
   }),
   table('erd_old', [col('id', 'integer', { notNull: true })], { pk: ['id'] }),
 ]);
 const B = model([
-  table('erd_biz', [col('biz_seq', 'integer', { notNull: true, comment: '사업장 SEQ' }), col('biz_nm', 'varchar(50)', { notNull: true }),
-    col('use_yn', 'char(1)', { notNull: true, default: "'N'::bpchar" }), col('sort_no', 'integer', { default: '0' })], { pk: ['biz_seq'], comment: '사업장 마스터' }),
-  table('erd_wh', [col('wh_seq', 'integer', { notNull: true }), col('biz_seq', 'integer', { notNull: true })], {
-    pk: ['wh_seq', 'biz_seq'], fks: [{ name: 'fk_wh_biz', columns: ['biz_seq'], refTable: 'erd_biz', refColumns: ['biz_seq'] }],
-    uniques: [{ name: 'uq_wh_biz', columns: ['biz_seq', 'wh_seq'] }],
+  table('erd_brand', [col('brand_seq', 'integer', { notNull: true, comment: '사업장 SEQ' }), col('brand_nm', 'varchar(50)', { notNull: true }),
+    col('use_yn', 'char(1)', { notNull: true, default: "'N'::bpchar" }), col('sort_no', 'integer', { default: '0' })], { pk: ['brand_seq'], comment: '사업장 마스터' }),
+  table('erd_wh', [col('wh_seq', 'integer', { notNull: true }), col('brand_seq', 'integer', { notNull: true })], {
+    pk: ['wh_seq', 'brand_seq'], fks: [{ name: 'fk_wh_brand', columns: ['brand_seq'], refTable: 'erd_brand', refColumns: ['brand_seq'] }],
+    uniques: [{ name: 'uq_wh_brand', columns: ['brand_seq', 'wh_seq'] }],
   }),
-  table('erd_center', [col('center_seq', 'integer', { notNull: true, default: "nextval('erd_center_seq'::regclass)" }), col('biz_seq', 'integer')], {
-    pk: ['center_seq'], comment: "센터's", fks: [{ name: 'fk_center_biz', columns: ['biz_seq'], refTable: 'erd_biz', refColumns: ['biz_seq'] }],
-    indexes: [{ name: 'ix_center_lower', columns: ['biz_seq'], unique: true }],
+  table('erd_center', [col('center_seq', 'integer', { notNull: true, default: "nextval('erd_center_seq'::regclass)" }), col('brand_seq', 'integer')], {
+    pk: ['center_seq'], comment: "센터's", fks: [{ name: 'fk_center_brand', columns: ['brand_seq'], refTable: 'erd_brand', refColumns: ['brand_seq'] }],
+    indexes: [{ name: 'ix_center_lower', columns: ['brand_seq'], unique: true }],
   }),
 ], {
   sequences: [{ name: 'erd_center_seq', start: 1, inc: 1 }],

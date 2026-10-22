@@ -1,4 +1,4 @@
-// 통합 시험 (STEP 9): SQL Server 어댑터. 도커 erd-mssql (WSL) 이 떠 있지 않으면 건너뛴다.
+// 통합 시험 (STEP 9): SQL Server 어댑터. 접속 정보(ERD_MSSQL_URL)가 없거나 DB 가 떠 있지 않으면 건너뛴다 (docker/docker-compose.yml).
 // 시험 스키마(test/fixtures/seed-mssql.sql)를 erdtest 에 다시 넣고, 전체 CREATE 와 ALTER 는 따로 만든 erd_scratch DB 에서 시험한 뒤 지운다.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,12 +16,14 @@ import type { SchemaModel } from '../../src/shared/model/types';
 import { buildAlter } from '../../src/shared/sql/alter';
 import { buildCreateAll } from '../../src/shared/sql/create';
 import { splitStatements } from '../../src/shared/sql/text';
+import { envTarget, missing } from '../helpers/db-targets';
 
-const T: Target = { dialect: 'sqlserver', host: '127.0.0.1', port: 1433, database: 'erdtest', user: 'sa', password: 'test-password', readOnly: false, trustCert: true };
+// 관리 계정(sa)으로 붙는다. 시험이 erd_scratch DB 를 만들고 지운다
+const T = envTarget('ERD_MSSQL_URL', 'sqlserver', { trustCert: true })!;
 const SCRATCH = 'erd_scratch';
 
-let skip = '';
-try {
+let skip = T ? '' : missing('ERD_MSSQL_URL');
+if (T) try {
   const c = await mssqlAdapter.connect(T, false);
   await c.close();
 } catch (e) { skip = (e as Error).message; }

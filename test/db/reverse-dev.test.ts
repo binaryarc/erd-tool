@@ -2,7 +2,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { ensurePgSample } from '../helpers/pg-sample';
 import { reverse } from '../../src/main/db/reverse';
 import { getProfile, passwordOf } from '../../src/main/db/profiles';
 import { loadModel, saveModel } from '../../src/main/model-store';
@@ -10,12 +11,13 @@ import { emptyLayout } from '../../src/shared/model/layout';
 import { isEmptyDiff } from '../../src/shared/model/merge';
 import { syncLayout } from '../../src/shared/model/arrange';
 
-const BE = process.env.ERD_BE_DIR ?? 'C:/work/workspace/shop-be';
+const BE = process.env.ERD_BE_DIR ?? ''; // test/.env.local 에서 읽는다. 없으면 아래에서 건너뛴다
 let skip = '';
 try { passwordOf(getProfile(BE, 'dev'), BE); } catch (e) { skip = (e as Error).message; }
 if (skip) console.warn(`dev DB 통합 시험을 건너뛴다: ${skip}`);
 
 describe.skipIf(!!skip)('dev DB 리버스', () => {
+  beforeAll(() => ensurePgSample(BE), 60_000); // 예시 스키마(test/fixtures/seed-postgres.sql)가 없으면 넣는다
   it('테이블 수, FK 수가 DB 직접 집계와 같고, 다시 리버스해도 ID 와 파일이 그대로다', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-'));
 
@@ -45,5 +47,24 @@ describe.skipIf(!!skip)('dev DB 리버스', () => {
       uniques: first.model.tables.reduce((n, t) => n + t.uniques.length, 0), indexes: first.model.tables.reduce((n, t) => n + t.indexes.length, 0),
       common: first.model.common.map(c => c.name), files, warnings: first.warnings,
     }));
+  }, 60_000);
+});
+
+describe.skipIf(!!skip)('그룹 규칙 파일', () => {
+  beforeAll(() => ensurePgSample(BE), 60_000);
+  const rules = JSON.stringify({ grp_rules: [{ prefix: 'mst_', grp: 'mst' }, { prefix: 'whs_', grp: 'whs' }], grp_default: 'sys' });
+  const groupNames = (m: { groups: { name: string }[] }) => m.groups.map(g => g.name);
+
+  it('설정에 지정한 파일, 없으면 모델 폴더 안의 erd-groups.json, 둘 다 없으면 그룹 하나', async () => {
+    const ref = { source: 'be' as const, beDir: BE, name: 'dev' };
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'erd-grp-')), 'rules.json');
+    fs.writeFileSync(file, rules);
+    expect(groupNames((await reverse(ref, fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-')), file)).model)).toEqual(['mst', 'whs', 'sys']);
+
+    const inModel = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-'));
+    fs.writeFileSync(path.join(inModel, 'erd-groups.json'), rules);
+    expect(groupNames((await reverse(ref, inModel)).model)).toEqual(['mst', 'whs', 'sys']);
+
+    expect(groupNames((await reverse(ref, fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-')))).model)).toEqual(['main']);
   }, 60_000);
 });

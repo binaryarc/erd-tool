@@ -1,4 +1,4 @@
--- Oracle 어댑터 시험용 스키마 (STEP 9). 도커 erd-oracle 의 FREEPDB1, 계정(스키마) ERD. 시험 시작에 지우고 다시 넣는다.
+-- Oracle 어댑터 시험용 스키마 (STEP 9). 도커 Oracle 의 FREEPDB1, 계정(스키마) ERD. 시험 시작에 지우고 다시 넣는다.
 -- 단일과 복합 PK, 복합 FK, ON DELETE CASCADE, UNIQUE, 일반과 UNIQUE 인덱스, IDENTITY, 기본값, 가상 컬럼, 코멘트, CHECK, 시퀀스, 뷰(경고 확인용)
 DROP VIEW IF EXISTS erd_v_order;
 DROP TABLE IF EXISTS erd_order_item PURGE;

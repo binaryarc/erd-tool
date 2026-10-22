@@ -35,7 +35,7 @@ function endRename(e: Event, commit: boolean) {
               @click="emit('select', t)" @dblclick="startRename(t)" @contextmenu.prevent="emit('remove', t)">{{ t }}</button>
     </template>
     <button class="add" title="빈 그룹 탭을 만듭니다" @click="emit('add')">+</button>
-    <button v-if="canPrefix" class="add" title="모델의 접두어 그룹(mdm, wms 등)마다 그 그룹 테이블을 넣은 탭을 만듭니다" @click="emit('prefix')">접두어 그룹으로 탭 만들기</button>
+    <button v-if="canPrefix" class="add" title="모델의 접두어 그룹(mst, whs 등)마다 그 그룹 테이블을 넣은 탭을 만듭니다" @click="emit('prefix')">접두어 그룹으로 탭 만들기</button>
     <span class="spacer" />
     <button v-if="active !== all" class="add pick" title="이 그룹에 없는 테이블을 골라 넣습니다 (빈 곳 우클릭과 같습니다)" @click="emit('pick')">테이블 추가</button>
   </nav>

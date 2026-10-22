@@ -45,8 +45,8 @@ describe('MCP 서버', () => {
   it('ERD 도구는 화면에 묻고, 실패는 isError 로 돌려준다', async () => {
     expect((await callTool('erd_overview')).content[0].text).toBe('erd_overview 응답');
     expect(asked.at(-1)).toEqual({ tool: 'erd_overview', args: {} });
-    expect((await callTool('erd_tables', { names: ['mst_biz'] })).content[0].text).toBe('erd_tables 응답');
-    expect(asked.at(-1)).toEqual({ tool: 'erd_tables', args: { names: ['mst_biz'] } });
+    expect((await callTool('erd_tables', { names: ['mst_brand'] })).content[0].text).toBe('erd_tables 응답');
+    expect(asked.at(-1)).toEqual({ tool: 'erd_tables', args: { names: ['mst_brand'] } });
     await callTool('db_compare', { from: 'dev', to: 'erd', kind: 'index' });
     expect(asked.at(-1)).toEqual({ tool: 'db_compare', args: { from: 'dev', to: 'erd', kind: 'index' } });
     const bad = await callTool('erd_apply', { commands: ['x'] });

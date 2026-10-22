@@ -57,6 +57,6 @@ describe('Flyway 폴더 기본값', () => {
     await fs.mkdir(path.join(dir, 'src/main/resources/db/migration'), { recursive: true });
     expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resources/db/migration'));
     await fs.mkdir(path.join(dir, 'src/main/resource/db/migration'), { recursive: true });
-    expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resource/db/migration')); // shop 구조가 먼저
+    expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resource/db/migration')); // 단수 resource 구조가 먼저
   });
 });

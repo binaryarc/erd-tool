@@ -111,11 +111,11 @@ const fw = ref({ description: '', menuCode: '', history: false, result: '', erro
 async function defaults() {
   const s = await window.erd.settings.get();
   const be = s.beDir?.replace(/[\\/]+$/, '');
-  const project = be ? be.split(/[\\/]/).pop()!.replace(/-be$/, '') : '';
   return {
     settings: s,
     flyway: s.exportDirs?.flyway ?? (be ? (await window.erd.export.flywayDir(be)) ?? undefined : undefined),
-    history: s.exportDirs?.history ?? (be ? `${be}/../docs-hub/spec/${project}/_knowledge/patterns/20-database/40-schema/99-migration-history.md` : undefined),
+    // 이력 파일은 처음에 사람이 고르고 그 위치를 기억한다 (기본 위치를 코드에 두지 않는다)
+    history: s.exportDirs?.history ?? be,
   };
 }
 
@@ -134,7 +134,7 @@ async function writeFlyway(dir: string, historyFile?: string) {
 }
 
 async function makeFlyway() {
-  if (!validDescription(fw.value.description.trim())) { fw.value.error = '설명은 영문 소문자 snake_case 로 적어 주세요 (예: add_mst_biz_columns)'; return; }
+  if (!validDescription(fw.value.description.trim())) { fw.value.error = '설명은 영문 소문자 snake_case 로 적어 주세요 (예: add_mst_brand_columns)'; return; }
   const d = await defaults();
   const dir = await window.erd.pickFolder(d.flyway);
   if (!dir) return;
@@ -231,7 +231,7 @@ defineExpose({ ready, compare, writeFlyway, writeCompareMd, compareMd, setFlyway
         </div>
         <div class="flyway">
           <b>Flyway 파일로</b>
-          <label>설명 <input v-model="fw.description" spellcheck="false" placeholder="add_mst_biz_columns" /></label>
+          <label>설명 <input v-model="fw.description" spellcheck="false" placeholder="add_mst_brand_columns" /></label>
           <label>메뉴코드 <input v-model="fw.menuCode" spellcheck="false" placeholder="없으면 비움" class="short" /></label>
           <label class="check"><input v-model="fw.history" type="checkbox" /> 99-migration-history.md 에 한 줄 추가</label>
           <button :disabled="!flywayOk" :title="flywayOk ? '폴더를 고르면 V{다음 번호}__{설명}_{시각}.sql 을 만듭니다. DB 에는 실행하지 않습니다' : 'Flyway 파일은 PostgreSQL 모델에서만 만들 수 있습니다'" @click="makeFlyway">Flyway 파일 만들기</button>

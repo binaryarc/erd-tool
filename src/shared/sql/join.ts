@@ -20,7 +20,7 @@ function edges(model: SchemaModel): Map<string, Edge[]> {
   return g;
 }
 
-/** 테이블 별칭: 이름 마지막 단어 첫 글자들 (mst_biz_wh → bw), 겹치면 숫자 */
+/** 테이블 별칭: 이름 마지막 단어 첫 글자들 (mst_brand_wh → bw), 겹치면 숫자 */
 function aliasFor(name: string, used: Set<string>): string {
   const parts = name.split('_');
   const base = (parts.length > 1 ? parts.slice(1) : parts).map(p => p[0]).join('') || 't';

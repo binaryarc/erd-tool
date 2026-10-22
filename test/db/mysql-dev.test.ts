@@ -1,4 +1,4 @@
-// 통합 시험 (STEP 9): MySQL 어댑터. 도커 erd-mysql (WSL) 이 떠 있지 않으면 건너뛴다.
+// 통합 시험 (STEP 9): MySQL 어댑터. 접속 정보(ERD_MYSQL_URL)가 없거나 DB 가 떠 있지 않으면 건너뛴다 (docker/docker-compose.yml).
 // 시험 스키마(test/fixtures/seed-mysql.sql)를 erdtest 에 다시 넣는다. DDL 이 바로 커밋되므로
 // 전체 CREATE 와 ALTER 는 root 로 따로 만든 erd_scratch DB 에서 시험한 뒤 지운다.
 import fs from 'node:fs';
@@ -17,13 +17,15 @@ import type { SchemaModel } from '../../src/shared/model/types';
 import { buildAlter } from '../../src/shared/sql/alter';
 import { buildCreateAll } from '../../src/shared/sql/create';
 import { splitStatements } from '../../src/shared/sql/text';
+import { envTarget, missing } from '../helpers/db-targets';
 
-const T: Target = { dialect: 'mysql', host: '127.0.0.1', port: 3306, database: 'erdtest', user: 'erd', password: 'test-password', readOnly: false };
+const T = envTarget('ERD_MYSQL_URL', 'mysql')!;
+// root 는 시험 계정과 같은 비밀번호로 둔다 (docker/docker-compose.yml)
 const ROOT: Target = { ...T, user: 'root' };
 const SCRATCH = 'erd_scratch';
 
-let skip = '';
-try {
+let skip = T ? '' : missing('ERD_MYSQL_URL');
+if (T) try {
   const c = await mysqlAdapter.connect(T, false);
   await c.close();
 } catch (e) { skip = (e as Error).message; }

@@ -15,7 +15,7 @@ const FUNCTION_HEAD = '-- erd-function ';
 
 /**
  * 모델을 파일 이름 → 내용 으로 바꾼다. 테이블은 모두 tables.erd 한 파일에 이름순으로 쓴다. 테이블이 없으면 파일을 만들지 않는다.
- * (2026-10-16 사용자 지정: 전에는 접두어 그룹마다 mdm.erd, wms.erd 처럼 나눠 썼다. 읽기는 폴더의 *.erd 를 모두 읽어 예전 폴더도 열린다)
+ * (2026-10-16 사용자 지정: 전에는 접두어 그룹마다 mst.erd, whs.erd 처럼 나눠 썼다. 읽기는 폴더의 *.erd 를 모두 읽어 예전 폴더도 열린다)
  */
 export function serializeModel(model: SchemaModel): Record<string, string> {
   const files: Record<string, string> = { [INDEX_FILE]: serializeIndex(model) };

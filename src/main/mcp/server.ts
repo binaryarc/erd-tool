@@ -76,7 +76,7 @@ function build(deps: McpDeps): McpServer {
     inputSchema: z.object({
       kind: z.enum(['md', 'flyway']),
       conn: z.string().optional().describe('flyway 일 때 비교할 접속 이름 (예: dev)'),
-      description: z.string().optional().describe('flyway 파일 설명, 영문 소문자 snake_case (예: add_mst_biz_wh_sort_no)'),
+      description: z.string().optional().describe('flyway 파일 설명, 영문 소문자 snake_case (예: add_mst_brand_wh_sort_no)'),
     }),
   }, callWith('erd_export'));
 
