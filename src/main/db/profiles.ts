@@ -28,7 +28,16 @@ export function parseJdbcUrl(url: string): { driver: string; host: string; port?
   return null;
 }
 
-const PROP_DIRS = ['src/main/resources', 'src/main/resources/prop', 'src/main/resources'];
+/** 쓰기로 여는 프로필 이름. 나머지(test, prod, real 등)는 읽기 전용 (2026-10-22 사용자 결정: test 도 읽기 전용) */
+export const DEFAULT_WRITABLE_PROFILES = ['dev', 'local'];
+let writable = DEFAULT_WRITABLE_PROFILES;
+
+/** 설정(settings.json 의 writableProfiles)으로 바꾼다. 비우거나 안 주면 기본값 */
+export function setWritableProfiles(names: string[] | undefined): void {
+  writable = names?.length ? names.map(n => n.toLowerCase()) : DEFAULT_WRITABLE_PROFILES;
+}
+
+const PROP_DIRS =['src/main/resources', 'src/main/resources/prop', 'src/main/resources'];
 
 export interface Profile extends ProfileInfo {
   passwordRaw: string;
@@ -61,8 +70,8 @@ export function listProfiles(beDir: string): Profile[] {
       port: m?.port ?? kind?.port ?? 5432,
       database: m?.database ?? '',
       user: p['db.username'] ?? '',
-      // 운영 접속은 기본 읽기 전용 (설계 5장, 12장)
-      readOnly: name === 'prod',
+      // 쓰기 허용 목록에 없는 프로필은 모두 읽기 전용 (설계 5장, 12장. 운영 이름이 prod 가 아닌 프로젝트도 막는다)
+      readOnly: !writable.includes(name.toLowerCase()),
       passwordRaw: p['db.password'] ?? '',
     });
   }
