@@ -52,7 +52,7 @@ describe.skipIf(!!skip)('dev DB 리버스', () => {
 
 describe.skipIf(!!skip)('그룹 규칙 파일', () => {
   beforeAll(() => ensurePgSample(BE), 60_000);
-  const rules = JSON.stringify({ grp_rules: [{ prefix: 'mst_', grp: 'mst' }, { prefix: 'whs_', grp: 'whs' }], grp_default: 'sys' });
+  const rules = JSON.stringify({ groups: [{ name: 'mst', prefix: 'mst_' }, { name: 'whs', prefix: 'whs_' }], defaultGroup: 'sys' });
   const groupNames = (m: { groups: { name: string }[] }) => m.groups.map(g => g.name);
 
   it('설정에 지정한 파일, 없으면 모델 폴더 안의 erd-groups.json, 둘 다 없으면 그룹 하나', async () => {

@@ -264,7 +264,7 @@ export function installScenarios(app: AutoCtx, h: AutoHelpers) {
   };
 
   /**
-   * STEP 7 시험: ERD 를 고친 뒤 dev 와 비교해 Flyway 파일과 이력 한 줄을 만들고, MD 문서와 메뉴 물리 테이블 목록을 만든다.
+   * STEP 7 시험: ERD 를 고친 뒤 dev 와 비교해 Flyway 파일과 이력 한 줄을 만들고, MD 문서와 고른 테이블 목록을 만든다.
    * 파일은 모두 exportDir(시험용 임시 폴더)에 쓴다. BE 의 db/migration 은 다음 번호만 읽는다. DB 는 읽기만 한다.
    */
   async function step7Scenario(beDir: string, dir: string, exportDir: string) {
@@ -283,19 +283,19 @@ export function installScenarios(app: AutoCtx, h: AutoHelpers) {
     // Flyway: 왼쪽 dev, 오른쪽 지금 ERD
     await applyToDb();
     out.compare = compare.value!.items().map(i => `${i.kind} ${i.change} ${i.table ?? ''}.${i.name}`);
-    out.beNextVersion = await window.erd.export.nextVersion(`${beDir}/src/main/resource/db/migration`);
+    out.beNextVersion = await window.erd.export.nextVersion((await window.erd.export.flywayDir(beDir)) ?? `${beDir}/none`);
     compare.value!.setFlyway({ menuCode: 'menu01' });
-    const f1 = await compare.value!.writeFlyway(`${exportDir}/migration`, `${exportDir}/99-migration-history.md`);
+    const f1 = await compare.value!.writeFlyway(`${exportDir}/migration`, `${exportDir}/migration-history.md`);
     const f2 = await compare.value!.writeFlyway(`${exportDir}/migration`); // 같은 폴더에 다시: 번호가 올라간다
     out.flyway = { first: f1 && { fileName: f1.fileName, history: !!f1.history, statements: f1.statements }, second: f2?.fileName };
     await nextTick(); await frames(5);
 
-    // MD: 스키마 문서, 다시 쓰면 같은 이름을 덮어쓴다, 메뉴 물리 테이블 목록
+    // MD: 스키마 문서, 다시 쓰면 같은 이름을 덮어쓴다, 고른 테이블 목록
     openExport();
     await nextTick(); await frames(5);
     const md = await exporter.value!.writeSchema(`${exportDir}/md`);
     const again = await exporter.value!.writeSchema(`${exportDir}/md`);
-    const menu = await exporter.value!.writeMenu(`${exportDir}/md`, 'MENU01', ['mst_brand', probe]);
+    const menu = await exporter.value!.writeTableList(`${exportDir}/md`, 'menu01', ['mst_brand', probe]);
     out.md = { files: md.map(p => p.split(/[\\/]/).pop()), againWritten: again.length, menu: menu.map(p => p.split(/[\\/]/).pop()),
       error: document.querySelector('.export .warn')?.textContent ?? '' };
 

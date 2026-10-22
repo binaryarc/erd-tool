@@ -105,11 +105,10 @@ function registerIpc(win: BrowserWindow) {
     const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
-  // 「ERD 저장」 폴더 (2026-10-16 사용자 지정): 처음 위치는 DB 접속에 쓰는 BE 폴더의 docs/erd, 없으면 사용자 홈
+  // 「ERD 저장」 폴더 (2026-10-16 사용자 지정): 처음 위치는 지금 모델 폴더(없으면 그 위 폴더), 둘 다 없으면 사용자 홈
   ipcMain.handle(IPC.modelPickSaveDir, async () => {
-    const be = getSettings().beDir;
-    const erdDir = be ? path.join(be, 'docs', 'erd') : '';
-    const defaultPath = erdDir && fs.existsSync(erdDir) ? erdDir : os.homedir();
+    const md = getSettings().modelDir;
+    const defaultPath = [md, md && path.dirname(md)].find(d => d && fs.existsSync(d)) || os.homedir();
     const r = await dialog.showOpenDialog(win, { title: 'ERD 모델을 저장할 폴더', defaultPath, properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return null;
     const dir = r.filePaths[0];

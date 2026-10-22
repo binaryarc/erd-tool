@@ -33,7 +33,7 @@ export function runAuto(win: BrowserWindow) {
       //   ERD_AUTO=step7  ERD_EXPORT_DIR(시험용 임시 폴더)에 Flyway, 이력, MD 파일을 만든다. 이력 파일은 「변경 이력」 표만 든 시험용 파일을 그 폴더에 만들어 쓴다
       if (auto === 'step7' && args.exportDir) {
         fs.mkdirSync(args.exportDir, { recursive: true });
-        fs.writeFileSync(path.join(args.exportDir, '99-migration-history.md'), '# 마이그레이션 이력\n\n## 변경 이력\n\n| 반영일시 | 메뉴 | 테이블 | 내용 | 반영자 | 비고 |\n|---|---|---|---|---|---|\n');
+        fs.writeFileSync(path.join(args.exportDir, 'migration-history.md'), '# 마이그레이션 이력\n\n## 변경 이력\n\n| 반영일시 | 메뉴 | 테이블 | 내용 | 반영자 | 비고 |\n|---|---|---|---|---|---|\n');
       }
       try {
         // 화면은 시험 함수(src/renderer/src/auto)를 나중에 불러 붙이므로 생길 때까지 기다린다

@@ -1,5 +1,5 @@
 // 스키마 모델 → MD 문서 (STEP 7, 설계 8-1). 형식은 templates/*.md 에 있고 여기서는 값만 만든다.
-// 그룹 문서(그룹마다 하나), 색인, 메뉴 물리 테이블 목록 조각. 파일 이름에 시각을 붙이지 않고 같은 이름은 덮어쓴다(사용자 지정 2026-10-16).
+// 그룹 문서(그룹마다 하나), 색인, 고른 테이블 목록 조각. 파일 이름에 시각을 붙이지 않고 같은 이름은 덮어쓴다(사용자 지정 2026-10-16).
 // 만든 시각은 문서 안 generated_at 에 남는다.
 
 import { cell, fillTemplate } from './template';
@@ -57,17 +57,19 @@ export function buildSchemaDocs(model: SchemaModel, now: Date, tpl?: TemplateSet
   return [{ name: '00-tables-overview.md', content: overview }, ...files];
 }
 
-/** 메뉴 설계 문서 「물리 테이블 목록」 절에 붙여 넣을 조각. 업무개념은 테이블 코멘트, 비고는 사람이 채운다 */
-export function buildMenuTables(model: SchemaModel, menuCode: string, tableNames: string[], now: Date, tpl?: TemplateSet): MdFile {
-  if (!/^[a-z0-9_]+$/i.test(menuCode)) throw new Error('메뉴코드는 영문, 숫자로 입력하세요');
+/**
+ * ERD 에서 고른 테이블의 목록 조각 (설계 문서 등에 붙여 넣는다). 파일 이름은 {title}-tables.md.
+ * 템플릿 값: title, generatedAt, 테이블마다 no, name, comment, concept(코멘트, 없으면 이름), upperName(대문자 이름)
+ */
+export function buildTableList(model: SchemaModel, title: string, tableNames: string[], now: Date, tpl?: TemplateSet): MdFile {
+  if (!/^[\w-]+$/.test(title)) throw new Error('이름은 영문, 숫자, _, - 로 입력하세요 (파일 이름에 쓴다)');
   if (!tableNames.length) throw new Error('ERD 에서 테이블을 고르세요 (Ctrl+클릭으로 여러 개)');
   const tables = tableNames.map(n => model.tables.find(t => t.name === n) ?? (() => { throw new Error(`테이블 ${n} 이(가) 없습니다`); })());
-  const code = menuCode.toLowerCase();
   return {
-    name: `${code}-03-물리테이블목록.md`,
-    content: fillTemplate(templateOf(tpl, 'menu-tables.md'), {
-      menuCode: code, generatedAt: generatedAt(now),
-      tables: numbered(tables.map(t => ({ concept: cell(t.comment) || t.name, upperName: t.name.toUpperCase() }))),
-    }, 'menu-tables.md'),
+    name: `${title}-tables.md`,
+    content: fillTemplate(templateOf(tpl, 'table-list.md'), {
+      title, generatedAt: generatedAt(now),
+      tables: numbered(tables.map(t => ({ name: t.name, comment: cell(t.comment), concept: cell(t.comment) || t.name, upperName: t.name.toUpperCase() }))),
+    }, 'table-list.md'),
   };
 }

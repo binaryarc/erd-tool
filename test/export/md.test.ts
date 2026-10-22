@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMenuTables, buildSchemaDocs } from '../../src/shared/export/md';
+import { buildSchemaDocs, buildTableList } from '../../src/shared/export/md';
 import { fillTemplate } from '../../src/shared/export/template';
 import { buildCompareMd } from '../../src/shared/export/compare-md';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
@@ -49,7 +49,7 @@ describe('사용자 템플릿 폴더', () => {
     const files = buildSchemaDocs(model, now, { 'group-tables.md': '# {{group}} ({{tableCount}})\n{{#tables}}\n- {{name}}\n{{/tables}}\n' });
     expect(files[1].content).toBe('# mst (2)\n- mst_brand\n- mst_wh\n');
     expect(files[0].content).toEqual(buildSchemaDocs(model, now)[0].content);
-    expect(buildMenuTables(model, 'm1', ['mst_wh'], now, { 'menu-tables.md': '{{menuCode}}:{{#tables}}{{upperName}}{{/tables}}' }).content).toBe('m1:MST_WH');
+    expect(buildTableList(model, 'm1', ['mst_wh'], now, { 'table-list.md': '{{title}}:{{#tables}}{{upperName}}{{/tables}}' }).content).toBe('m1:MST_WH');
     expect(buildCompareMd({ items: [], fromLabel: 'a', toLabel: 'b', now, templates: { 'db-compare.md': '{{fromLabel}}>{{toLabel}}' } })).toBe('a>b');
   });
   it('사용자 템플릿의 없는 값은 그 템플릿 이름과 줄로 알린다', () => {
@@ -82,11 +82,12 @@ describe('스키마 MD', () => {
   });
 });
 
-describe('메뉴 물리 테이블 목록', () => {
-  it('고른 순서대로, 업무개념은 코멘트(없으면 이름), 물리명은 대문자', () => {
-    const f = buildMenuTables(model, 'MENU01', ['mst_wh', 'flyway_schema_history'], now);
-    expect(f.name).toBe('menu01-03-물리테이블목록.md');
-    expect(f.content).toContain('| 1 | 창고 | `MST_WH` |  |\n| 2 | flyway_schema_history | `FLYWAY_SCHEMA_HISTORY` |  |');
-    expect(() => buildMenuTables(model, 'menu01', [], now)).toThrow('테이블을 고르세요');
+describe('고른 테이블 목록', () => {
+  it('고른 순서대로 이름과 설명(코멘트)을 담고, 파일 이름은 {이름}-tables.md', () => {
+    const f = buildTableList(model, 'order-screen', ['mst_wh', 'flyway_schema_history'], now);
+    expect(f.name).toBe('order-screen-tables.md');
+    expect(f.content).toContain('| 1 | `mst_wh` | 창고 |\n| 2 | `flyway_schema_history` |  |');
+    expect(() => buildTableList(model, 'a b', ['mst_wh'], now)).toThrow('이름은');
+    expect(() => buildTableList(model, 'x', [], now)).toThrow('테이블을 고르세요');
   });
 });

@@ -77,8 +77,8 @@ export interface FlywayFile {
   statements: number;
   dangers: number;
   items: DiffItem[];
-  /** 99-migration-history.md 「변경 이력」 표에 덧붙일 한 줄 */
-  historyLine: string;
+  /** 이력 MD 표에 덧붙일 한 줄의 칸: 일시, 메뉴코드, 테이블, 내용 (칸 수는 넣을 표에 맞춘다) */
+  historyCells: string[];
 }
 
 /** buildAlter 결과에서 맨 위 안내 주석 한 줄을 뗀다 */
@@ -123,19 +123,25 @@ export function buildFlyway(i: FlywayInput): FlywayFile {
   // 함수 정의 등에 달러+중괄호가 섞이면 Flyway 기동이 멈춘다 (Flyway 가 플레이스홀더로 해석)
   if (sql.includes('${')) throw new Error('달러+중괄호 형태가 들어 있어 Flyway 가 플레이스홀더로 해석합니다. 그 부분을 고친 뒤 다시 만드세요');
 
-  const historyLine = `| ${dateTime(i.now)} | ${i.menuCode || '-'} | ${tables.map(t => '`' + t + '`').join(', ')} | ${summary} — ${fileName} | - | - |`;
-  return { fileName, sql, statements: up.statements, dangers: up.dangers, items, historyLine };
+  const historyCells = [dateTime(i.now), i.menuCode || '-', tables.map(t => '`' + t + '`').join(', '), `${summary} — ${fileName}`];
+  return { fileName, sql, statements: up.statements, dangers: up.dangers, items, historyCells };
 }
 
-/** 99-migration-history.md 의 「변경 이력」 표 끝에 한 줄을 넣는다. 표를 못 찾으면 오류 */
-export function appendHistoryLine(md: string, line: string): string {
+/**
+ * 이력 MD 의 표 끝에 한 줄을 넣는다. 「변경 이력」 제목 아래 표가 있으면 그 표, 없으면 파일의 마지막 표.
+ * 칸 수는 그 표의 머리 줄에 맞춘다: 모자라면 뒤를 - 로 채우고, 넘치면 넘친 칸을 마지막 칸에 이어 붙인다. 표가 없으면 오류
+ */
+export function appendHistoryRow(md: string, cells: string[]): string {
   const lines = md.split('\n');
+  const tableAt = (from: number) => { let i = from; while (i < lines.length && !lines[i].startsWith('|')) i++; return i < lines.length ? i : -1; };
   const head = lines.findIndex(l => /^#+\s*변경 이력\s*$/.test(l));
-  if (head < 0) throw new Error('「변경 이력」 절을 찾지 못했습니다');
-  let i = head + 1;
-  while (i < lines.length && !lines[i].startsWith('|')) i++;
-  if (i >= lines.length) throw new Error('「변경 이력」 절에 표가 없습니다');
-  while (i < lines.length && lines[i].startsWith('|')) i++;
-  lines.splice(i, 0, line);
+  let start = head >= 0 ? tableAt(head + 1) : -1;
+  if (start < 0) for (let i = lines.length - 1; i >= 0; i--) if (lines[i].startsWith('|') && !lines[i - 1]?.startsWith('|')) { start = i; break; }
+  if (start < 0) throw new Error('이력 파일에 표가 없습니다');
+  const width = lines[start].replace(/^\||\|\s*$/g, '').split('|').length;
+  const row = width >= cells.length ? [...cells, ...Array(width - cells.length).fill('-')] : [...cells.slice(0, width - 1), cells.slice(width - 1).join(' — ')];
+  let end = start;
+  while (end < lines.length && lines[end].startsWith('|')) end++;
+  lines.splice(end, 0, `| ${row.join(' | ')} |`);
   return lines.join('\n');
 }

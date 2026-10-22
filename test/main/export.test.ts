@@ -19,9 +19,9 @@ describe('내보내기 파일 쓰기', () => {
   });
 
   it('새 파일을 쓰고 이력 표에 한 줄 덧붙인다', async () => {
-    const hist = path.join(dir, '99-migration-history.md');
+    const hist = path.join(dir, 'migration-history.md');
     await fs.writeFile(hist, HISTORY);
-    const r = await writeExport(path.join(dir, 'out'), [{ name: 'a.md', content: 'A\n' }], { file: hist, line: '| 2 | b |' });
+    const r = await writeExport(path.join(dir, 'out'), [{ name: 'a.md', content: 'A\n' }], { file: hist, cells: ['2', 'b'] });
     expect(r.written).toEqual([path.join(dir, 'out', 'a.md')]);
     expect(r.replaced).toEqual([]);
     expect(await fs.readFile(r.written[0], 'utf8')).toBe('A\n');
@@ -43,21 +43,21 @@ describe('내보내기 파일 쓰기', () => {
     expect(await fs.readFile(path.join(dir, 'b.md'), 'utf8')).toBe('B');
   });
 
-  it('이력 파일에 「변경 이력」 표가 없으면 새 파일도 쓰지 않는다', async () => {
+  it('이력 파일에 표가 없으면 새 파일도 쓰지 않는다', async () => {
     const hist = path.join(dir, 'h.md');
     await fs.writeFile(hist, '# 없음\n');
-    await expect(writeExport(dir, [{ name: 'a.md', content: 'A' }], { file: hist, line: '| x |' })).rejects.toThrow('변경 이력');
+    await expect(writeExport(dir, [{ name: 'a.md', content: 'A' }], { file: hist, cells: ['x'] })).rejects.toThrow('표가 없습니다');
     expect(await fs.readdir(dir)).toEqual(['h.md']);
   });
 });
 
 describe('Flyway 폴더 기본값', () => {
-  it('BE 구조에 따라 실제로 있는 db/migration 을 고르고, 둘 다 없으면 null', async () => {
+  it('src/main 아래 실제로 있는 db/migration 을 고르고, 표준 resources 가 먼저, 없으면 null', async () => {
     expect(await findFlywayDir(dir)).toBeNull();
+    await fs.mkdir(path.join(dir, 'src/main/conf/db/migration'), { recursive: true });
+    expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/conf/db/migration'));
     await fs.mkdir(path.join(dir, 'src/main/resources/db/migration'), { recursive: true });
     expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resources/db/migration'));
-    await fs.mkdir(path.join(dir, 'src/main/resource/db/migration'), { recursive: true });
-    expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resource/db/migration')); // 단수 resource 구조가 먼저
   });
 });
 
