@@ -2,7 +2,8 @@
   "name": "erd-tool",
   "version": "0.1.2",
   "private": true,
-  "description": "부서용 ERD 도구",
+  "description": "데이터베이스 ERD 편집, SQL, 스키마 비교, Flyway 마이그레이션 데스크톱 도구",
+  "license": "MIT",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

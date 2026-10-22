@@ -1,6 +1,6 @@
 ---
 title: ERD Tool 설치 안내
-description: 부서원이 ERD Tool 설치 파일로 설치하고 처음 실행할 때, 그리고 관리자가 설치 파일을 다시 만들 때 읽는다
+description: 사용자가 ERD Tool 설치 파일로 설치하고 처음 실행할 때, 그리고 관리자가 설치 파일을 다시 만들 때 읽는다
 status: draft
 version: 0.1.0
 tags:
@@ -10,7 +10,7 @@ tags:
 
 # ERD Tool 설치 안내
 
-> 숨은 전제: 사내 Windows 10, 11 x64 PC 이고, DB 접속 정보는 BE 레포의 `application-{프로필}.properties` (또는 `.yml`) 에서 읽거나 「직접 입력」 으로 넣는다. 설치 파일만으로 실행되며 Node.js, Java 같은 개발 도구는 필요 없다.
+> 숨은 전제: Windows 10, 11 x64 PC 이고, DB 접속 정보는 BE 레포의 `application-{프로필}.properties` (또는 `.yml`) 에서 읽거나 「직접 입력」 으로 넣는다. 설치 파일만으로 실행되며 Node.js, Java 같은 개발 도구는 필요 없다.
 
 ## 1. 준비물
 
@@ -37,7 +37,7 @@ tags:
 ## 3. 설치
 
 1. `ERD-Tool-Setup-{버전}.exe` 를 실행한다.
-2. 「Windows의 PC 보호」 파란 창이 뜨면 「추가 정보」 → 「실행」 을 누른다. 설치 파일에 회사 코드 서명이 없어서 뜨는 창이다.
+2. 「Windows의 PC 보호」 파란 창이 뜨면 「추가 정보」 → 「실행」 을 누른다. 설치 파일에 코드 서명이 없어서 뜨는 창이다.
 3. 설치 범위(나만 또는 모든 사용자)와 설치 폴더를 고른다. 기본은 나만, `%LOCALAPPDATA%\Programs\ERD Tool` 이다.
 4. 설치가 끝나면 바탕화면과 시작 메뉴에 「ERD Tool」 이 생긴다.
 
