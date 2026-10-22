@@ -2,11 +2,13 @@
 // DB 비교 (설계 6-2): 왼쪽(지금 모습)과 오른쪽(바꿀 모습)을 접속, 모델 폴더, 지금 ERD 중에서 골라 차이를 보고,
 // 왼쪽을 오른쪽처럼 바꾸는 ALTER 를 만들거나 왼쪽 DB 에 적용한다(새 SQL 탭에 넣을 뿐, 바로 실행하지 않는다).
 // 바로 적용은 dev 기준이다. test, 운영은 「Flyway 파일로」 로 만든 파일로 반영한다(STEP 7). 파일만 만들고 DB 에 실행하지 않는다.
+// 비교 결과는 MD 로 저장하거나 클립보드에 복사할 수 있다(2026-10-22). 화면에서 좁힌 줄만 담는다.
 import { computed, onMounted, ref, shallowRef } from 'vue';
 import { DIFF_CHANGE_LABEL, DIFF_KIND_LABEL, diffModels, summarize, type DiffItem, type DiffKind } from '../../../shared/model/diff';
 import { buildAlter } from '../../../shared/sql/alter';
 import { dialectOf } from '../../../shared/dialect/names';
 import { buildFlyway, suggestDescription, validDescription } from '../../../shared/export/flyway';
+import { buildCompareMd, compareMdName } from '../../../shared/export/compare-md';
 import type { SchemaModel } from '../../../shared/model/types';
 import { loadConnOptions, type ConnOption } from '../conn-options';
 
@@ -145,7 +147,43 @@ async function makeFlyway() {
   await writeFlyway(dir, historyFile);
 }
 
-defineExpose({ ready, compare, writeFlyway, setFlyway: (p: Partial<typeof fw.value>) => Object.assign(fw.value, p), setLeft: (k: string) => (left.value = { kind: 'conn', key: k, dir: '' }), setRight: (k: string) => (right.value = { kind: 'conn', key: k, dir: '' }),
+// ---------- 비교 결과 MD (2026-10-22) ----------
+const out = ref({ result: '', error: '' });
+
+/** 지금 화면에 보이는 줄(종류, 위험만 보기로 좁힌 결과)로 MD 를 만든다 */
+function compareMd(now = new Date()) {
+  const filter = [filterKind.value ? KIND_LABEL[filterKind.value] : '', dangerOnly.value ? '위험만' : ''].filter(Boolean).join(', ');
+  return buildCompareMd({ items: shown.value, fromLabel: sideLabel(left.value), toLabel: sideLabel(right.value), now, alter: filter ? undefined : alterSql.value, filter: filter || undefined });
+}
+
+async function copyMd() {
+  out.value = { result: '', error: '' };
+  try {
+    await navigator.clipboard.writeText(compareMd());
+    out.value.result = `비교 결과를 MD 로 복사했습니다 (차이 ${shown.value.length}개)`;
+  } catch (e) { out.value.error = `복사하지 못했습니다: ${clean(e)}`; }
+}
+
+/** 고른 폴더에 새 파일로 쓴다. 화면 버튼과 시험이 같이 쓴다 */
+async function writeCompareMd(dir: string) {
+  out.value = { result: '', error: '' };
+  try {
+    const now = new Date();
+    const r = await window.erd.export.write(dir, [{ name: compareMdName(sideLabel(left.value), sideLabel(right.value), now), content: compareMd(now) }]);
+    out.value.result = `저장했습니다: ${r.written[0]}`;
+    return r.written[0];
+  } catch (e) { out.value.error = clean(e); return null; }
+}
+
+async function saveMd() {
+  const s = await window.erd.settings.get();
+  const dir = await window.erd.pickFolder(s.exportDirs?.compare ?? s.exportDirs?.md);
+  if (!dir) return;
+  await window.erd.settings.set({ exportDirs: { ...s.exportDirs, compare: dir } });
+  await writeCompareMd(dir);
+}
+
+defineExpose({ ready, compare, writeFlyway, writeCompareMd, compareMd, setFlyway: (p: Partial<typeof fw.value>) => Object.assign(fw.value, p), setLeft: (k: string) => (left.value = { kind: 'conn', key: k, dir: '' }), setRight: (k: string) => (right.value = { kind: 'conn', key: k, dir: '' }),
   setRightErd: () => (right.value = { kind: 'erd', key: '', dir: '' }), items: () => items.value, alter: () => alterSql.value, apply });
 </script>
 
@@ -177,6 +215,12 @@ defineExpose({ ready, compare, writeFlyway, setFlyway: (p: Partial<typeof fw.val
     <p v-if="error" class="warn">{{ error }}</p>
 
     <template v-if="done">
+      <div class="actions">
+        <button title="지금 보이는 비교 결과(요약, 차이 목록, ALTER)를 MD 파일로 저장합니다" @click="saveMd">MD 저장</button>
+        <button title="지금 보이는 비교 결과를 MD 형식으로 클립보드에 복사합니다" @click="copyMd">MD 복사</button>
+        <span v-if="out.result" class="ok">{{ out.result }}</span>
+        <span v-if="out.error" class="warn">{{ out.error }}</span>
+      </div>
       <p v-if="!items.length" class="ok">두 쪽이 같습니다 ({{ sideLabel(left) }} = {{ sideLabel(right) }})</p>
       <template v-else>
         <div class="actions">
