@@ -35,12 +35,20 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
   const drag = async (from: { x: number; y: number }, dx: number, dy: number) => {
     const ev = (type: 'mouseDown' | 'mouseMove' | 'mouseUp', x: number, y: number) =>
       wc.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 });
+    // 컬럼 줄 연결점은 마우스를 올린 테이블에만 뜬다 (2026-10-22). 사람처럼 먼저 올리고 누른다
+    wc.sendInputEvent({ type: 'mouseMove', x: Math.round(from.x), y: Math.round(from.y) });
+    await sleep(200);
     ev('mouseDown', from.x, from.y);
     for (let i = 1; i <= 8; i++) { ev('mouseMove', from.x + (dx * i) / 8, from.y + (dy * i) / 8); await sleep(30); }
     ev('mouseUp', from.x + dx, from.y + dy);
     await sleep(400);
   };
   const nodeAt = (name: string) => js<{ x: number; y: number } | null>(`window.__erdNodeRect(${JSON.stringify(name)})`);
+  /** 본 ERD 의 테이블 머리에 마우스를 올린다 (컬럼 줄 연결점을 띄워 위치를 읽기 전). 화면은 옮기지 않는다 */
+  const hover = async (name: string) => {
+    const p = await js<{ x: number; y: number } | null>(`(() => { const t = [...document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table')].find(e => e.querySelector('.head b')?.textContent === ${JSON.stringify(name)}); const r = t?.querySelector('.head')?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; })()`);
+    if (p) { wc.sendInputEvent({ type: 'mouseMove', x: Math.round(p.x), y: Math.round(p.y) }); await sleep(200); }
+  };
   const out: Record<string, unknown> = {};
 
   if (part === 'enter') {
@@ -102,7 +110,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
   if (part === 'connect') try {
     // 완료 기준: 화면에서 선을 끌어 만든 FK 를 dev 에 적용하고 다시 읽으면 차이 0. 자식에 컬럼이 없던 경우도 같다
     const c = (step: string, a?: string, b?: string) => js<Record<string, unknown> | { x: number; y: number } | null>(`window.__erdConnect(${JSON.stringify(step)}, ${JSON.stringify(a ?? null)}, ${JSON.stringify(b ?? null)})`);
-    const pt = async (step: string, a: string, b?: string) => { const p = await c(step, a, b) as { x: number; y: number } | null; if (!p) throw new Error(`위치를 못 찾았다: ${step} ${a} ${b ?? ''}`); return p; };
+    const pt = async (step: string, a: string, b?: string) => { if (step === 'handle') await hover(a); const p = await c(step, a, b) as { x: number; y: number } | null; if (!p) throw new Error(`위치를 못 찾았다: ${step} ${a} ${b ?? ''}`); return p; };
     const dragTo = async (from: { x: number; y: number }, to: { x: number; y: number }) => drag(from, to.x - from.x, to.y - from.y);
     out.prep = await c('prep', process.env.ERD_BE_DIR!);
     // 1. 자식에 컬럼이 없는 경우: mst_brand 의 brand_seq 연결점에서 끌어 시험 테이블 몸통(연결점이 아닌 곳)에 놓는다 → 새 컬럼 brand_seq
@@ -308,6 +316,7 @@ export async function step10Inputs(win: BrowserWindow, part: string): Promise<Re
     await sleep(600);
     await blur();
     await u('place', 'new_table', 'mst_brand');
+    await hover('mst_brand');
     const from = await js<{ x: number; y: number }>(`(() => { const t = [...document.querySelectorAll('.pane.canvas .split > .pane:first-child .vue-flow__node-table')].find(e => e.querySelector('.head b')?.textContent === 'mst_brand'); const r = t.querySelector('.vue-flow__handle[data-handleid="s-brand_seq"]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
     const to = await head('new_table');
     await drag(from, to.x + 20 - from.x, to.y + 30 - from.y);
