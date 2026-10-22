@@ -35,3 +35,38 @@ describe('운영 DB 판정 (쓰기 허용 프로필 이름 목록)', () => {
     expect(ro()).toMatchObject({ dev: true, test: false, prod: true });
   });
 });
+
+describe('Spring 표준 키와 yml (spring.datasource.*, application-{프로필}.yml)', () => {
+  const mk = (files: Record<string, string>) => {
+    const be = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-be-'));
+    const res = path.join(be, 'src/main/resources');
+    fs.mkdirSync(res, { recursive: true });
+    for (const [f, s] of Object.entries(files)) fs.writeFileSync(path.join(res, f), s);
+    return be;
+  };
+  const pick = (be: string) => listProfiles(be).map(({ name, driver, host, port, database, user, passwordRaw, readOnly }) => ({ name, driver, host, port, database, user, passwordRaw, readOnly }));
+
+  it('properties 의 spring.datasource.* 를 읽는다', () => {
+    const be = mk({ 'application-local.properties': 'spring.datasource.url=jdbc:mysql://db:3306/shop\nspring.datasource.username=app\nspring.datasource.password=pw1\n' });
+    expect(pick(be)).toEqual([{ name: 'local', driver: 'mysql', host: 'db', port: 3306, database: 'shop', user: 'app', passwordRaw: 'pw1', readOnly: false }]);
+  });
+
+  it('application-{프로필}.yml, .yaml 도 같은 결과', () => {
+    const be = mk({
+      'application-dev.yml': 'spring:\n  datasource:\n    url: jdbc:postgresql://127.0.0.1:5432/app\n    username: "dev_user"\n    password: 0123\nserver:\n  port: 8080\n',
+      'application-real.yaml': '# 운영\nspring.datasource.url: jdbc:sqlserver://erp:1433;databaseName=ERP\nspring.datasource.username: sa\nspring.datasource.password: ENC(abc)\n',
+      'application.yml': 'spring:\n  profiles:\n    active: dev\n',
+    });
+    expect(pick(be)).toEqual([
+      { name: 'dev', driver: 'postgresql', host: '127.0.0.1', port: 5432, database: 'app', user: 'dev_user', passwordRaw: '0123', readOnly: false },
+      { name: 'real', driver: 'sqlserver', host: 'erp', port: 1433, database: 'ERP', user: 'sa', passwordRaw: 'ENC(abc)', readOnly: true },
+    ]);
+  });
+
+  it('shop 의 db.* 키는 지금처럼 읽는다', () => {
+    const be = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-be-'));
+    fs.mkdirSync(path.join(be, 'src/main/resources'), { recursive: true });
+    fs.writeFileSync(path.join(be, 'src/main/resources/application-dev.properties'), 'db.url=jdbc:log4jdbc:postgresql://localhost:15432/shop-dev\ndb.username=shop\ndb.password=ENC(x)\n');
+    expect(pick(be)).toEqual([{ name: 'dev', driver: 'postgresql', host: 'localhost', port: 15432, database: 'shop-dev', user: 'shop', passwordRaw: 'ENC(x)', readOnly: false }]);
+  });
+});

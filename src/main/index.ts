@@ -14,7 +14,7 @@ import { addHistory, listHistory, setHistoryDir } from './history';
 import { loadModel, modelDirOfFile, planSave, saveModel } from './model-store';
 import { getSession, getSettings, setSession, setSettings } from './settings';
 import { inputTerm, killTerm, resizeTerm, setTermEnv, spawnTerm } from './terminal';
-import { nextFlywayVersion, writeExport } from './export';
+import { findFlywayDir, nextFlywayVersion, writeExport } from './export';
 import { startMcp } from './mcp/server';
 import { dbQuery } from './mcp/db-query';
 import { step10Inputs } from './step10-auto';
@@ -136,6 +136,7 @@ function registerIpc(win: BrowserWindow) {
   });
   ipcMain.handle(IPC.mcpInfo, () => mcpInfo);
   ipcMain.handle(IPC.exportNextVersion, (_e, dir: string) => nextFlywayVersion(dir));
+  ipcMain.handle(IPC.exportFlywayDir, (_e, beDir: string) => findFlywayDir(beDir));
   ipcMain.handle(IPC.exportWrite, (_e, dir: string, files, history, opts) => writeExport(dir, files, history, opts));
   ipcMain.handle(IPC.settingsGet, () => getSettings());
   ipcMain.handle(IPC.settingsSet, (_e, patch) => setSettings(patch));

@@ -1,5 +1,5 @@
 // 차이 → Flyway 마이그레이션 파일 (STEP 7, 설계 8-2). 형식 정본은 허브 patterns/20-database/30-convention/03-flyway-migration.md 2~5절.
-// 본문은 buildAlter 의 flyway 선택 사항(public. 접두어, 여러 번 실행해도 안전한 문장)으로 만들고,
+// 본문은 buildAlter 의 flyway 선택 사항(모델의 스키마 접두어, 여러 번 실행해도 안전한 문장)으로 만들고,
 // 맨 아래에 반대 방향 ALTER 를 한 줄마다 "-- " 를 붙인 ROLLBACK 주석 블록으로 둔다(Flyway 커뮤니티는 undo 없음).
 // 파일을 만들 뿐 DB 에 실행하지 않는다.
 
@@ -14,9 +14,21 @@ export const stamp = (d: Date) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${p
 /** 이력 표에 쓰는 시각: 2026-10-16 09:12 */
 const dateTime = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-/** 폴더의 파일 이름들에서 다음 V 번호 (R__ 반복 실행 파일은 세지 않는다) */
+/**
+ * 폴더의 파일 이름들에서 다음 V 번호 (R__ 반복 실행 파일은 세지 않는다).
+ * Flyway 는 V2_1__, V2.3__ 같은 점 버전도 받으므로 첫 마디(2)를 보고 그보다 큰 정수(V3)를 낸다.
+ * V 로 시작하고 __ 가 있는 .sql 인데 버전을 읽을 수 없으면 낮은 번호를 낼 수 있어 거부한다
+ */
 export function nextVersion(fileNames: string[]): number {
-  return Math.max(0, ...fileNames.map(f => /^V(\d+)__.+\.sql$/i.exec(f)).filter(Boolean).map(m => Number(m![1]))) + 1;
+  const bad: string[] = [];
+  let max = 0;
+  for (const f of fileNames) {
+    if (!/^V.*__.*\.sql$/i.test(f)) continue;
+    const m = /^V(\d+)(?:[._]\d+)*__.+\.sql$/i.exec(f);
+    if (m) max = Math.max(max, Number(m[1])); else bad.push(f);
+  }
+  if (bad.length) throw new Error(`버전 번호를 읽을 수 없는 Flyway 파일이 있어 다음 번호를 정하지 못했습니다: ${bad.join(', ')}`);
+  return max + 1;
 }
 
 /** 설명은 영문 소문자 snake_case (허브 규칙 2절) */

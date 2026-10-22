@@ -61,3 +61,35 @@ describe('Flyway 파일', () => {
     expect(() => appendHistoryLine('# 없음\n', '| x |')).toThrow('변경 이력');
   });
 });
+
+describe('Flyway 버전 번호 형식 (점, 밑줄 버전)', () => {
+  it('V2_1, V2.3 이 있으면 2.3 보다 큰 V3', () => {
+    expect(nextVersion(['V2_1__a.sql', 'V2.3__b.sql', 'R__c.sql'])).toBe(3);
+    expect(nextVersion(['V2_10__a.sql', 'V2_9__b.sql', 'V1__init.sql'])).toBe(3);
+  });
+  it('shop 처럼 정수만 있으면 지금처럼', () => {
+    expect(nextVersion(['V1__init.sql', 'V19__x.sql', 'V25__y.sql', 'R__resync_sequences.sql', 'README.md'])).toBe(26);
+  });
+  it('읽을 수 없는 V 파일이 있으면 그 이름을 알리고 번호를 내지 않는다', () => {
+    expect(() => nextVersion(['V1__init.sql', 'V2a__x.sql', 'V__y.sql'])).toThrow(/V2a__x\.sql, V__y\.sql/);
+  });
+});
+
+describe('Flyway 스키마 (모델의 스키마를 쓴다)', () => {
+  const wmsBase: SchemaModel = { ...base, dialect: 'postgresql', schema: 'wms' };
+  const wmsEdited: SchemaModel = { ...edited, dialect: 'postgresql', schema: 'wms' };
+  const g = buildFlyway({ from: wmsBase, to: wmsEdited, version: 3, description: 'add_mst_probe', fromLabel: 'a', toLabel: 'b', now });
+  it('모든 문장이 wms. 를 쓰고 public. 이 없다', () => {
+    expect(g.sql).not.toContain('public.');
+    expect(g.sql).toContain('CREATE TABLE IF NOT EXISTS wms.mst_probe (');
+    expect(g.sql).toContain("conrelid = 'wms.mst_probe'::regclass");
+    expect(g.sql).toContain('REFERENCES wms.mst_biz (biz_seq)');
+  });
+  it('PK 지우기, 컬럼 이름 바꾸기의 DO 블록도 wms 기준', () => {
+    const m2 = { ...wmsBase, tables: wmsBase.tables.map(t => ({ ...t, columns: t.columns.map(c => ({ ...c, name: 'biz_no', renamedFrom: c.name })), pk: [] })) };
+    const h = buildFlyway({ from: wmsBase, to: m2, version: 4, description: 'alter_mst_biz', fromLabel: 'a', toLabel: 'b', now });
+    expect(h.sql).not.toContain('public');
+    expect(h.sql).toContain("table_schema = 'wms'");
+    expect(h.sql).toContain("EXECUTE format('ALTER TABLE wms.%I DROP CONSTRAINT %I'");
+  });
+});

@@ -103,7 +103,7 @@ function apply() {
 }
 
 // ---------- Flyway 파일로 (STEP 7) ----------
-// 폴더는 내보낼 때마다 고르고 마지막 위치를 기억한다. 처음 기본값은 BE 의 db/migration
+// 폴더는 내보낼 때마다 고르고 마지막 위치를 기억한다. 처음 기본값은 BE 에 실제로 있는 db/migration (resource, resources)
 const fw = ref({ description: '', menuCode: '', history: false, result: '', error: '' });
 
 async function defaults() {
@@ -112,7 +112,7 @@ async function defaults() {
   const project = be ? be.split(/[\\/]/).pop()!.replace(/-be$/, '') : '';
   return {
     settings: s,
-    flyway: s.exportDirs?.flyway ?? (be ? `${be}/src/main/resource/db/migration` : undefined),
+    flyway: s.exportDirs?.flyway ?? (be ? (await window.erd.export.flywayDir(be)) ?? undefined : undefined),
     history: s.exportDirs?.history ?? (be ? `${be}/../docs-hub/spec/${project}/_knowledge/patterns/20-database/40-schema/99-migration-history.md` : undefined),
   };
 }
