@@ -59,12 +59,15 @@ describe.skipIf(!!skip)('그룹 규칙 파일', () => {
     const ref = { source: 'be' as const, beDir: BE, name: 'dev' };
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'erd-grp-')), 'rules.json');
     fs.writeFileSync(file, rules);
-    expect(groupNames((await reverse(ref, fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-')), file)).model)).toEqual(['mst', 'whs', 'sys']);
+    expect(groupNames((await reverse(ref, fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-')), { file })).model)).toEqual(['mst', 'whs', 'sys']);
 
     const inModel = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-'));
     fs.writeFileSync(path.join(inModel, 'erd-groups.json'), rules);
     expect(groupNames((await reverse(ref, inModel)).model)).toEqual(['mst', 'whs', 'sys']);
 
     expect(groupNames((await reverse(ref, fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-')))).model)).toEqual(['main']);
+
+    // 접두어 목록 (파일이 없을 때)
+    expect(groupNames((await reverse(ref, fs.mkdtempSync(path.join(os.tmpdir(), 'erd-rev-')), { prefixes: ['mst_', 'whs_'] })).model)).toEqual(['mst', 'whs', 'etc']);
   }, 60_000);
 });

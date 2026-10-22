@@ -15,6 +15,18 @@ export function groupsFromErdGroupsJson(json: { grp_rules?: { prefix: string; gr
   return rules.length ? rules : [{ name: 'main', isDefault: true }];
 }
 
+/** 접두어 목록(예: mst_, whs_) → 그룹 규칙. 그룹 이름은 끝의 _ 를 뗀 접두어, 어디에도 안 맞는 테이블은 기본 그룹 etc */
+export function groupsFromPrefixes(prefixes: string[]): GroupRule[] {
+  const rules: GroupRule[] = [];
+  for (const p of prefixes.map(x => x.trim()).filter(Boolean)) {
+    if (!/^\w+$/.test(p)) throw new Error(`접두어는 영문, 숫자, _ 로 입력하세요: ${p}`);
+    const name = p.replace(/_+$/, '') || p;
+    if (!rules.some(r => r.prefix === p || r.name === name)) rules.push({ name, prefix: p });
+  }
+  const def = rules.some(r => r.name === 'etc') ? 'etc_default' : 'etc';
+  return [...rules, { name: def, isDefault: true }];
+}
+
 /**
  * 테이블 끝 컬럼 묶음 중 가장 많이 겹치는 것을 공통 컬럼으로 고른다.
  * 묶음 길이 2~6, minTables 개 이상 테이블에 똑같이(이름, 타입, NULL, 기본값, 코멘트) 있어야 한다.

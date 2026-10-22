@@ -4,11 +4,12 @@ import { IPC, type ErdApi } from '../shared/ipc';
 
 const api: ErdApi = {
   pickFolder: defaultPath => ipcRenderer.invoke(IPC.pickFolder, defaultPath),
-  pickFile: defaultPath => ipcRenderer.invoke(IPC.pickFile, defaultPath),
+  pickFile: (defaultPath, kind) => ipcRenderer.invoke(IPC.pickFile, defaultPath, kind),
   export: {
     nextVersion: dir => ipcRenderer.invoke(IPC.exportNextVersion, dir),
     flywayDir: beDir => ipcRenderer.invoke(IPC.exportFlywayDir, beDir),
     write: (dir, files, history, opts) => ipcRenderer.invoke(IPC.exportWrite, dir, files, history, opts),
+    templates: dir => ipcRenderer.invoke(IPC.exportTemplates, dir),
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

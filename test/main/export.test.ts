@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { findFlywayDir, nextFlywayVersion, writeExport } from '../../src/main/export';
+import { findFlywayDir, nextFlywayVersion, readTemplates, writeExport } from '../../src/main/export';
 
 let dir = '';
 beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'erd-export-')); });
@@ -58,5 +58,14 @@ describe('Flyway 폴더 기본값', () => {
     expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resources/db/migration'));
     await fs.mkdir(path.join(dir, 'src/main/resource/db/migration'), { recursive: true });
     expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resource/db/migration')); // 단수 resource 구조가 먼저
+  });
+});
+
+describe('MD 템플릿 폴더 읽기', () => {
+  it('내장 템플릿과 이름이 같은 파일만 읽고, 폴더가 없으면 오류', async () => {
+    await fs.writeFile(path.join(dir, 'group-tables.md'), 'G');
+    await fs.writeFile(path.join(dir, 'other.md'), 'X');
+    expect(await readTemplates(dir)).toEqual({ 'group-tables.md': 'G' });
+    await expect(readTemplates(path.join(dir, 'none'))).rejects.toThrow('템플릿 폴더가 없습니다');
   });
 });

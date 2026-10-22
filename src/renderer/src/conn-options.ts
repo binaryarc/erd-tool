@@ -14,3 +14,6 @@ export async function loadConnOptions(): Promise<ConnOption[]> {
   }));
   return [...be, ...manual];
 }
+
+/** 기본으로 고를 접속: BE 의 쓰기 허용 프로필(설정 writableProfiles, 기본 dev, local) 중 첫째, 없으면 목록 첫째 */
+export const defaultOption = (opts: ConnOption[]) => opts.find(o => o.profile !== undefined && !o.readOnly) ?? opts[0];

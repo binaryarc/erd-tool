@@ -1,10 +1,6 @@
 ---
 title: {{group}} 그룹 테이블 정의서
 description: {{group}} 그룹 테이블의 컬럼, PK, FK, UNIQUE, 인덱스 정의를 확인할 때 읽는다 (ERD 도구가 스키마 모델에서 만든 문서)
-status: draft
-version: 0.1.0
-agent_usage: instruction
-domain: database
 generated_at: {{generatedAt}}
 tags:
   - database

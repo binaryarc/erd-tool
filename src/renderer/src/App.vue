@@ -33,6 +33,7 @@ import { buildAlter } from '../../shared/sql/alter';
 import { buildSchemaDocs } from '../../shared/export/md';
 import { buildFlyway, suggestDescription } from '../../shared/export/flyway';
 import { loadConnOptions } from './conn-options';
+import { loadTemplates } from './md-templates';
 import { docField, docTitle, newDoc, sameDir, type ErdDoc, type Pins, type Snap } from './erd-doc';
 
 const view = reactive<ViewState>({
@@ -327,7 +328,7 @@ async function aiExport(args: { kind?: string; conn?: string; description?: stri
   if (args.kind === 'md') {
     const dir = s.exportDirs?.md;
     if (!dir) throw new Error('MD 폴더가 정해지지 않았다. 사람이 내보내기 탭에서 한 번 폴더를 골라야 한다');
-    const r = await window.erd.export.write(dir, buildSchemaDocs(m, new Date()), undefined, { overwrite: true });
+    const r = await window.erd.export.write(dir, buildSchemaDocs(m, new Date(), await loadTemplates()), undefined, { overwrite: true });
     return `만든 파일 ${r.written.length}개 (덮어쓴 파일 ${r.replaced.length}개)\n${r.written.join('\n')}`;
   }
   const opts = await loadConnOptions();

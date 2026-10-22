@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listProfiles, parseJdbcUrl, setWritableProfiles } from '../../src/main/db/profiles';
+import { defaultOption, type ConnOption } from '../../src/renderer/src/conn-options';
 
 describe('jdbc URL', () => {
   it('DB 종류마다 호스트, 포트, DB 를 읽는다', () => {
@@ -33,6 +34,17 @@ describe('운영 DB 판정 (쓰기 허용 프로필 이름 목록)', () => {
   it('설정의 목록으로 바꿀 수 있고, 대소문자는 가리지 않는다', () => {
     setWritableProfiles(['Test']);
     expect(ro()).toMatchObject({ dev: true, test: false, prod: true });
+  });
+  it('기본으로 고르는 접속도 같은 목록으로 정한다 (이름 dev 에 기대지 않음)', () => {
+    const opts = (): ConnOption[] => [
+      ...listProfiles(be).map(p => ({ key: 'be:' + p.name, label: p.name, readOnly: p.readOnly, profile: p.name, ref: { source: 'be' as const, beDir: be, name: p.name } })),
+      { key: 'manual:1', label: 'm', readOnly: false, ref: { source: 'manual' as const, id: '1' } },
+    ];
+    expect(defaultOption(opts())?.key).toBe('be:dev');
+    setWritableProfiles(['live']);
+    expect(defaultOption(opts())?.key).toBe('be:live');
+    setWritableProfiles(['nothing']);
+    expect(defaultOption(opts())?.key).toBe('be:dev'); // 쓰기 허용 프로필이 없으면 목록 첫째 (이름순)
   });
 });
 

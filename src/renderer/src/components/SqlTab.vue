@@ -6,7 +6,7 @@ import { AgGridVue } from 'ag-grid-vue3';
 import { AllCommunityModule, ModuleRegistry, colorSchemeDark, themeQuartz, type ColDef, type GridApi } from 'ag-grid-community';
 import { bindContext, catalogCache, catalogFromModel, monaco, registerSqlProviders, unbindContext } from '../sql/monaco';
 import SplitPane from './SplitPane.vue';
-import { loadConnOptions, type ConnOption } from '../conn-options';
+import { defaultOption, loadConnOptions, type ConnOption } from '../conn-options';
 import { rulesFor } from '../../../shared/dialect';
 import { splitStatements, statementAt } from '../../../shared/sql/text';
 import type { ConnRef, HistoryEntry, SqlCatalog, SqlResult, SqlState } from '../../../shared/ipc';
@@ -20,7 +20,7 @@ const theme = (dark ? themeQuartz.withPart(colorSchemeDark) : themeQuartz).withP
 
 const props = defineProps<{
   tabId: string; schema: SchemaModel | null; initialSql?: string; active: boolean;
-  /** 열 때 바로 접속할 접속 (예: 'be:dev', 'manual:{id}'). DB 비교 화면의 「DB 에 적용」이 준다 */
+  /** 열 때 바로 접속할 접속 (예: 'be:{프로필}', 'manual:{id}'). DB 비교 화면의 「DB 에 적용」이 준다 */
   initialConn?: string;
 }>();
 const emit = defineEmits<{ state: [s: SqlState | null] }>();
@@ -45,7 +45,7 @@ const clean = (e: unknown) => (e as Error).message.replace(/^Error invoking remo
 
 async function loadOptions() {
   options.value = await loadConnOptions();
-  if (!chosen.value) chosen.value = (options.value.find(o => o.key === 'be:dev') ?? options.value[0])?.key ?? '';
+  if (!chosen.value) chosen.value = defaultOption(options.value)?.key ?? '';
 }
 
 async function connect(key = chosen.value) {

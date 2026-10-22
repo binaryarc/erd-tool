@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildMenuTables, buildSchemaDocs } from '../../src/shared/export/md';
 import { fillTemplate } from '../../src/shared/export/template';
+import { buildCompareMd } from '../../src/shared/export/compare-md';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
 
 const col = (name: string, type: string, extra: Partial<Column> = {}): Column => ({ name, type, notNull: false, ...extra });
@@ -26,6 +27,33 @@ describe('MD 템플릿', () => {
     const tpl = 'A {{x}}\n{{#items}}\n- {{name}} of {{x}}\n{{/items}}\n{{#flag}}\nON\n{{/flag}}\nEND\n';
     expect(fillTemplate(tpl, { x: 1, items: [{ name: 'a' }, { name: 'b' }], flag: false })).toBe('A 1\n- a of 1\n- b of 1\nEND\n');
     expect(() => fillTemplate('{{nope}}', {})).toThrow('nope');
+  });
+  it('없는 값은 템플릿 이름과 줄 번호로 알린다 (블록 안쪽 줄도)', () => {
+    expect(() => fillTemplate('a\nb {{x}}\n{{nope}}\n', { x: 1 }, 'my.md')).toThrow('my.md 3째 줄: 템플릿 값 nope 이(가) 없습니다');
+    const tpl = '# 머리\n{{#items}}\n- {{name}}\n- {{oops}}\n{{/items}}\n';
+    expect(() => fillTemplate(tpl, { items: [{ name: 'a' }] }, 'list.md')).toThrow('list.md 4째 줄: 템플릿 값 oops');
+  });
+  it('넣은 값 안의 {{...}} 는 다시 바꾸지 않는다 (예전에는 반복 블록 안 코멘트의 {{x}} 로 MD 만들기가 멈췄다)', () => {
+    expect(fillTemplate('{{#items}}{{a}}{{/items}}|{{b}}', { items: [{ a: '{{b}}' }], b: 'B' })).toBe('{{b}}|B');
+    expect(() => fillTemplate('{{#items}}{{a}}{{/items}}', { items: [{ a: '{{x}}' }] })).not.toThrow();
+  });
+});
+
+describe('사용자 템플릿 폴더', () => {
+  it('내장 템플릿 결과에 특정 문서 체계 전용 머리 정보가 없다', () => {
+    for (const f of buildSchemaDocs(model, now)) {
+      for (const word of ['agent_usage', 'domain:', '40-schema', 'status: draft']) expect(f.content).not.toContain(word);
+    }
+  });
+  it('같은 이름의 템플릿만 바꾸고 나머지는 내장으로 만든다', () => {
+    const files = buildSchemaDocs(model, now, { 'group-tables.md': '# {{group}} ({{tableCount}})\n{{#tables}}\n- {{name}}\n{{/tables}}\n' });
+    expect(files[1].content).toBe('# mst (2)\n- mst_brand\n- mst_wh\n');
+    expect(files[0].content).toEqual(buildSchemaDocs(model, now)[0].content);
+    expect(buildMenuTables(model, 'm1', ['mst_wh'], now, { 'menu-tables.md': '{{menuCode}}:{{#tables}}{{upperName}}{{/tables}}' }).content).toBe('m1:MST_WH');
+    expect(buildCompareMd({ items: [], fromLabel: 'a', toLabel: 'b', now, templates: { 'db-compare.md': '{{fromLabel}}>{{toLabel}}' } })).toBe('a>b');
+  });
+  it('사용자 템플릿의 없는 값은 그 템플릿 이름과 줄로 알린다', () => {
+    expect(() => buildSchemaDocs(model, now, { 'tables-overview.md': 'x\n{{tableCnt}}\n' })).toThrow('tables-overview.md 2째 줄: 템플릿 값 tableCnt');
   });
 });
 
