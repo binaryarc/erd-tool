@@ -54,6 +54,9 @@ const emit = defineEmits<{
 export interface ConnEnd { table: string; column?: string }
 const view = inject(VIEW_KEY) as ViewState;
 
+// 테이블 ID 별 마지막 표시 데이터. 내용이 같으면 같은 객체를 다시 넘겨, 바뀌지 않은 테이블은 다시 그리지 않는다
+// (컬럼 하나 더할 때 500개 전부를 다시 그려 2초 넘게 걸렸다, 2026-10-22 측정)
+let lastData = new Map<string, { json: string; data: TableNodeData }>();
 const nodes = computed<Node[]>(() => {
   void props.version; // layout 이 바뀌면 다시 계산
   // 폭은 보기 모드에 따라 바뀐다 (둘 다 보기에서 긴 이름이 잘리지 않게)
@@ -72,14 +75,20 @@ const nodes = computed<Node[]>(() => {
       style: { width: `${g.width}px`, height: `${g.height}px` }, draggable: false, selectable: false, zIndex: -1,
     }));
   }
+  const nextData = new Map<string, { json: string; data: TableNodeData }>();
   const tableNodes: Node[] = props.model.tables.map(t => {
     const fkCols = new Set(t.fks.flatMap(f => f.columns));
-    const data: TableNodeData = {
+    let data: TableNodeData = {
       name: t.name, comment: t.comment, width: widths.get(t.id)!, focus: t.name === props.focus, ai: props.highlight?.has(t.id), external: props.external?.get(t.id),
       columns: t.columns.map(c => ({ name: c.name, type: c.type, comment: c.comment, notNull: c.notNull, pk: t.pk.includes(c.name), fk: fkCols.has(c.name), domain: c.domain })),
     };
+    const json = JSON.stringify(data);
+    const last = lastData.get(t.id);
+    if (last?.json === json) data = last.data;
+    nextData.set(t.id, { json, data });
     return { id: t.id, type: 'table', position: positions.get(t.id) ?? { x: 0, y: 0 }, data };
   });
+  lastData = nextData;
   return [...groupNodes, ...tableNodes];
 });
 
@@ -138,9 +147,6 @@ watch(() => getSelectedNodes.value.map(n => n.id).join(','), () => {
   emit('select', getSelectedNodes.value.filter(n => n.type === 'table').map(n => names.get(n.id)!).filter(Boolean));
 });
 watch([() => viewport.value.zoom, () => view.compactOnZoomOut], ([z, on]) => { view.compact = on && z < COMPACT_ZOOM; });
-// 전체를 한 화면에 넣으면 배율이 0.1 안팎이라 1px 선이 0.1px 로 줄어 안 보였다 (2026-10-16 사용자 지적: 미니 ERD 에서만 선이 보임).
-// 선 굵기를 배율로 나눠 화면에서는 늘 1.3px 안팎이 되게 한다. 크게 확대하면 1px 아래로는 줄이지 않는다
-const edgeWidth = computed(() => Math.min(12, Math.max(1, 1.3 / (viewport.value.zoom || 1))));
 // 다른 모델로 바뀌거나 배치 방식이 바뀌면 전체가 보이게 맞춘다.
 // diagram 은 반응형이 아니라(layout 을 그대로 IPC 로 보내므로) version 이 바뀔 때 방식이 달라졌는지 직접 비교한다
 let lastMode = arrangeMode(props.diagram);
@@ -242,7 +248,7 @@ defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoo
 </script>
 
 <template>
-  <div ref="box" class="erd-box" :style="{ '--edge-w': edgeWidth + 'px' }">
+  <div ref="box" class="erd-box">
   <VueFlow :id="flowId" :nodes="nodes" :edges="edges" :min-zoom="0.05" :max-zoom="2" multi-selection-key-code="Control"
            :zoom-on-double-click="false" :delete-key-code="null" :fit-view-on-init="!initialViewport" :default-viewport="initialViewport" :nodes-connectable="connectable" :is-valid-connection="validConn" :connection-radius="24"
            @connect="onConnect" @connect-start="onConnectStart" @connect-end="onConnectEnd" @node-drag-stop="onDragStop" @node-double-click="onDoubleClick"
@@ -264,10 +270,12 @@ defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoo
 .vue-flow__node-group { background: var(--group-bg); border: 1px dashed var(--group-border); border-radius: 6px; padding: 0; }
 .group-box { width: 100%; height: 100%; }
 .group-box span { display: inline-block; margin: 6px 10px; font: bold 16px 'Malgun Gothic', sans-serif; color: var(--muted); }
-/* 선 굵기는 확대 배율로 나눠 화면에서 늘 1.3px 안팎으로 보이게 한다 (--edge-w, edgeWidth) */
-.vue-flow__edge-path { stroke: var(--edge); stroke-width: var(--edge-w, 1px); }
+/* 전체를 한 화면에 넣으면 배율이 0.1 안팎이라 1px 선이 0.1px 로 줄어 안 보였다 (2026-10-16 사용자 지적).
+   선 굵기는 배율과 상관없이 화면에서 늘 1.3px 다 (non-scaling-stroke). 전에는 배율마다 굵기 값을 캔버스에 다시 걸어
+   확대하는 동안 프레임마다 화면 전체 스타일을 다시 계산했다 (117개 테이블 7fps, 2026-10-22 측정) */
+.vue-flow__edge-path { stroke: var(--edge); stroke-width: 1.3px; vector-effect: non-scaling-stroke; }
 /* 한 번 클릭한(선택한) 테이블은 두꺼운 테두리. outline 은 크기를 바꾸지 않아 선 위치가 그대로다 */
 .vue-flow__node-table.selected .tbl { outline: 3px solid var(--accent); outline-offset: 1px; }
 .vue-flow__node-table.selected { z-index: 10 !important; }
-.vue-flow__edge.selected .vue-flow__edge-path { stroke: var(--accent); stroke-width: calc(var(--edge-w, 1px) * 2); }
+.vue-flow__edge.selected .vue-flow__edge-path { stroke: var(--accent); stroke-width: 2.6px; }
 </style>

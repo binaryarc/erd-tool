@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // exerd 모양 테이블 노드: 머리(물리명, 논리명), 몸통(PK, FK 표시와 컬럼). 컬럼 행마다 좌우 연결점.
 // 크기는 shared/model/arrange.ts 의 NODE 와 같아야 한다 (배치 계산에 쓴다).
-import { inject } from 'vue';
+import { computed, inject } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
 import { VIEW_KEY, colKey, type ViewState } from '../view';
 
@@ -20,8 +20,15 @@ export interface TableNodeData {
   columns: { name: string; type: string; comment?: string; pk: boolean; fk: boolean; notNull: boolean; domain?: string }[];
 }
 
-defineProps<{ data: TableNodeData }>();
+const props = defineProps<{ data: TableNodeData }>();
 const view = inject(VIEW_KEY) as ViewState;
+// 이 테이블에서 고른 컬럼. 글자로 한 번 줄여 두어, 다른 테이블의 컬럼을 골라도 값이 같으면 이 노드는 다시 그리지 않는다
+// (전에는 컬럼 하나를 고르면 모든 테이블이 다시 그려졌다, 2026-10-22 측정)
+const selKey = computed(() => {
+  const p = colKey(props.data.name, '');
+  return view.colSel.filter(k => k.startsWith(p)).map(k => k.slice(p.length)).join('\n');
+});
+const selCols = computed(() => new Set(selKey.value ? selKey.value.split('\n') : []));
 
 const title = (d: TableNodeData) =>
   view.nameMode === 'physical' ? d.name : view.nameMode === 'logical' ? d.comment || d.name : d.name;
@@ -42,7 +49,7 @@ const colName = (c: TableNodeData['columns'][number]) =>
     <Handle id="s-*" type="source" :position="Position.Right" class="h head-h" />
     <template v-if="!view.compact">
       <!-- 컬럼 행을 누르면 그 컬럼을 고른다 (Shift 나 Ctrl 을 누르고 누르면 더한다). Ctrl+C, Ctrl+V 로 다른 테이블에 붙인다 -->
-      <div v-for="c in data.columns" :key="c.name" class="row" :class="{ pk: c.pk, sel: view.colSel.includes(colKey(data.name, c.name)) }" :title="c.comment"
+      <div v-for="c in data.columns" :key="c.name" class="row" :class="{ pk: c.pk, sel: selCols.has(c.name) }" :title="c.comment"
            @click="e => view.onColumnClick?.(data.name, c.name, e.shiftKey || e.ctrlKey)">
         <Handle :id="'t-' + c.name" type="target" :position="Position.Left" class="h" />
         <!-- 키 표시: PK, FK, NN(NOT NULL). PK 는 NOT NULL 이 당연해 NN 을 따로 적지 않는다 -->
