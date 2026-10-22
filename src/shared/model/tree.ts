@@ -86,9 +86,22 @@ function pack(linked: Comp[], lone: Table[], rowWidth: number, colW: number, siz
 /** 넓은 화면(16:10)에 전체를 넣을 때의 배율. 클수록 한눈에 크게 보인다 */
 const fitScore = (p: Placed) => Math.min(1600 / Math.max(p.width, 1), 1000 / Math.max(p.height, 1));
 
+// 지난 배치의 묶음별 dagre 결과. 테이블, 크기, FK 가 같은 묶음은 다시 계산하지 않는다
+// (컬럼 하나 더할 때마다 모든 묶음을 다시 배치했다, 2026-10-22). 지난 한 번의 결과만 들고 있어 쌓이지 않는다
+let lastComps = new Map<string, Comp>();
+function layoutCached(tables: Table[], size: TreeSize, next: Map<string, Comp>): Comp {
+  const inside = new Set(tables.map(t => t.name));
+  const key = tables.map(t => `${t.id}:${t.name}:${size.width(t)}x${size.height(t)}>${t.fks.filter(f => inside.has(f.refTable)).map(f => f.refTable).join(',')}`).join('|');
+  const c = lastComps.get(key) ?? layoutComponent(tables, size);
+  next.set(key, c);
+  return c;
+}
+
 export function arrangeTree(model: SchemaModel, size: TreeSize): Map<string, { x: number; y: number }> {
   const comps = components(model);
-  const linked = comps.filter(c => c.length > 1).map(c => layoutComponent(c, size));
+  const nextComps = new Map<string, Comp>();
+  const linked = comps.filter(c => c.length > 1).map(c => layoutCached(c, size, nextComps));
+  lastComps = nextComps;
   const lone = comps.filter(c => c.length === 1).map(c => c[0]);
   const colW = lone.length ? Math.max(...lone.map(size.width)) + NODE_SEP : 0;
   const areaOf = (ls: Comp[], ts: Table[]) => ls.reduce((a, l) => a + (l.width + COMP_GAP) * (l.height + COMP_GAP), 0)

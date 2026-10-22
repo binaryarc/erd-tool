@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import dagre from '@dagrejs/dagre';
 import { arrangeTree, components, neighborhood } from '../../src/shared/model/tree';
 import type { SchemaModel, Table } from '../../src/shared/model/types';
 
@@ -46,6 +47,21 @@ describe('트리 배치', () => {
 
   it('같은 모델은 항상 같은 좌표', () => {
     expect([...arrangeTree(m, size)]).toEqual([...arrangeTree(m, size)]);
+  });
+
+  it('컬럼을 더한 묶음만 다시 배치하고, 결과는 처음부터 계산한 것과 같다', () => {
+    const two = (rows: number) => model([
+      t('t1', 'mst_brand'), t('t2', 'mst_center', ['mst_brand']),
+      t('t3', 'whs_a'), t('t4', 'whs_b', ['whs_a'], rows),
+    ]);
+    arrangeTree(model([]), size); // 지난 결과 비우기
+    arrangeTree(two(3), size);
+    const spy = vi.spyOn(dagre, 'layout');
+    const cached = arrangeTree(two(5), size);
+    expect(spy).toHaveBeenCalledTimes(1); // whs 묶음만
+    spy.mockRestore();
+    arrangeTree(model([]), size);
+    expect([...cached]).toEqual([...arrangeTree(two(5), size)]);
   });
 });
 
