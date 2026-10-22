@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_RULE, arrange, NODE, syncLayout, tableHeight } from '../../src/shared/model/arrange';
 import { emptyLayout } from '../../src/shared/model/layout';
-import { detectCommon, groupsFromErdGroupsJson } from '../../src/shared/model/groups';
+import { detectCommon, groupsFromErdGroupsJson, groupsFromPrefixes } from '../../src/shared/model/groups';
 import { isEmptyDiff, mergeModel } from '../../src/shared/model/merge';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
 import { SAMPLE_GROUPS } from '../helpers/fixtures';
@@ -107,6 +107,12 @@ describe('그룹 규칙과 공통 컬럼', () => {
       grp_rules: [{ prefix: 'whs_', grp: 'whs' }, { prefix: 'mst_', grp: 'mst' }, { prefix: 'sys_', grp: 'sys' }, { prefix: 'sio_', grp: 'sio' }, { prefix: 'wcs_', grp: 'wcs' }],
       grp_default: 'sys',
     })).toEqual(SAMPLE_GROUPS);
+  });
+
+  it('접두어 목록으로 그룹 규칙을 만든다 (이름은 끝 _ 를 뗀 접두어, 나머지는 기본 그룹 etc)', () => {
+    expect(groupsFromPrefixes(['mst_', ' whs_ ', '', 'mst_'])).toEqual([{ name: 'mst', prefix: 'mst_' }, { name: 'whs', prefix: 'whs_' }, { name: 'etc', isDefault: true }]);
+    expect(groupsFromPrefixes(['etc_']).at(-1)).toEqual({ name: 'etc_default', isDefault: true });
+    expect(() => groupsFromPrefixes(['mst-'])).toThrow('접두어는');
   });
 
   it('여러 테이블 끝에 똑같이 있는 컬럼 묶음을 공통 컬럼으로 고른다', () => {

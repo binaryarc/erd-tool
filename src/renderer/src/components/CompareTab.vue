@@ -10,7 +10,8 @@ import { dialectOf } from '../../../shared/dialect/names';
 import { buildFlyway, suggestDescription, validDescription } from '../../../shared/export/flyway';
 import { buildCompareMd, compareMdName } from '../../../shared/export/compare-md';
 import type { SchemaModel } from '../../../shared/model/types';
-import { loadConnOptions, type ConnOption } from '../conn-options';
+import { defaultOption, loadConnOptions, type ConnOption } from '../conn-options';
+import { loadTemplates } from '../md-templates';
 
 const props = defineProps<{ model: SchemaModel | null }>();
 const emit = defineEmits<{ openSql: [p: { sql: string; conn?: string }] }>();
@@ -38,8 +39,11 @@ const CHANGE_LABEL = DIFF_CHANGE_LABEL;
 /** 접속 목록을 다 읽었을 때 풀린다 (탭을 열자마자 비교하는 「DB 에 적용」 버튼이 기다린다) */
 const ready = new Promise<void>(done => onMounted(async () => {
   options.value = await loadConnOptions();
-  left.value.key = options.value.find(o => o.key === 'be:dev')?.key ?? options.value[0]?.key ?? '';
-  right.value.key = options.value.find(o => o.key === 'be:test')?.key ?? options.value[1]?.key ?? '';
+  // 지난번 비교한 두 접속, 처음이면 왼쪽은 쓰기 허용 프로필, 오른쪽은 그다음 접속
+  const last = (await window.erd.settings.get()).compareConns;
+  const has = (k?: string) => !!k && options.value.some(o => o.key === k);
+  left.value.key = has(last?.left) ? last!.left! : defaultOption(options.value)?.key ?? '';
+  right.value.key = has(last?.right) ? last!.right! : options.value.find(o => o.key !== left.value.key)?.key ?? '';
   done();
 }));
 
@@ -72,6 +76,7 @@ async function compare() {
   busy.value = '두 쪽 구조를 읽는 중'; error.value = ''; done.value = false;
   try {
     const [a, b] = await Promise.all([read(left.value), read(right.value)]);
+    if (left.value.kind === 'conn' && right.value.kind === 'conn') await window.erd.settings.set({ compareConns: { left: left.value.key, right: right.value.key } });
     items.value = diffModels(a, b);
     alterSql.value = buildAlter(a, b, items.value).sql;
     lastFrom = a; lastTo = b;
@@ -100,7 +105,8 @@ function makeAlter() { emit('openSql', { sql: alterSql.value }); }
 function apply() {
   const c = leftConn.value;
   if (!c || c.readOnly) return;
-  if (c.profile !== 'dev' && !confirm(`${c.label} 은(는) dev 가 아닙니다. test, 운영은 Flyway 가 꺼져 있어 도구에서 바로 바꾸면 Flyway 이력에 남지 않습니다.\nFlyway 파일로 반영하기를 권합니다. 그래도 이 접속의 SQL 탭에 ALTER 를 넣을까요?`)) return;
+  // BE 프로필은 쓰기 허용 목록(설정 writableProfiles)에 든 것만 여기까지 온다. 직접 입력 접속은 어떤 DB 인지 몰라 묻는다
+  if (!c.profile && !confirm(`${c.label} 은(는) BE 폴더의 쓰기 허용 프로필이 아닙니다. 공용 DB 라면 도구에서 바로 바꾼 것은 Flyway 이력에 남지 않습니다.\nFlyway 파일로 반영하기를 권합니다. 그래도 이 접속의 SQL 탭에 ALTER 를 넣을까요?`)) return;
   emit('openSql', { sql: alterSql.value, conn: c.key });
 }
 
@@ -151,15 +157,15 @@ async function makeFlyway() {
 const out = ref({ result: '', error: '' });
 
 /** 지금 화면에 보이는 줄(종류, 위험만 보기로 좁힌 결과)로 MD 를 만든다 */
-function compareMd(now = new Date()) {
+async function compareMd(now = new Date()) {
   const filter = [filterKind.value ? KIND_LABEL[filterKind.value] : '', dangerOnly.value ? '위험만' : ''].filter(Boolean).join(', ');
-  return buildCompareMd({ items: shown.value, fromLabel: sideLabel(left.value), toLabel: sideLabel(right.value), now, alter: filter ? undefined : alterSql.value, filter: filter || undefined });
+  return buildCompareMd({ items: shown.value, fromLabel: sideLabel(left.value), toLabel: sideLabel(right.value), now, alter: filter ? undefined : alterSql.value, filter: filter || undefined, templates: await loadTemplates() });
 }
 
 async function copyMd() {
   out.value = { result: '', error: '' };
   try {
-    await navigator.clipboard.writeText(compareMd());
+    await navigator.clipboard.writeText(await compareMd());
     out.value.result = `비교 결과를 MD 로 복사했습니다 (차이 ${shown.value.length}개)`;
   } catch (e) { out.value.error = `복사하지 못했습니다: ${clean(e)}`; }
 }
@@ -169,7 +175,7 @@ async function writeCompareMd(dir: string) {
   out.value = { result: '', error: '' };
   try {
     const now = new Date();
-    const r = await window.erd.export.write(dir, [{ name: compareMdName(sideLabel(left.value), sideLabel(right.value), now), content: compareMd(now) }]);
+    const r = await window.erd.export.write(dir, [{ name: compareMdName(sideLabel(left.value), sideLabel(right.value), now), content: await compareMd(now) }]);
     out.value.result = `저장했습니다: ${r.written[0]}`;
     return r.written[0];
   } catch (e) { out.value.error = clean(e); return null; }

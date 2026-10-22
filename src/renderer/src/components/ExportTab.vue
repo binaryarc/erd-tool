@@ -2,9 +2,12 @@
 // 내보내기 (STEP 7, 설계 8-1): 지금 ERD 모델로 그룹별 테이블 정의서 MD 와 메뉴 물리 테이블 목록 조각을 만든다.
 // 폴더는 내보낼 때마다 고르고 마지막 위치를 기억한다. 파일 이름에 시각을 붙이지 않고 같은 이름은 덮어쓴다(사용자 지정 2026-10-16).
 // Flyway 파일은 DB 비교 탭의 「Flyway 파일 만들기」 에서 만든다(두 쪽 차이가 필요하다).
-import { ref } from 'vue';
+// 템플릿 폴더를 정하면 내장 템플릿과 이름이 같은 파일은 그 파일로 만든다(2026-10-22).
+import { onMounted, ref } from 'vue';
 import { buildMenuTables, buildSchemaDocs, type MdFile } from '../../../shared/export/md';
+import { TEMPLATE_NAMES } from '../../../shared/export/builtin-templates';
 import type { SchemaModel } from '../../../shared/model/types';
+import { loadTemplates } from '../md-templates';
 
 const props = defineProps<{ model: SchemaModel | null; selected: string[] }>();
 const emit = defineEmits<{ compare: [] }>();
@@ -15,6 +18,29 @@ const replaced = ref(0);
 const error = ref('');
 
 const clean = (e: unknown) => (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
+// ---------- 템플릿 폴더 ----------
+const tplDir = ref('');
+/** 템플릿 폴더에서 찾은 파일 이름 (나머지는 내장) */
+const tplFound = ref<string[]>([]);
+const tplError = ref('');
+
+async function refreshTemplates() {
+  tplDir.value = (await window.erd.settings.get()).mdTemplateDir ?? '';
+  tplError.value = ''; tplFound.value = [];
+  try { tplFound.value = Object.keys((await loadTemplates()) ?? {}); } catch (e) { tplError.value = clean(e); }
+}
+async function pickTemplateDir() {
+  const d = await window.erd.pickFolder(tplDir.value || undefined);
+  if (!d) return;
+  await window.erd.settings.set({ mdTemplateDir: d });
+  await refreshTemplates();
+}
+async function clearTemplateDir() {
+  await window.erd.settings.set({ mdTemplateDir: undefined });
+  await refreshTemplates();
+}
+onMounted(refreshTemplates);
 
 async function write(dir: string, files: MdFile[]) {
   error.value = ''; written.value = []; replaced.value = 0;
@@ -34,26 +60,27 @@ async function pickDir(): Promise<string | null> {
   return dir;
 }
 
-function schemaFiles() {
+async function schemaFiles() {
   if (!props.model) throw new Error('ERD 에 열린 모델이 없습니다');
-  return buildSchemaDocs(props.model, new Date());
+  return buildSchemaDocs(props.model, new Date(), await loadTemplates());
 }
-function menuFile(code = menuCode.value, tables = props.selected) {
+async function menuFile(code = menuCode.value, tables = props.selected) {
   if (!props.model) throw new Error('ERD 에 열린 모델이 없습니다');
-  return buildMenuTables(props.model, code.trim(), tables, new Date());
+  return buildMenuTables(props.model, code.trim(), tables, new Date(), await loadTemplates());
 }
 
-async function run(make: () => MdFile[]) {
+async function run(make: () => Promise<MdFile[]>) {
   let files: MdFile[];
-  try { files = make(); } catch (e) { error.value = clean(e); return; }
+  error.value = '';
+  try { files = await make(); } catch (e) { error.value = clean(e); return; }
   const dir = await pickDir();
   if (dir) await write(dir, files);
 }
 
 defineExpose({
   /** 시험용: 폴더 고르기 없이 쓴다 */
-  writeSchema: (dir: string) => write(dir, schemaFiles()),
-  writeMenu: (dir: string, code: string, tables: string[]) => write(dir, [menuFile(code, tables)]),
+  writeSchema: async (dir: string) => write(dir, await schemaFiles()),
+  writeMenu: async (dir: string, code: string, tables: string[]) => write(dir, [await menuFile(code, tables)]),
 });
 </script>
 
@@ -62,6 +89,15 @@ defineExpose({
     <p v-if="!model" class="muted">ERD 에 모델을 먼저 여세요.</p>
     <template v-else>
       <div class="box">
+        <h4>MD 템플릿</h4>
+        <p class="muted">문서 양식을 바꾸려면 템플릿 폴더를 고르세요. 폴더에 {{ TEMPLATE_NAMES.join(', ') }} 중 같은 이름의 파일이 있으면 그 파일로, 없으면 내장 템플릿으로 만듭니다.</p>
+        <p v-if="tplDir">폴더: {{ tplDir }} <span v-if="!tplError">(바꾼 템플릿: {{ tplFound.length ? tplFound.join(', ') : '없음' }})</span></p>
+        <p v-else>내장 템플릿을 씁니다</p>
+        <button @click="pickTemplateDir">폴더 고르기</button>
+        <button v-if="tplDir" @click="clearTemplateDir">내장 템플릿으로</button>
+        <p v-if="tplError" class="warn">{{ tplError }}</p>
+      </div>
+      <div class="box">
         <h4>스키마 문서 (MD)</h4>
         <p class="muted">그룹마다 테이블 정의서 한 개(컬럼, PK, FK, UNIQUE, 인덱스)와 색인 00-tables-overview 를 만듭니다. 같은 이름 파일이 있으면 덮어씁니다.</p>
         <p>그룹 {{ model.groups.length }}개, 테이블 {{ model.tables.length }}개</p>
@@ -69,10 +105,10 @@ defineExpose({
       </div>
       <div class="box">
         <h4>메뉴 물리 테이블 목록</h4>
-        <p class="muted">{메뉴코드}-03-data-model.md 「물리 테이블 목록」 절에 붙여 넣을 조각입니다. ERD 에서 Ctrl+클릭으로 고른 테이블을 고른 순서대로 넣습니다.</p>
+        <p class="muted">메뉴 설계 문서({메뉴코드}-03-data-model.md)의 「물리 테이블 목록」 절에 붙여 넣는 조각입니다. 그 문서 체계를 쓰는 팀 전용 기능입니다. ERD 에서 Ctrl+클릭으로 고른 테이블을 고른 순서대로 넣습니다.</p>
         <label>메뉴코드 <input v-model="menuCode" spellcheck="false" placeholder="menu01" /></label>
         <p>고른 테이블 {{ selected.length }}개<span v-if="selected.length">: {{ selected.join(', ') }}</span></p>
-        <button :disabled="!selected.length || !menuCode.trim()" @click="run(() => [menuFile()])">폴더 골라 만들기</button>
+        <button :disabled="!selected.length || !menuCode.trim()" @click="run(async () => [await menuFile()])">폴더 골라 만들기</button>
       </div>
       <div class="box">
         <h4>Flyway 파일</h4>

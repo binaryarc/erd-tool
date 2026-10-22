@@ -2,7 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { detectCommon, groupsFromErdGroupsJson } from '../../shared/model/groups';
+import { detectCommon, groupsFromErdGroupsJson, groupsFromPrefixes } from '../../shared/model/groups';
 import { mergeModel } from '../../shared/model/merge';
 import { emptyLayout } from '../../shared/model/layout';
 import { MODEL_VERSION, type GroupRule, type SchemaModel } from '../../shared/model/types';
@@ -36,14 +36,19 @@ async function test(open: () => Promise<{ conn: DbConn; adapter: DbAdapter; targ
   }
 }
 
-/** 그룹 규칙 파일 erd-groups.json: 설정에 지정한 파일(groupRulesFile), 없으면 모델 폴더 안의 erd-groups.json. 둘 다 없으면 null */
-function readGroupRules(modelDir: string, groupRulesFile?: string): GroupRule[] | null {
-  const file = [groupRulesFile, path.join(modelDir, 'erd-groups.json')].find(f => f && fs.existsSync(f));
-  return file ? groupsFromErdGroupsJson(JSON.parse(fs.readFileSync(file, 'utf8'))) : null;
+/** 모델이 처음 생길 때 쓸 그룹 규칙 (설정의 groupRulesFile, groupPrefixes. 없어도 됨) */
+export interface GroupSource { file?: string; prefixes?: string[] }
+
+/** 그룹 규칙: 설정에 지정한 파일(erd-groups.json 형식), 설정의 접두어 목록, 모델 폴더 안의 erd-groups.json 순서. 모두 없으면 null */
+function readGroupRules(modelDir: string, src: GroupSource = {}): GroupRule[] | null {
+  const fromFile = (f: string) => groupsFromErdGroupsJson(JSON.parse(fs.readFileSync(f, 'utf8')));
+  if (src.file && fs.existsSync(src.file)) return fromFile(src.file);
+  if (src.prefixes?.length) return groupsFromPrefixes(src.prefixes);
+  const inModel = path.join(modelDir, 'erd-groups.json');
+  return fs.existsSync(inModel) ? fromFile(inModel) : null;
 }
 
-/** groupRulesFile: 모델이 처음 생길 때 쓸 그룹 규칙 파일 (설정의 groupRulesFile, 없어도 됨) */
-export async function reverse(ref: ConnRef, modelDir: string, groupRulesFile?: string): Promise<ReverseResult> {
+export async function reverse(ref: ConnRef, modelDir: string, groupSource?: GroupSource): Promise<ReverseResult> {
   const loaded = fs.existsSync(path.join(modelDir, '_index.erd')) ? await loadModel(modelDir) : null;
   const prev = loaded?.model ?? null;
   const { conn, adapter, target } = await connectRef(ref, true);
@@ -59,7 +64,7 @@ export async function reverse(ref: ConnRef, modelDir: string, groupRulesFile?: s
       version: MODEL_VERSION,
       dialect: adapter.dialect,
       schema,
-      groups: prev?.groups.length ? prev.groups : (readGroupRules(modelDir, groupRulesFile) ?? [{ name: 'main', isDefault: true }]),
+      groups: prev?.groups.length ? prev.groups : (readGroupRules(modelDir, groupSource) ?? [{ name: 'main', isDefault: true }]),
       common: prev?.common.length ? prev.common : detectCommon(raw.tables),
       ...(prev?.domains ? { domains: prev.domains } : {}),
       sequences: raw.sequences,

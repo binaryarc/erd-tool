@@ -3,6 +3,7 @@
 import { computed, onMounted, ref, shallowRef } from 'vue';
 import type { ConnRef, ConnSource, ConnTestResult, ManualConnInfo, ProfileInfo, ReverseResult } from '../../../shared/ipc';
 import { applySelected, isEmptyDiff } from '../../../shared/model/merge';
+import { groupsFromPrefixes } from '../../../shared/model/groups';
 import ManualConnForm from './ManualConnForm.vue';
 
 /** canReplace: 지금 ERD 를 바꿔도 되는지 (저장 안 한 변경이 있으면 화면이 묻는다). false 면 불러온 결과를 그대로 둔다 */
@@ -14,7 +15,7 @@ const beDir = ref('');
 const profiles = ref<ProfileInfo[]>([]);
 const manuals = ref<ManualConnInfo[]>([]);
 /** BE 프로필 이름 또는 직접 입력 접속 id */
-const selected = ref('dev');
+const selected = ref('');
 /** 편집 중인 직접 입력 접속 (null: 닫힘, 'new': 새로 추가) */
 const editing = ref<ManualConnInfo | 'new' | null>(null);
 const test = ref<ConnTestResult | null>(null);
@@ -25,22 +26,27 @@ const error = ref('');
 
 onMounted(async () => {
   const s = await window.erd.settings.get();
+  groupFile.value = s.groupRulesFile ?? '';
+  prefixText.value = (s.groupPrefixes ?? []).join(', ');
   manuals.value = await window.erd.manual.list();
   if (s.connSource) source.value = s.connSource;
   if (s.beDir) await setBeDir(s.beDir);
   if (source.value === 'manual' && manuals.value[0]) selected.value = manuals.value[0].id;
 });
 
+/** 기본으로 고를 프로필: 쓰기 허용 목록(설정 writableProfiles)에 든 첫 프로필, 없으면 첫 프로필 */
+const defaultProfile = () => (profiles.value.find(p => !p.readOnly) ?? profiles.value[0])?.name ?? '';
+
 async function setSource(s: ConnSource) {
   source.value = s; test.value = null; error.value = '';
-  selected.value = s === 'be' ? (profiles.value.find(p => p.name === 'dev') ?? profiles.value[0])?.name ?? '' : manuals.value[0]?.id ?? '';
+  selected.value = s === 'be' ? defaultProfile() : manuals.value[0]?.id ?? '';
   await window.erd.settings.set({ connSource: s });
 }
 
 async function setBeDir(dir: string) {
   beDir.value = dir;
   profiles.value = await window.erd.conn.list(dir);
-  if (source.value === 'be' && !profiles.value.some(p => p.name === selected.value)) selected.value = profiles.value[0]?.name ?? '';
+  if (source.value === 'be' && !profiles.value.some(p => p.name === selected.value)) selected.value = defaultProfile();
   await window.erd.settings.set({ beDir: dir });
   emit('beDir', dir);
 }
@@ -61,6 +67,32 @@ async function removeManual(c: ManualConnInfo) {
   await window.erd.manual.remove(c.id);
   manuals.value = await window.erd.manual.list();
   if (selected.value === c.id) selected.value = manuals.value[0]?.id ?? '';
+}
+
+// ---------- 그룹 규칙 (모델이 처음 생길 때만 쓴다, 2026-10-22) ----------
+// 규칙 파일(erd-groups.json 형식)이나 접두어 목록 중 하나. 하나를 정하면 다른 하나는 지운다
+const groupFile = ref('');
+const prefixText = ref('');
+const groupMsg = ref('');
+
+async function pickGroupFile() {
+  const f = await window.erd.pickFile(groupFile.value || props.modelDir || undefined, 'json');
+  if (!f) return;
+  await window.erd.settings.set({ groupRulesFile: f, groupPrefixes: undefined });
+  groupFile.value = f; prefixText.value = ''; groupMsg.value = '';
+}
+async function savePrefixes() {
+  const list = prefixText.value.split(/[,\s]+/).filter(Boolean);
+  try {
+    const groups = list.length ? groupsFromPrefixes(list) : [];
+    await window.erd.settings.set({ groupPrefixes: list.length ? list : undefined, groupRulesFile: undefined });
+    groupFile.value = '';
+    groupMsg.value = list.length ? `그룹 ${groups.map(g => g.name).join(', ')}` : '접두어를 비웠습니다';
+  } catch (e) { groupMsg.value = (e as Error).message; }
+}
+async function clearGroupFile() {
+  await window.erd.settings.set({ groupRulesFile: undefined });
+  groupFile.value = ''; groupMsg.value = '';
 }
 
 const ref_ = (): ConnRef => (source.value === 'be' ? { source: 'be', beDir: beDir.value, name: selected.value } : { source: 'manual', id: selected.value });
@@ -170,6 +202,15 @@ defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v),
       <button :disabled="!!busy || !ready || !modelDir" @click="doReverse">DB 에서 불러오기</button>
     </div>
     <p v-if="!modelDir" class="muted">불러오려면 먼저 위에서 모델 폴더를 정하세요.</p>
+    <details class="groups">
+      <summary>그룹 규칙 <span class="muted">({{ groupFile ? '파일' : prefixText ? '접두어' : '모델 폴더의 erd-groups.json, 없으면 그룹 하나' }})</span></summary>
+      <p class="muted">모델을 처음 만들 때만 씁니다. 이미 있는 모델은 그 모델의 그룹을 그대로 씁니다.</p>
+      <label>규칙 파일 (erd-groups.json 형식)</label>
+      <div class="row"><input :value="groupFile" readonly placeholder="고르지 않음" /><button @click="pickGroupFile">찾기</button><button v-if="groupFile" @click="clearGroupFile">지우기</button></div>
+      <label>또는 테이블 이름 접두어 (쉼표로 구분)</label>
+      <div class="row"><input v-model="prefixText" spellcheck="false" placeholder="mst_, whs_" /><button @click="savePrefixes">저장</button></div>
+      <p v-if="groupMsg" class="muted">{{ groupMsg }}</p>
+    </details>
     <p v-if="busy" class="muted">{{ busy }}</p>
     <p v-if="error" class="warn">{{ error }}</p>
     <p v-if="test" :class="test.ok ? 'ok' : 'warn'">
@@ -221,5 +262,6 @@ label { font-size: 12px; color: var(--muted); }
 .pending .picks { list-style: none; padding-left: 4px; }
 .pending a { color: var(--accent); cursor: pointer; margin-left: 6px; }
 .check { display: block; margin: 4px 0; color: var(--fg); }
+.groups { font-size: 12px; margin: 6px 0; } .groups p { margin: 4px 0; }
 .ok { color: var(--ok); } .warn { color: var(--warn); } .muted { color: var(--muted); }
 </style>

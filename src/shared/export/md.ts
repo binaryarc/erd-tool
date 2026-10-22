@@ -2,10 +2,8 @@
 // 그룹 문서(그룹마다 하나), 색인, 메뉴 물리 테이블 목록 조각. 파일 이름에 시각을 붙이지 않고 같은 이름은 덮어쓴다(사용자 지정 2026-10-16).
 // 만든 시각은 문서 안 generated_at 에 남는다.
 
-import groupTpl from './templates/group-tables.md?raw';
-import overviewTpl from './templates/tables-overview.md?raw';
-import menuTpl from './templates/menu-tables.md?raw';
 import { cell, fillTemplate } from './template';
+import { templateOf, type TemplateSet } from './builtin-templates';
 import { groupOf, identityArgs } from '../model/erd-format';
 import type { SchemaModel, Table } from '../model/types';
 
@@ -36,40 +34,40 @@ function grouped(model: SchemaModel) {
     .filter(g => g.tables.length);
 }
 
-/** 그룹 문서들과 색인. 이름: {그룹}-tables.md, 00-tables-overview.md */
-export function buildSchemaDocs(model: SchemaModel, now: Date): MdFile[] {
+/** 그룹 문서들과 색인. 이름: {그룹}-tables.md, 00-tables-overview.md. tpl: 템플릿 폴더에서 읽은 것 (없으면 내장) */
+export function buildSchemaDocs(model: SchemaModel, now: Date, tpl?: TemplateSet): MdFile[] {
   const at = generatedAt(now);
   const groups = grouped(model);
   const files = groups.map(({ rule, tables }) => ({
     name: `${rule.name}-tables.md`,
-    content: fillTemplate(groupTpl, {
+    content: fillTemplate(templateOf(tpl, 'group-tables.md'), {
       group: rule.name, generatedAt: at, tableCount: tables.length,
       columnCount: tables.reduce((n, t) => n + t.columns.length, 0), fkCount: tables.reduce((n, t) => n + t.fks.length, 0),
       tables: numbered(tables.map(tableValues)),
-    }),
+    }, 'group-tables.md'),
   }));
-  const overview = fillTemplate(overviewTpl, {
+  const overview = fillTemplate(templateOf(tpl, 'tables-overview.md'), {
     generatedAt: at, tableCount: model.tables.length, fkCount: model.tables.reduce((n, t) => n + t.fks.length, 0),
     seqCount: model.sequences.length, fnCount: model.functions.length,
     groups: numbered(groups.map(({ rule, tables }, i) => ({
       name: rule.name, prefix: rule.prefix ? `\`${rule.prefix}\`` : '(기본 그룹)', count: tables.length, file: files[i].name,
       tables: numbered(tables.map(t => ({ name: t.name, comment: cell(t.comment) }))),
     }))),
-  });
+  }, 'tables-overview.md');
   return [{ name: '00-tables-overview.md', content: overview }, ...files];
 }
 
 /** 메뉴 설계 문서 「물리 테이블 목록」 절에 붙여 넣을 조각. 업무개념은 테이블 코멘트, 비고는 사람이 채운다 */
-export function buildMenuTables(model: SchemaModel, menuCode: string, tableNames: string[], now: Date): MdFile {
+export function buildMenuTables(model: SchemaModel, menuCode: string, tableNames: string[], now: Date, tpl?: TemplateSet): MdFile {
   if (!/^[a-z0-9_]+$/i.test(menuCode)) throw new Error('메뉴코드는 영문, 숫자로 입력하세요');
   if (!tableNames.length) throw new Error('ERD 에서 테이블을 고르세요 (Ctrl+클릭으로 여러 개)');
   const tables = tableNames.map(n => model.tables.find(t => t.name === n) ?? (() => { throw new Error(`테이블 ${n} 이(가) 없습니다`); })());
   const code = menuCode.toLowerCase();
   return {
     name: `${code}-03-물리테이블목록.md`,
-    content: fillTemplate(menuTpl, {
+    content: fillTemplate(templateOf(tpl, 'menu-tables.md'), {
       menuCode: code, generatedAt: generatedAt(now),
       tables: numbered(tables.map(t => ({ concept: cell(t.comment) || t.name, upperName: t.name.toUpperCase() }))),
-    }),
+    }, 'menu-tables.md'),
   };
 }

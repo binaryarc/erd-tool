@@ -1,10 +1,6 @@
 ---
 title: 테이블 목록 색인
 description: 스키마 모델의 그룹별 테이블 수, 그룹 문서 위치, 전체 테이블 목록을 확인할 때 읽는다 (ERD 도구가 스키마 모델에서 만든 색인)
-status: draft
-version: 0.1.0
-agent_usage: instruction
-domain: database
 generated_at: {{generatedAt}}
 tags:
   - database

@@ -14,7 +14,7 @@ import { addHistory, listHistory, setHistoryDir } from './history';
 import { loadModel, modelDirOfFile, planSave, saveModel } from './model-store';
 import { getSession, getSettings, setSession, setSettings } from './settings';
 import { inputTerm, killTerm, resizeTerm, setTermEnv, spawnTerm } from './terminal';
-import { findFlywayDir, nextFlywayVersion, writeExport } from './export';
+import { findFlywayDir, nextFlywayVersion, readTemplates, writeExport } from './export';
 import { startMcp } from './mcp/server';
 import { dbQuery } from './mcp/db-query';
 import { step10Inputs } from './step10-auto';
@@ -130,13 +130,15 @@ function registerIpc(win: BrowserWindow) {
     const { out: _out, ...plan } = await planSave(dir, model, layout);
     return plan;
   });
-  ipcMain.handle(IPC.pickFile, async (_e, defaultPath?: string) => {
-    const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md'] }] });
+  ipcMain.handle(IPC.pickFile, async (_e, defaultPath?: string, kind: 'md' | 'json' = 'md') => {
+    const filter = kind === 'json' ? { name: 'JSON', extensions: ['json'] } : { name: 'Markdown', extensions: ['md'] };
+    const r = await dialog.showOpenDialog(win, { defaultPath, properties: ['openFile'], filters: [filter] });
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle(IPC.mcpInfo, () => mcpInfo);
   ipcMain.handle(IPC.exportNextVersion, (_e, dir: string) => nextFlywayVersion(dir));
   ipcMain.handle(IPC.exportFlywayDir, (_e, beDir: string) => findFlywayDir(beDir));
+  ipcMain.handle(IPC.exportTemplates, (_e, dir: string) => readTemplates(dir));
   ipcMain.handle(IPC.exportWrite, (_e, dir: string, files, history, opts) => writeExport(dir, files, history, opts));
   ipcMain.handle(IPC.settingsGet, () => getSettings());
   ipcMain.handle(IPC.settingsSet, (_e, patch) => setSettings(patch));
@@ -153,7 +155,10 @@ function registerIpc(win: BrowserWindow) {
   ipcMain.handle(IPC.manualRemove, (_e, id: string) => removeManual(id));
   ipcMain.handle(IPC.dbCatalog, (_e, ref: ConnRef) => loadCatalog(ref));
   ipcMain.handle(IPC.dbRead, (_e, ref: ConnRef) => readDb(ref));
-  ipcMain.handle(IPC.dbReverse, (_e, ref: ConnRef, modelDir: string) => reverse(ref, modelDir, getSettings().groupRulesFile));
+  ipcMain.handle(IPC.dbReverse, (_e, ref: ConnRef, modelDir: string) => {
+    const s = getSettings();
+    return reverse(ref, modelDir, { file: s.groupRulesFile, prefixes: s.groupPrefixes });
+  });
 
   // SQL 탭 (설계 5장). 성공한 문장은 리터럴을 지워 이력에 남긴다
   ipcMain.handle(IPC.sqlOpen, (_e, tabId: string, ref: ConnRef, label: string) => openSession(tabId, ref, label));

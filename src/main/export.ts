@@ -5,6 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { appendHistoryLine, nextVersion } from '../shared/export/flyway';
+import { TEMPLATE_NAMES, type TemplateSet } from '../shared/export/builtin-templates';
 import type { ExportFile, ExportOptions, ExportResult, HistoryAppend } from '../shared/ipc';
 
 export async function nextFlywayVersion(dir: string): Promise<number> {
@@ -20,6 +21,17 @@ export async function findFlywayDir(beDir: string): Promise<string | null> {
     if (await exists(p)) return p;
   }
   return null;
+}
+
+/** 템플릿 폴더에서 내장 템플릿과 이름이 같은 파일만 읽는다 (없는 이름은 화면이 내장을 쓴다). 폴더가 없으면 오류 */
+export async function readTemplates(dir: string): Promise<TemplateSet> {
+  if (!(await exists(dir))) throw new Error(`템플릿 폴더가 없습니다: ${dir}`);
+  const out: TemplateSet = {};
+  for (const name of TEMPLATE_NAMES) {
+    const p = path.join(dir, name);
+    if (await exists(p)) out[name] = await fs.readFile(p, 'utf8');
+  }
+  return out;
 }
 
 export async function writeExport(dir: string, files: ExportFile[], history?: HistoryAppend, opts: ExportOptions = {}): Promise<ExportResult> {

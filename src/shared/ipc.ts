@@ -2,6 +2,7 @@
 // 단계별 전체 목록은 설계 문서 3-1. 구현한 함수만 여기에 둔다.
 
 import type { Dialect } from './dialect/names';
+import type { TemplateSet } from './export/builtin-templates';
 import type { Layout } from './model/layout';
 import type { ModelDiff } from './model/merge';
 import type { ModelError, SchemaModel } from './model/types';
@@ -45,6 +46,7 @@ export const IPC = {
   exportNextVersion: 'export:nextVersion',
   exportFlywayDir: 'export:flywayDir',
   exportWrite: 'export:write',
+  exportTemplates: 'export:templates',
   mcpInfo: 'mcp:info',
   mcpCall: 'mcp:call',
   mcpReply: 'mcp:reply',
@@ -66,8 +68,14 @@ export interface Settings {
   exportDirs?: { flyway?: string; md?: string; history?: string; compare?: string };
   /** 쓰기로 여는 BE 프로필 이름 (없으면 dev, local). 나머지는 읽기 전용. 화면 없이 settings.json 을 고쳐 바꾼다 */
   writableProfiles?: string[];
-  /** 리버스로 모델이 처음 생길 때 쓸 그룹 규칙 파일(erd-groups.json). 없으면 모델 폴더 안의 erd-groups.json, 그것도 없으면 그룹 하나. 화면 없이 settings.json 을 고쳐 바꾼다 */
+  /** 리버스로 모델이 처음 생길 때 쓸 그룹 규칙 파일(erd-groups.json). 없으면 모델 폴더 안의 erd-groups.json, 그것도 없으면 그룹 하나. 불러오기 화면에서 고른다 */
   groupRulesFile?: string;
+  /** 그룹 규칙 파일 대신 쓸 접두어 목록 (예: mst_, whs_). 둘 다 있으면 파일이 먼저다 */
+  groupPrefixes?: string[];
+  /** DB 비교 탭에서 마지막으로 비교한 두 접속 (접속 고르기 목록의 key) */
+  compareConns?: { left?: string; right?: string };
+  /** MD 템플릿 폴더. 내장 템플릿과 이름이 같은 파일이 있으면 그 파일로 만든다. 없으면 내장 템플릿만 */
+  mdTemplateDir?: string;
 }
 
 /** 내보내기로 쓸 새 파일 (폴더 없는 이름) */
@@ -244,8 +252,8 @@ export type SessionTab =
 
 export interface ErdApi {
   pickFolder(defaultPath?: string): Promise<string | null>;
-  /** MD 파일 고르기 (이력 파일) */
-  pickFile(defaultPath?: string): Promise<string | null>;
+  /** 파일 고르기. md: 이력 파일 (기본), json: 그룹 규칙 파일 */
+  pickFile(defaultPath?: string, kind?: 'md' | 'json'): Promise<string | null>;
   export: {
     /** 폴더의 V 파일 중 가장 큰 번호 + 1 */
     nextVersion(dir: string): Promise<number>;
@@ -253,6 +261,8 @@ export interface ErdApi {
     flywayDir(beDir: string): Promise<string | null>;
     /** 기본은 새 파일만 (같은 이름이 있으면 하나도 쓰지 않고 오류). overwrite 면 덮어쓴다 */
     write(dir: string, files: ExportFile[], history?: HistoryAppend, opts?: ExportOptions): Promise<ExportResult>;
+    /** 템플릿 폴더에서 내장 템플릿과 이름이 같은 파일만 읽는다. 폴더가 없으면 오류 */
+    templates(dir: string): Promise<TemplateSet>;
   };
   settings: {
     get(): Promise<Settings>;
