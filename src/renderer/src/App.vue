@@ -35,6 +35,7 @@ import { buildFlyway, suggestDescription } from '../../shared/export/flyway';
 import { loadConnOptions } from './conn-options';
 import { loadTemplates } from './md-templates';
 import { docField, docTitle, newDoc, sameDir, type ErdDoc, type Pins, type Snap } from './erd-doc';
+import type { EditHistory } from '../../shared/model/edit';
 
 const view = reactive<ViewState>({
   nameMode: loadPref('nameMode', 'both', ['physical', 'logical', 'both'] as const),
@@ -112,6 +113,8 @@ const history = {
   undo: (m: SchemaModel) => cur.value.history.undo(snapNow(m)),
   redo: (m: SchemaModel) => cur.value.history.redo(snapNow(m)),
   clear: () => cur.value.history.clear(),
+  save: () => cur.value.history.save(),
+  load: (h: ReturnType<EditHistory<Snap>['save']>) => { cur.value.history.load(h); syncHistory(); },
   get canUndo() { return cur.value.history.canUndo; },
   get canRedo() { return cur.value.history.canRedo; },
 };
@@ -255,6 +258,7 @@ async function aiApply(lines: string[]): Promise<string> {
   const before = needModel();
   const beforePinned = pinsNow();
   const r = applyCommands(before, lines); // 실패하면 여기서 끝나고 아무것도 바뀌지 않는다
+  const savedHistory = history.save(), wasDirty = dirty.value;
   history.push(before);
   const oldIds = new Set(before.tables.map(t => t.id));
   forgetIds(layout.value, r.model.tables.filter(t => !oldIds.has(t.id)).map(t => t.id));
@@ -272,11 +276,14 @@ async function aiApply(lines: string[]): Promise<string> {
       placed.push(`${p.table} 를 ${p.after} 옆 빈 자리에 고정했다 (다른 테이블은 그대로)`);
     }
   } catch (e) {
-    // 자리를 못 찾으면 전체를 되돌린다 (하나라도 실패하면 아무것도 적용하지 않는다)
-    history.undo(model.value!);
+    // 자리를 못 찾으면 전체를 되돌린다 (하나라도 실패하면 아무것도 적용하지 않는다).
+    // 되돌리기 기록도 실패 전으로: undo 로 빼면 실패한 모델이 「다시 하기」 칸에 들어간다 (2026-10-22 재현)
     setModel(before);
     setPins(beforePinned);
-    throw e;
+    history.load(savedHistory);
+    dirty.value = wasDirty;
+    // 자리 찾기 오류는 테이블 ID(t12)로 말하므로 이름으로 바꿔 AI 에게 준다
+    throw new Error((e as Error).message.replace(/\bt\d+\b/g, id => nameOf(id)));
   }
   if (!aiBase.value) aiBase.value = { model: before, pinned: beforePinned };
   aiStepsOf().push({ before, beforePinned, after: model.value! });
