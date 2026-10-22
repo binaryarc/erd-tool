@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { nextFlywayVersion, writeExport } from '../../src/main/export';
+import { findFlywayDir, nextFlywayVersion, writeExport } from '../../src/main/export';
 
 let dir = '';
 beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'erd-export-')); });
@@ -48,5 +48,15 @@ describe('내보내기 파일 쓰기', () => {
     await fs.writeFile(hist, '# 없음\n');
     await expect(writeExport(dir, [{ name: 'a.md', content: 'A' }], { file: hist, line: '| x |' })).rejects.toThrow('변경 이력');
     expect(await fs.readdir(dir)).toEqual(['h.md']);
+  });
+});
+
+describe('Flyway 폴더 기본값', () => {
+  it('BE 구조에 따라 실제로 있는 db/migration 을 고르고, 둘 다 없으면 null', async () => {
+    expect(await findFlywayDir(dir)).toBeNull();
+    await fs.mkdir(path.join(dir, 'src/main/resources/db/migration'), { recursive: true });
+    expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resources/db/migration'));
+    await fs.mkdir(path.join(dir, 'src/main/resource/db/migration'), { recursive: true });
+    expect(await findFlywayDir(dir)).toBe(path.join(dir, 'src/main/resource/db/migration')); // shop 구조가 먼저
   });
 });

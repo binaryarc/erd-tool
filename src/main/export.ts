@@ -13,6 +13,15 @@ export async function nextFlywayVersion(dir: string): Promise<number> {
 
 const exists = (p: string) => fs.access(p).then(() => true, () => false);
 
+/** BE 폴더의 Flyway 폴더. shop 은 src/main/resource(단수), 일반 Spring 은 resources(복수). 둘 다 없으면 null */
+export async function findFlywayDir(beDir: string): Promise<string | null> {
+  for (const d of ['src/main/resource/db/migration', 'src/main/resources/db/migration']) {
+    const p = path.join(beDir, d);
+    if (await exists(p)) return p;
+  }
+  return null;
+}
+
 export async function writeExport(dir: string, files: ExportFile[], history?: HistoryAppend, opts: ExportOptions = {}): Promise<ExportResult> {
   for (const f of files) {
     if (!f.name || f.name !== path.basename(f.name)) throw new Error(`파일 이름에 폴더가 들어 있습니다: ${f.name}`);

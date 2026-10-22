@@ -1,8 +1,10 @@
-// BE 레포의 application-{프로파일}.properties 에서 접속 프로필을 만든다 (설계 5장)
+// BE 레포의 application-{프로파일}.properties (또는 .yml, .yaml) 에서 접속 프로필을 만든다 (설계 5장)
+// 키는 shop 의 db.url, db.username, db.password 를 먼저 보고, 없으면 Spring 표준 spring.datasource.* 를 본다 (2026-10-22)
 // 비밀번호는 접속할 때만 복호화하고 화면으로 보내지 않는다.
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { FAILSAFE_SCHEMA, loadAll } from 'js-yaml';
 import type { ProfileInfo } from '../../shared/ipc';
 import { DIALECT_LABEL, type Dialect } from '../../shared/dialect/names';
 import { decryptValue } from './jasypt';
@@ -37,7 +39,7 @@ export function setWritableProfiles(names: string[] | undefined): void {
   writable = names?.length ? names.map(n => n.toLowerCase()) : DEFAULT_WRITABLE_PROFILES;
 }
 
-const PROP_DIRS =['src/main/resources', 'src/main/resources/prop', 'src/main/resources'];
+const PROP_DIRS = ['src/main/resources', 'src/main/resources/prop', 'src/main/resources'];
 
 export interface Profile extends ProfileInfo {
   passwordRaw: string;
@@ -52,15 +54,37 @@ function readProps(file: string): Record<string, string> {
   return out;
 }
 
+/** yml 을 점으로 이은 키(spring.datasource.url)로 편다. 값은 모두 글자로 읽는다(FAILSAFE: 0123 이 123 이 되지 않게). 문서(---)가 여럿이면 뒤가 이긴다 */
+function readYaml(file: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (v: unknown, key: string) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k, x] of Object.entries(v)) walk(x, key ? `${key}.${k}` : k);
+    else if (typeof v === 'string' && key) out[key] = v;
+  };
+  for (const doc of loadAll(fs.readFileSync(file, 'utf8'), undefined, { schema: FAILSAFE_SCHEMA })) walk(doc, '');
+  return out;
+}
+
+const PROFILE_FILE = /^application-(\w+)\.(properties|ya?ml)$/;
+
 export function listProfiles(beDir: string): Profile[] {
-  const dir = PROP_DIRS.map(d => path.join(beDir, d)).find(d => fs.existsSync(d));
+  const hasProfiles = (d: string) => fs.existsSync(d) && fs.readdirSync(d).some(f => PROFILE_FILE.test(f));
+  const dir = PROP_DIRS.map(d => path.join(beDir, d)).find(hasProfiles);
   if (!dir) return [];
+  // 같은 프로필의 yml 과 properties 가 함께 있으면 Spring 처럼 properties 가 이긴다 (yml 을 먼저 읽고 덮는다)
+  const byName = new Map<string, Record<string, string>>();
+  for (const f of fs.readdirSync(dir).sort((a, b) => Number(a.endsWith('.properties')) - Number(b.endsWith('.properties')) || a.localeCompare(b))) {
+    const fm = f.match(PROFILE_FILE);
+    if (!fm) continue;
+    const file = path.join(dir, f);
+    byName.set(fm[1], { ...byName.get(fm[1]), ...(fm[2] === 'properties' ? readProps(file) : readYaml(file)) });
+  }
   const profiles: Profile[] = [];
-  for (const f of fs.readdirSync(dir).sort()) {
-    const name = f.match(/^application-(\w+)\.properties$/)?.[1];
-    if (!name) continue;
-    const p = readProps(path.join(dir, f));
-    const m = parseJdbcUrl(p['db.url'] ?? '');
+  for (const name of [...byName.keys()].sort()) {
+    const c = byName.get(name)!;
+    // shop 키를 먼저, 없으면 Spring 표준 키
+    const p = { url: c['db.url'] ?? c['spring.datasource.url'], user: c['db.username'] ?? c['spring.datasource.username'], password: c['db.password'] ?? c['spring.datasource.password'] };
+    const m = parseJdbcUrl(p.url ?? '');
     const kind = m ? JDBC[m.driver] : undefined;
     profiles.push({
       name,
@@ -69,10 +93,10 @@ export function listProfiles(beDir: string): Profile[] {
       host: m?.host ?? '',
       port: m?.port ?? kind?.port ?? 5432,
       database: m?.database ?? '',
-      user: p['db.username'] ?? '',
+      user: p.user ?? '',
       // 쓰기 허용 목록에 없는 프로필은 모두 읽기 전용 (설계 5장, 12장. 운영 이름이 prod 가 아닌 프로젝트도 막는다)
       readOnly: !writable.includes(name.toLowerCase()),
-      passwordRaw: p['db.password'] ?? '',
+      passwordRaw: p.password ?? '',
     });
   }
   return profiles;

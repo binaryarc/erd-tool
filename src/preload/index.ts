@@ -7,6 +7,7 @@ const api: ErdApi = {
   pickFile: defaultPath => ipcRenderer.invoke(IPC.pickFile, defaultPath),
   export: {
     nextVersion: dir => ipcRenderer.invoke(IPC.exportNextVersion, dir),
+    flywayDir: beDir => ipcRenderer.invoke(IPC.exportFlywayDir, beDir),
     write: (dir, files, history, opts) => ipcRenderer.invoke(IPC.exportWrite, dir, files, history, opts),
   },
   settings: {

@@ -1,5 +1,5 @@
 // PostgreSQL 규칙 (STEP 9 전에는 sql/alter.ts, model/pg-types.ts, sql/complete.ts 에 흩어져 있던 것)
-// flyway 선택 사항(STEP 7): 허브 03-flyway-migration.md 4절대로 public. 을 붙이고 여러 번 실행해도 안전하게 쓴다
+// flyway 선택 사항(STEP 7): 허브 03-flyway-migration.md 4절대로 스키마 접두어(모델의 스키마, 없으면 public)를 붙이고 여러 번 실행해도 안전하게 쓴다
 //   (IF NOT EXISTS, IF EXISTS, 제약 추가는 pg_constraint 를 확인하는 DO 블록).
 
 import { isProcedure } from '../model/diff';
@@ -38,10 +38,11 @@ function colDef(c: Column): string {
   ].filter(Boolean).join(' ');
 }
 
-/** 문장 만들기. flyway 면 이름에 public. 을 붙이고 IF NOT EXISTS, IF EXISTS 를 쓴다 */
+/** 문장 만들기. flyway 면 이름에 모델의 스키마 접두어를 붙이고 IF NOT EXISTS, IF EXISTS 를 쓴다 (2026-10-22: 전에는 늘 public.) */
 function ddl(o: DdlOptions = {}): DdlWriter {
   const f = !!o.flyway;
-  const n = (x: string) => (f ? 'public.' + q(x) : q(x));
+  const schema = o.schema ?? 'public';
+  const n = (x: string) => (f ? q(schema) + '.' + q(x) : q(x));
   const ifNot = f ? 'IF NOT EXISTS ' : '';
   const ifEx = f ? 'IF EXISTS ' : '';
   /** flyway 면 제약이 없을 때만 실행 (ADD CONSTRAINT 에는 IF NOT EXISTS 가 없다) */
@@ -71,7 +72,7 @@ function ddl(o: DdlOptions = {}): DdlWriter {
     /** flyway 면 옛 이름이 있을 때만 (여러 번 실행해도 안전) */
     renameTable: (from, to) => `ALTER TABLE ${ifEx}${n(from)} RENAME TO ${q(to)};`,
     renameColumn: (t, from, to) => (f
-      ? `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ${lit(t)} AND column_name = ${lit(from)}) THEN ALTER TABLE ${n(t)} RENAME COLUMN ${q(from)} TO ${q(to)}; END IF; END $$;`
+      ? `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = ${lit(schema)} AND table_name = ${lit(t)} AND column_name = ${lit(from)}) THEN ALTER TABLE ${n(t)} RENAME COLUMN ${q(from)} TO ${q(to)}; END IF; END $$;`
       : `ALTER TABLE ${n(t)} RENAME COLUMN ${q(from)} TO ${q(to)};`),
     addPk: (t, pk) => guard(t, `ALTER TABLE ${n(t)} ADD PRIMARY KEY (${cols(pk)});`, `contype = 'p'`),
     /** PK 제약 이름은 모델에 없어(단일 PK 는 컬럼 줄 표시뿐) DB 에서 찾아 지운다 */
@@ -80,7 +81,7 @@ function ddl(o: DdlOptions = {}): DdlWriter {
       `DECLARE n text;`,
       `BEGIN`,
       `  SELECT conname INTO n FROM pg_constraint WHERE conrelid = ${lit(n(t))}::regclass AND contype = 'p';`,
-      `  IF n IS NOT NULL THEN EXECUTE format('ALTER TABLE ${f ? 'public.' : ''}%I DROP CONSTRAINT %I', ${lit(t)}, n); END IF;`,
+      `  IF n IS NOT NULL THEN EXECUTE format('ALTER TABLE ${f ? (q(schema) + '.').replace(/'/g, "''") : ''}%I DROP CONSTRAINT %I', ${lit(t)}, n); END IF;`,
       `END $$;`,
     ].join('\n'),
     addIx: (t, i) => `CREATE ${i.unique ? 'UNIQUE ' : ''}INDEX ${ifNot}${q(i.name)} ON ${n(t)} (${cols(i.columns)});`,

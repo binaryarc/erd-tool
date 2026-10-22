@@ -134,9 +134,9 @@ defineExpose({ setSource, setBeDir, select: (v: string) => (selected.value = v),
     </div>
 
     <template v-if="source === 'be'">
-      <label>BE 폴더 (application-*.properties 를 읽습니다)</label>
+      <label>BE 폴더 (application-*.properties, .yml 을 읽습니다)</label>
       <div class="row"><input :value="beDir" readonly placeholder="BE 레포 폴더" /><button @click="pickBe">찾기</button></div>
-      <p v-if="beDir && !profiles.length" class="warn">application-*.properties 를 찾지 못했습니다</p>
+      <p v-if="beDir && !profiles.length" class="warn">application-*.properties, .yml 을 찾지 못했습니다</p>
       <ul class="profiles">
         <li v-for="p in profiles" :key="p.name" :class="{ on: p.name === selected }" @click="selected = p.name; test = null">
           <b>{{ p.name }}</b> <span>{{ p.database }} @ {{ p.host }}:{{ p.port }}</span>

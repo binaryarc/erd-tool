@@ -66,4 +66,37 @@ describe.skipIf(!!skip)('STEP 7 Flyway 파일을 dev 에 적용 (롤백)', () =>
       await client.close();
     }
   }, 120_000);
+
+  it('public 이 아닌 스키마의 모델로 만든 파일은 그 스키마에만 적용된다 (2-2)', async () => {
+    const client = await connect(await resolve({ source: 'be', beDir: BE, name: 'dev' }), false);
+    const S = 'erd_probe_wms';
+    try {
+      await client.exec('BEGIN');
+      await client.exec(`CREATE SCHEMA ${S}`);
+      await client.exec(`CREATE TABLE ${S}.mst_biz (biz_seq integer PRIMARY KEY, biz_nm varchar(50))`);
+      const read = async (like: SchemaModel): Promise<SchemaModel> => {
+        const r = await postgresAdapter.reverse(client, S);
+        return { ...like, tables: r.tables, sequences: r.sequences, functions: r.functions };
+      };
+      const empty: SchemaModel = { version: 1, dialect: 'postgresql', schema: S, groups: [], common: [], sequences: [], functions: [], tables: [] };
+      const before = await read(empty);
+      let edited = addTable(before, 'mst_erd_probe', { comment: 'ERD 도구 시험' });
+      edited = addColumn(edited, 'mst_erd_probe', { name: 'probe_seq', type: 'integer', notNull: true, pk: true });
+      edited = addColumn(edited, 'mst_erd_probe', { name: 'biz_seq', type: 'integer', notNull: false });
+      edited = addFk(edited, 'mst_erd_probe', { name: 'fk_mst_erd_probe_mst_biz', columns: ['biz_seq'], refTable: 'mst_biz', refColumns: ['biz_seq'] });
+      edited = updateColumn(edited, 'mst_biz', 'biz_nm', { name: 'biz_name' });
+
+      const file = buildFlyway({ from: before, to: edited, version: 999, description: 'erd_tool_probe', fromLabel: 'dev', toLabel: '지금 ERD', now: new Date() });
+      expect(file.sql).not.toContain('public.');
+      await run(client, file.sql);
+      expect(differences(await read(edited), edited)).toEqual([]);
+      const inPublic = await client.query("select count(*)::int n from pg_class c join pg_namespace s on s.oid = c.relnamespace where s.nspname = 'public' and c.relname = 'mst_erd_probe'");
+      expect(inPublic[0].n).toBe(0);
+    } finally {
+      await client.exec('ROLLBACK').catch(() => {});
+      const left = await client.query(`select count(*)::int n from pg_namespace where nspname = '${S}'`);
+      expect(left[0].n).toBe(0); // dev 에 남은 것 없음
+      await client.close();
+    }
+  }, 120_000);
 });

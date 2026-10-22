@@ -43,6 +43,7 @@ export const IPC = {
   modelDirty: 'app:modelDirty',
   pickFile: 'dialog:pickFile',
   exportNextVersion: 'export:nextVersion',
+  exportFlywayDir: 'export:flywayDir',
   exportWrite: 'export:write',
   mcpInfo: 'mcp:info',
   mcpCall: 'mcp:call',
@@ -246,6 +247,8 @@ export interface ErdApi {
   export: {
     /** 폴더의 V 파일 중 가장 큰 번호 + 1 */
     nextVersion(dir: string): Promise<number>;
+    /** BE 폴더에서 실제로 있는 Flyway 폴더 (src/main/resource 또는 resources 의 db/migration). 없으면 null */
+    flywayDir(beDir: string): Promise<string | null>;
     /** 기본은 새 파일만 (같은 이름이 있으면 하나도 쓰지 않고 오류). overwrite 면 덮어쓴다 */
     write(dir: string, files: ExportFile[], history?: HistoryAppend, opts?: ExportOptions): Promise<ExportResult>;
   };

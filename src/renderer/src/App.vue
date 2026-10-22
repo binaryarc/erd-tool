@@ -333,8 +333,9 @@ async function aiExport(args: { kind?: string; conn?: string; description?: stri
   const opts = await loadConnOptions();
   const o = opts.find(x => x.profile === args.conn || x.label.startsWith(`${args.conn} (`));
   if (!o) throw new Error(`접속 ${args.conn ?? ''} 이 없다. 쓸 수 있는 접속: ${opts.map(x => x.profile ?? x.label).join(', ')}`);
-  const dir = s.exportDirs?.flyway ?? (s.beDir ? `${s.beDir}/src/main/resource/db/migration` : '');
-  if (!dir) throw new Error('Flyway 폴더가 정해지지 않았다. 사람이 DB 비교 탭에서 한 번 만들어야 한다');
+  // 고르는 창이 없으므로 없는 폴더에 만들지 않는다: 기억한 폴더, 없으면 BE 에 실제로 있는 db/migration
+  const dir = s.exportDirs?.flyway ?? (s.beDir ? await window.erd.export.flywayDir(s.beDir) : null);
+  if (!dir) throw new Error('Flyway 폴더를 먼저 고르세요. 사람이 DB 비교 탭에서 Flyway 파일을 한 번 만들면 그 폴더를 기억한다');
   const from = (await window.erd.db.read(o.ref)).model;
   const description = args.description || suggestDescription(diffModels(from, m));
   const f = buildFlyway({ from, to: m, version: await window.erd.export.nextVersion(dir), description, fromLabel: o.label, toLabel: '지금 ERD', now: new Date() });
