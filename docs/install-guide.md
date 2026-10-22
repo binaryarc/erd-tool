@@ -46,12 +46,13 @@ BE 폴더 기준 (모두 맞아야 「BE 폴더에서」 가 동작한다)
 
 | No. | 항목 | 도구가 찾는 것 |
 |---|---|---|
-| 1 | 설정 파일 위치 | `src/main/resources`, `src/main/resources/prop`, `src/main/resources` 중 처음 찾은 한 곳 |
-| 2 | 설정 파일 이름 | `application-{프로필}.properties`, `.yml`, `.yaml` (같은 프로필이면 properties 가 이긴다) |
-| 3 | 접속 키 | `db.url`, `db.username`, `db.password`. 없으면 Spring 표준 `spring.datasource.url`, `.username`, `.password` |
+| 1 | 설정 파일 위치 | Spring 표준 `src/main/resources`. 거기에 없으면 `src/main` 아래(소스 폴더 `java`, `kotlin` 제외, 3단계 깊이까지)에서 프로필 파일이 있는 첫 폴더 |
+| 2 | 설정 파일 이름 | `application-{프로필}.properties`, `.yml`, `.yaml` (같은 프로필이면 properties 가 이긴다). 공통 `application.properties`(`.yml`) 값은 프로필 값이 덮는다 |
+| 3 | 접속 키 | Spring 표준 `spring.datasource.url`, `.username`, `.password`. 없으면 값이 `jdbc:` 로 시작하는 `{앞}.url` 키를 찾아 같은 앞부분의 `{앞}.username`, `{앞}.password` 를 쓴다 |
 | 4 | URL 형식 | `jdbc:postgresql`, `jdbc:sqlserver`, `jdbc:mysql`, `jdbc:mariadb`, `jdbc:oracle:thin` |
 
 - 위와 다르면 BE 폴더를 골라도 접속 목록이 비거나 일부만 나온다. 그때는 「직접 입력」 을 쓴다.
+- Flyway 폴더 기본값도 같은 방식으로 찾는다: `src/main/resources/db/migration`, 없으면 `src/main` 아래의 `db/migration`.
 
 ## 4. 쓰기 허용 프로필
 
@@ -80,7 +81,8 @@ BE 폴더의 프로필은 이름이 쓰기 허용 목록에 있을 때만 쓰기
 3. ERD Tool 이 켜져 있었다면 끄고 다시 켠다.
 
 - 마스터키 값은 문서, 메신저, 메일에 적지 않는다. 관리자에게 직접 받아 내 PC 에만 넣는다. 도구는 키를 화면이나 파일에 남기지 않는다.
-- 자동으로 푸는 방식은 하나뿐이다: BE 레포 `src/main/java` 아래의 `EncryptorConfig.java` 에 알고리즘 `PBEWithMD5AndDES` 와 고정 salt 가 적힌 경우.
+- 자동으로 푸는 방식은 `PBEWithMD5AndDES`(Jasypt 2.x 기본) 하나다. 방식은 설정 파일의 표준 키 `jasypt.encryptor.algorithm` 으로 정하고, 없으면 BE 소스(`src/main/java` 아래 이름에 `jasypt`, `encrypt` 가 든 `.java` 파일)의 `setAlgorithm(...)` 을 본다. 둘 다 없으면 jasypt-spring-boot 3 기본(`PBEWITHHMACSHA512ANDAES_256`)으로 보고 자동으로 풀지 않는다.
+- salt 는 표준대로 암호문 앞부분에서 꺼낸다. BE 소스가 고정 salt(`StringFixedSaltGenerator`)를 쓰면 그 값을 쓴다. 반복 횟수는 `jasypt.encryptor.key-obtention-iterations`(기본 1000).
 - 그 밖의 방식(AES 등)이거나 마스터키가 없으면 접속할 때 비밀번호 창이 뜬다. 「이 PC 에 저장」 을 고르면 Windows 계정 암호화로 저장해 다음부터 묻지 않는다.
 
 ## 7. 처음 실행
@@ -89,7 +91,7 @@ BE 폴더의 프로필은 이름이 쓰기 허용 목록에 있을 때만 쓰기
 |---|---|---|
 | 1 | 접속 고르기 | 3장대로 「BE 폴더에서」 또는 「직접 입력」 |
 | 2 | 접속 시험 | 목록에서 골라 「접속 시험」. 읽기 전용 프로필은 표시가 붙는다 |
-| 3 | 모델 폴더 정하기 | 모델(`.erd` 파일)을 둘 폴더. BE 폴더를 고르면 `{BE 폴더}/docs/erd/model` 이 기본으로 들어가니, 다른 곳을 쓰면 바꾼다 |
+| 3 | 모델 폴더 정하기 | 모델(`.erd` 파일)을 둘 폴더. 비어 있을 때 BE 폴더를 고르면 `{BE 폴더}/erd` 가 들어가니, 다른 곳을 쓰면 바꾼다 |
 | 4 | 그룹 규칙 (선택) | 「DB 에서 불러오기」 위의 「그룹 규칙」 에서 규칙 파일을 고르거나 테이블 이름 접두어(예: `mst_, whs_`)를 넣는다 (8장) |
 | 5 | ERD 열기 | 「DB 에서 불러오기」, 또는 「ERD 폴더 열기」 로 저장해 둔 모델 폴더 |
 
@@ -109,8 +111,10 @@ BE 폴더의 프로필은 이름이 쓰기 허용 목록에 있을 때만 쓰기
 규칙 파일 형식
 
 ```json
-{ "grp_rules": [{ "prefix": "mst_", "grp": "mst" }, { "prefix": "whs_", "grp": "whs" }], "grp_default": "sys" }
+{ "groups": [{ "name": "mst", "prefix": "mst_" }, { "name": "whs", "prefix": "whs_" }], "defaultGroup": "sys" }
 ```
+
+- `defaultGroup` 은 어느 접두어에도 맞지 않는 테이블이 가는 그룹이다.
 
 - 그룹 규칙은 모델을 처음 만들 때만 쓴다. 이미 있는 모델은 그 모델의 그룹을 그대로 쓴다.
 
@@ -122,12 +126,16 @@ BE 폴더의 프로필은 이름이 쓰기 허용 목록에 있을 때만 쓰기
 |---|---|---|
 | 1 | `group-tables.md` | 그룹별 테이블 정의서 |
 | 2 | `tables-overview.md` | 테이블 목록 색인 |
-| 3 | `menu-tables.md` | 메뉴 물리 테이블 목록 조각 |
+| 3 | `table-list.md` | 고른 테이블 목록 조각 (`{이름}-tables.md`) |
 | 4 | `db-compare.md` | DB 비교 결과 |
 
 - 내장 템플릿은 설치 폴더 안에 있어 직접 고칠 수 없다. 레포의 `src/shared/export/templates/` 에 있는 같은 이름 파일을 복사해 고치면 된다.
 - 문법은 두 가지다. `{{이름}}` 은 값 넣기, `{{#이름}} ... {{/이름}}` 은 반복이나 조건. 템플릿에 없는 값 이름을 쓰면 「`group-tables.md` 12째 줄: 템플릿 값 ... 이(가) 없습니다」 처럼 어느 파일 몇째 줄인지 알려 준다.
-- 「메뉴 물리 테이블 목록」 은 메뉴마다 설계 문서(`{메뉴코드}-03-data-model.md`)를 두는 팀을 위한 기능이다. 그 체계를 쓰지 않으면 쓰지 않아도 된다.
+- `table-list.md` 에서 쓸 수 있는 값: `title`, `generatedAt`, 테이블마다 `no`, `name`, `comment`, `concept`(코멘트, 없으면 이름), `upperName`(대문자 이름).
+
+## 9-1. Flyway 이력 한 줄
+
+「DB 비교」 의 「Flyway 파일로」 에서 「이력 MD 표에 한 줄 추가」 를 켜면 이력 MD 파일을 고른다. 그 파일의 「변경 이력」 제목 아래 표(없으면 파일의 마지막 표) 끝에 일시, 메뉴코드, 테이블, 내용 순서로 한 줄을 넣는다. 칸 수는 그 표의 머리 줄에 맞춘다(모자라면 `-`, 넘치면 마지막 칸에 이어 붙임).
 
 ## 10. 설정이 저장되는 곳
 
@@ -156,21 +164,7 @@ BE 폴더의 프로필은 이름이 쓰기 허용 목록에 있을 때만 쓰기
 | 6 | 내장 터미널이 PowerShell 5.1 로 뜬다 | PowerShell 7 이 설치되어 있지 않은 것. 그대로 써도 된다 |
 | 7 | 「AI 연결」 이 동작하지 않는다 | 내장 터미널에서 `claude --version` 또는 `codex --version` 이 나오는지 |
 
-## 13. 예: 이 도구를 처음 만든 프로젝트의 구성
-
-설정을 어떻게 맞추는지 보여 주는 한 예다. 이 구성이 아니어도 위 장의 기준만 맞으면 된다.
-
-| No. | 항목 | 그 프로젝트의 값 |
-|---|---|---|
-| 1 | 설정 파일 | `src/main/resources/application-{dev, test, prod}.properties` (단수 `resource`) |
-| 2 | 접속 키 | `db.url`, `db.username`, `db.password`, 비밀번호는 `ENC(...)` |
-| 3 | Jasypt | `EncryptorConfig.java` 에 `PBEWithMD5AndDES`, 고정 salt |
-| 4 | 쓰기 허용 프로필 | 기본값 그대로(`dev` 만 쓰기, `test`, `prod` 는 읽기 전용) |
-| 5 | 모델 폴더 | BE 레포의 `docs/erd/model` (git 으로 관리) |
-| 6 | Flyway 폴더 | `src/main/resource/db/migration` |
-| 7 | 그룹 규칙, 템플릿 | 팀 문서 레포의 `erd-groups.json` 과 팀 문서 형식 템플릿 폴더를 골라 둔다 |
-
-## 14. 관리자: 설치 파일 다시 만들기
+## 13. 관리자: 설치 파일 다시 만들기
 
 | No. | 할 일 | 명령 |
 |---|---|---|

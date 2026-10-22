@@ -133,7 +133,7 @@ async function writeFlyway(dir: string, historyFile?: string) {
     const version = await window.erd.export.nextVersion(dir);
     const f = buildFlyway({ from: lastFrom, to: lastTo, version, description: fw.value.description.trim(), menuCode: fw.value.menuCode.trim() || undefined,
       fromLabel: sideLabel(left.value), toLabel: sideLabel(right.value), now: new Date() });
-    const r = await window.erd.export.write(dir, [{ name: f.fileName, content: f.sql }], historyFile ? { file: historyFile, line: f.historyLine } : undefined);
+    const r = await window.erd.export.write(dir, [{ name: f.fileName, content: f.sql }], historyFile ? { file: historyFile, cells: f.historyCells } : undefined);
     fw.value.result = `만들었습니다: ${r.written[0]} (문장 ${f.statements}개, 위험 ${f.dangers}개)${r.history ? `, 이력 한 줄 추가: ${r.history}` : ''}. DB 에는 실행하지 않았습니다`;
     return { fileName: f.fileName, path: r.written[0], history: r.history, statements: f.statements, sql: f.sql };
   } catch (e) { fw.value.error = clean(e); return null; }
@@ -239,7 +239,7 @@ defineExpose({ ready, compare, writeFlyway, writeCompareMd, compareMd, setFlyway
           <b>Flyway 파일로</b>
           <label>설명 <input v-model="fw.description" spellcheck="false" placeholder="add_mst_brand_columns" /></label>
           <label>메뉴코드 <input v-model="fw.menuCode" spellcheck="false" placeholder="없으면 비움" class="short" /></label>
-          <label class="check"><input v-model="fw.history" type="checkbox" /> 99-migration-history.md 에 한 줄 추가</label>
+          <label class="check" title="파일을 고르면 「변경 이력」 제목 아래 표(없으면 마지막 표) 끝에 일시, 메뉴코드, 테이블, 내용 한 줄을 넣습니다. 칸 수는 그 표에 맞춥니다"><input v-model="fw.history" type="checkbox" /> 이력 MD 표에 한 줄 추가</label>
           <button :disabled="!flywayOk" :title="flywayOk ? '폴더를 고르면 V{다음 번호}__{설명}_{시각}.sql 을 만듭니다. DB 에는 실행하지 않습니다' : 'Flyway 파일은 PostgreSQL 모델에서만 만들 수 있습니다'" @click="makeFlyway">Flyway 파일 만들기</button>
         </div>
         <p v-if="fw.result" class="ok">{{ fw.result }}</p>

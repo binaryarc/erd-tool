@@ -3,10 +3,14 @@
 import { sameColumn } from './erd-format';
 import type { Column, GroupRule, Table } from './types';
 
-/** 그룹 규칙 파일 erd-groups.json ({ grp_rules: [{prefix, grp}], grp_default }) → 그룹 규칙 */
-export function groupsFromErdGroupsJson(json: { grp_rules?: { prefix: string; grp: string }[]; grp_default?: string }): GroupRule[] {
-  const rules: GroupRule[] = (json.grp_rules ?? []).map(r => ({ name: r.grp, prefix: r.prefix }));
-  const def = json.grp_default;
+/** 그룹 규칙 파일 형식: { "groups": [{ "name": "mst", "prefix": "mst_" }], "defaultGroup": "etc" }. 어디에도 안 맞는 테이블은 defaultGroup */
+export interface GroupRulesJson { groups?: { name: string; prefix: string }[]; defaultGroup?: string }
+
+/** 그룹 규칙 파일(erd-groups.json) → 그룹 규칙. groups 가 배열이 아니면 오류 */
+export function groupsFromRulesJson(json: GroupRulesJson): GroupRule[] {
+  if (json.groups !== undefined && !Array.isArray(json.groups)) throw new Error('그룹 규칙 파일의 groups 는 [{ "name", "prefix" }] 배열이어야 합니다');
+  const rules: GroupRule[] = (json.groups ?? []).map(r => ({ name: r.name, prefix: r.prefix }));
+  const def = json.defaultGroup;
   if (def) {
     const g = rules.find(r => r.name === def);
     if (g) g.isDefault = true;

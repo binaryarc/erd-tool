@@ -64,10 +64,8 @@ export function docField<K extends RefKeys>(cur: ShallowRef<ErdDoc>, key: K): Wr
 export const sameDir = (a: string, b: string) => !!a && !!b && norm(a) === norm(b);
 const norm = (d: string) => d.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 
-/** 탭 제목: BE 레포의 docs/erd/model 이면 그 레포 이름, 아니면 폴더 이름 */
+/** 탭 제목: 모델 폴더 이름 */
 export function docTitle(d: ErdDoc, fallback: string): string {
   const dir = d.modelDir.value.replace(/\\/g, '/').replace(/\/+$/, '');
-  if (!dir) return fallback;
-  const be = /([^/]+)\/docs\/erd\/model$/i.exec(dir);
-  return be ? be[1] : dir.split('/').pop() || fallback;
+  return dir.split('/').pop() || fallback;
 }

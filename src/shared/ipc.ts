@@ -80,8 +80,8 @@ export interface Settings {
 
 /** 내보내기로 쓸 새 파일 (폴더 없는 이름) */
 export interface ExportFile { name: string; content: string }
-/** 99-migration-history.md 「변경 이력」 표에 덧붙일 한 줄 */
-export interface HistoryAppend { file: string; line: string }
+/** 이력 MD 표에 덧붙일 한 줄 (cells 는 일시, 메뉴코드, 테이블, 내용. 칸 수는 그 표에 맞춘다) */
+export interface HistoryAppend { file: string; cells: string[] }
 /** overwrite: 같은 이름을 덮어쓴다 (MD). 없으면 같은 이름이 있을 때 하나도 쓰지 않는다 (Flyway) */
 export interface ExportOptions { overwrite?: boolean }
 /** replaced: 덮어쓴 파일 이름 */
@@ -276,7 +276,7 @@ export interface ErdApi {
   model: {
     load(dir: string): Promise<LoadResult>;
     save(dir: string, model: SchemaModel, layout: Layout): Promise<SaveResult>;
-    /** 「ERD 저장」 폴더 고르기. 처음 위치는 BE 폴더의 docs/erd, 없으면 사용자 홈. hasModel: 고른 폴더에 모델 파일(.erd)이 이미 있다 */
+    /** 「ERD 저장」 폴더 고르기. 처음 위치는 지금 모델 폴더, 없으면 사용자 홈. hasModel: 고른 폴더에 모델 파일(.erd)이 이미 있다 */
     pickSaveDir(): Promise<{ dir: string; hasModel: boolean } | null>;
     /** 저장하면 바뀔 파일 목록 (쓰지 않는다) */
     planSave(dir: string, model: SchemaModel, layout: Layout): Promise<SavePlan>;

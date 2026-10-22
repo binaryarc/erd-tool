@@ -16,9 +16,9 @@ export function useModelFiles(core: ErdDocs, top: TopTabs) {
     await window.erd.settings.set({ modelDir: dir });
   }
 
-  /** BE 폴더를 고르면 모델 폴더 기본값을 BE/docs/erd/model 로 (설계 4장 결정) */
+  /** BE 폴더를 고르면 비어 있는 모델 폴더 칸에 BE/erd 를 넣는다. 저장은 「ERD 저장」 에서 폴더를 다시 고른다 */
   async function onBeDir(be: string) {
-    if (!modelDir.value) await setModelDir(`${be}/docs/erd/model`);
+    if (!modelDir.value) await setModelDir(`${be}/erd`);
   }
 
   /** 저장 안 한 ERD 변경(확정 대기 중인 AI 변경 포함)이 있으면 버려도 되는지 묻는다. 없으면 바로 true */
@@ -57,7 +57,7 @@ export function useModelFiles(core: ErdDocs, top: TopTabs) {
   }
 
   /** 「ERD 저장」 버튼: 누를 때마다 저장할 폴더를 고른다 (2026-10-16 사용자 지정).
-   *  처음 위치는 DB 접속에 쓰는 BE 폴더의 docs/erd, 없으면 사용자 홈. 다른 모델이 든 폴더를 고르면 한 번 묻는다
+   *  처음 위치는 지금 모델 폴더, 없으면 사용자 홈. 다른 모델이 든 폴더를 고르면 한 번 묻는다
    *  (저장할 때 그 폴더에서 이 모델에 없는 그룹 파일을 지우기 때문) */
   async function save() {
     if (!model.value) return;

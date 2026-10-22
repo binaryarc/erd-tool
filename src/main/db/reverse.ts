@@ -2,7 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { detectCommon, groupsFromErdGroupsJson, groupsFromPrefixes } from '../../shared/model/groups';
+import { detectCommon, groupsFromRulesJson, groupsFromPrefixes } from '../../shared/model/groups';
 import { mergeModel } from '../../shared/model/merge';
 import { emptyLayout } from '../../shared/model/layout';
 import { MODEL_VERSION, type GroupRule, type SchemaModel } from '../../shared/model/types';
@@ -41,7 +41,7 @@ export interface GroupSource { file?: string; prefixes?: string[] }
 
 /** 그룹 규칙: 설정에 지정한 파일(erd-groups.json 형식), 설정의 접두어 목록, 모델 폴더 안의 erd-groups.json 순서. 모두 없으면 null */
 function readGroupRules(modelDir: string, src: GroupSource = {}): GroupRule[] | null {
-  const fromFile = (f: string) => groupsFromErdGroupsJson(JSON.parse(fs.readFileSync(f, 'utf8')));
+  const fromFile = (f: string) => groupsFromRulesJson(JSON.parse(fs.readFileSync(f, 'utf8')));
   if (src.file && fs.existsSync(src.file)) return fromFile(src.file);
   if (src.prefixes?.length) return groupsFromPrefixes(src.prefixes);
   const inModel = path.join(modelDir, 'erd-groups.json');

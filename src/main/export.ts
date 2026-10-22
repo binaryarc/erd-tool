@@ -1,12 +1,13 @@
 // 내보내기 파일 쓰기 (STEP 7, 메인 프로세스 전용). MD, Flyway 내용은 화면(shared/export)이 만들고 여기서는 쓰기만 한다.
 // 기본은 새 파일만 쓴다: 같은 이름이 하나라도 있으면 아무것도 쓰지 않고 거부한다(Flyway 파일).
-// overwrite 면 같은 이름을 덮어쓴다(MD, 사용자 지정 2026-10-16). 그 밖에 기존 파일을 고치는 것은 마이그레이션 이력 MD 에 한 줄 덧붙이기뿐이다.
+// overwrite 면 같은 이름을 덮어쓴다(MD, 사용자 지정 2026-10-16). 그 밖에 기존 파일을 고치는 것은 이력 MD 표에 한 줄 덧붙이기뿐이다.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { appendHistoryLine, nextVersion } from '../shared/export/flyway';
+import { appendHistoryRow, nextVersion } from '../shared/export/flyway';
 import { TEMPLATE_NAMES, type TemplateSet } from '../shared/export/builtin-templates';
 import type { ExportFile, ExportOptions, ExportResult, HistoryAppend } from '../shared/ipc';
+import { mainDirs } from './be-dirs';
 
 export async function nextFlywayVersion(dir: string): Promise<number> {
   return nextVersion(await fs.readdir(dir).catch(() => [] as string[]));
@@ -14,13 +15,10 @@ export async function nextFlywayVersion(dir: string): Promise<number> {
 
 const exists = (p: string) => fs.access(p).then(() => true, () => false);
 
-/** BE 폴더의 Flyway 폴더. src/main/resource(단수)를 쓰는 BE 도 있고 일반 Spring 은 resources(복수). 둘 다 없으면 null */
+/** BE 폴더의 Flyway 폴더(db/migration). 표준 src/main/resources/db/migration 을 먼저, 없으면 src/main 아래에서 찾는다. 없으면 null */
 export async function findFlywayDir(beDir: string): Promise<string | null> {
-  for (const d of ['src/main/resource/db/migration', 'src/main/resources/db/migration']) {
-    const p = path.join(beDir, d);
-    if (await exists(p)) return p;
-  }
-  return null;
+  const tail = path.join('db', 'migration');
+  return mainDirs(beDir).find(p => p.endsWith(path.sep + tail)) ?? null;
 }
 
 /** 템플릿 폴더에서 내장 템플릿과 이름이 같은 파일만 읽는다 (없는 이름은 화면이 내장을 쓴다). 폴더가 없으면 오류 */
@@ -42,7 +40,7 @@ export async function writeExport(dir: string, files: ExportFile[], history?: Hi
   for (const f of files) if (await exists(path.join(dir, f.name))) taken.push(f.name);
   if (taken.length && !opts.overwrite) throw new Error(`같은 이름의 파일이 있어 쓰지 않았습니다: ${taken.join(', ')}`);
   // 이력 파일을 먼저 읽고 고쳐 본다. 표를 못 찾으면 새 파일도 쓰지 않는다
-  const historyText = history ? appendHistoryLine(await fs.readFile(history.file, 'utf8'), history.line) : undefined;
+  const historyText = history ? appendHistoryRow(await fs.readFile(history.file, 'utf8'), history.cells) : undefined;
 
   await fs.mkdir(dir, { recursive: true });
   const written: string[] = [];

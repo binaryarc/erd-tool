@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendHistoryLine, buildFlyway, nextVersion, suggestDescription } from '../../src/shared/export/flyway';
+import { appendHistoryRow, buildFlyway, nextVersion, suggestDescription } from '../../src/shared/export/flyway';
 import { diffModels } from '../../src/shared/model/diff';
 import { addColumn, addFk, addTable } from '../../src/shared/model/edit';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
@@ -54,11 +54,16 @@ describe('Flyway 파일', () => {
     expect(f.sql.split('\n')[1]).toBe('-- V22: add_mst_probe — menu01');
   });
 
-  it('이력 한 줄과 표 끝에 넣기', () => {
-    expect(f.historyLine).toBe('| 2026-10-16 09:12 | menu01 | `mst_probe` | 테이블 추가 1 — V22__add_mst_probe_20261016_0912.sql | - | - |');
-    const md = '# 제목\n\n## 변경 이력\n\n| 반영일시 | a |\n|---|---|\n| 1 | x |\n\n> 메모\n';
-    expect(appendHistoryLine(md, '| 2 | y |')).toBe('# 제목\n\n## 변경 이력\n\n| 반영일시 | a |\n|---|---|\n| 1 | x |\n| 2 | y |\n\n> 메모\n');
-    expect(() => appendHistoryLine('# 없음\n', '| x |')).toThrow('변경 이력');
+  it('이력 한 줄의 칸과, 「변경 이력」 표 끝에 그 표의 칸 수로 넣기', () => {
+    expect(f.historyCells).toEqual(['2026-10-16 09:12', 'menu01', '`mst_probe`', '테이블 추가 1 — V22__add_mst_probe_20261016_0912.sql']);
+    const six = '# 제목\n\n## 변경 이력\n\n| 일시 | 메뉴 | 테이블 | 내용 | 테스트 | 운영 |\n|---|---|---|---|---|---|\n| 1 | - | t | x | - | - |\n\n> 메모\n';
+    expect(appendHistoryRow(six, f.historyCells)).toBe(six.replace('| 1 | - | t | x | - | - |\n', '| 1 | - | t | x | - | - |\n| 2026-10-16 09:12 | menu01 | `mst_probe` | 테이블 추가 1 — V22__add_mst_probe_20261016_0912.sql | - | - |\n'));
+    expect(() => appendHistoryRow('# 없음\n', ['x'])).toThrow('표가 없습니다');
+  });
+
+  it('「변경 이력」 제목이 없으면 마지막 표에, 칸이 적으면 넘친 값을 마지막 칸에 잇는다', () => {
+    const md = '| a |\n|---|\n\n# 이력\n\n| 일시 | 내용 |\n|---|---|\n';
+    expect(appendHistoryRow(md, ['d', 'm', 't', 's'])).toBe('| a |\n|---|\n\n# 이력\n\n| 일시 | 내용 |\n|---|---|\n| d | m — t — s |\n');
   });
 });
 

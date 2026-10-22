@@ -23,7 +23,7 @@ describe('운영 DB 판정 (쓰기 허용 프로필 이름 목록)', () => {
   const prop = path.join(be, 'src/main/resources');
   fs.mkdirSync(prop, { recursive: true });
   for (const n of ['dev', 'local', 'test', 'prod', 'real', 'prd', 'live']) {
-    fs.writeFileSync(path.join(prop, `application-${n}.properties`), 'db.url=jdbc:postgresql://localhost:5432/x\ndb.username=u\ndb.password=p\n');
+    fs.writeFileSync(path.join(prop, `application-${n}.properties`), 'spring.datasource.url=jdbc:postgresql://localhost:5432/x\nspring.datasource.username=u\nspring.datasource.password=p\n');
   }
   const ro = () => Object.fromEntries(listProfiles(be).map(p => [p.name, p.readOnly]));
   afterEach(() => setWritableProfiles(undefined));
@@ -75,10 +75,27 @@ describe('Spring 표준 키와 yml (spring.datasource.*, application-{프로필}
     ]);
   });
 
-  it('db.* 키(Spring 표준이 아닌 BE 규칙)는 지금처럼 읽는다', () => {
+  it('표준이 아닌 폴더(src/main 아래), 표준이 아닌 키(jdbc 주소를 가진 {앞}.url)도 찾는다', () => {
     const be = fs.mkdtempSync(path.join(os.tmpdir(), 'erd-be-'));
-    fs.mkdirSync(path.join(be, 'src/main/resources'), { recursive: true });
-    fs.writeFileSync(path.join(be, 'src/main/resources/application-dev.properties'), 'db.url=jdbc:log4jdbc:postgresql://localhost:15432/shop-dev\ndb.username=app_user\ndb.password=ENC(x)\n');
+    const dir = path.join(be, 'src/main/config/app');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'application-dev.properties'), 'app.mode=batch\nshop.db.url=jdbc:log4jdbc:postgresql://localhost:15432/shop-dev\nshop.db.username=app_user\nshop.db.password=ENC(x)\n');
     expect(pick(be)).toEqual([{ name: 'dev', driver: 'postgresql', host: 'localhost', port: 15432, database: 'shop-dev', user: 'app_user', passwordRaw: 'ENC(x)', readOnly: false }]);
+  });
+
+  it('공통 application.properties 의 값을 프로필 값이 덮고, jasypt.encryptor.* 를 함께 읽는다', () => {
+    const be = mk({
+      'application.properties': 'spring.datasource.username=base_user\njasypt.encryptor.algorithm=PBEWithMD5AndDES\n',
+      'application-dev.properties': 'spring.datasource.url=jdbc:postgresql://h:5432/app\nspring.datasource.password=p\n',
+    });
+    const [p] = listProfiles(be);
+    expect([p.user, p.jasypt.algorithm]).toEqual(['base_user', 'PBEWithMD5AndDES']);
+  });
+
+  it('src/main/resources 가 있으면 다른 폴더보다 먼저 본다', () => {
+    const be = mk({ 'application-dev.properties': 'spring.datasource.url=jdbc:postgresql://std:5432/a\n' });
+    fs.mkdirSync(path.join(be, 'src/main/aaa'), { recursive: true });
+    fs.writeFileSync(path.join(be, 'src/main/aaa/application-dev.properties'), 'spring.datasource.url=jdbc:postgresql://other:5432/a\n');
+    expect(listProfiles(be)[0].host).toBe('std');
   });
 });

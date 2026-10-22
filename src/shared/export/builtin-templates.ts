@@ -3,13 +3,13 @@
 
 import groupTables from './templates/group-tables.md?raw';
 import tablesOverview from './templates/tables-overview.md?raw';
-import menuTables from './templates/menu-tables.md?raw';
+import tableList from './templates/table-list.md?raw';
 import dbCompare from './templates/db-compare.md?raw';
 
 export const BUILTIN_TEMPLATES = {
   'group-tables.md': groupTables,
   'tables-overview.md': tablesOverview,
-  'menu-tables.md': menuTables,
+  'table-list.md': tableList,
   'db-compare.md': dbCompare,
 };
 

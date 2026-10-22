@@ -296,7 +296,7 @@ if (__ERD_AUTO__) void import('./auto').then(m => m.install({ ...core, ...top, .
                   <button class="add" title="새 ERD 탭 (다른 모델 폴더를 열거나 DB 에서 불러옵니다)" @click="addErd()">+ ERD</button>
                   <button class="add" @click="addSql()">+ SQL</button>
                   <button class="add" @click="openCompare">DB 비교</button>
-                  <button class="add" title="MD 문서, 메뉴 물리 테이블 목록을 만듭니다. Flyway 파일은 DB 비교 탭에서 만듭니다" @click="openExport">내보내기</button>
+                  <button class="add" title="MD 문서, 고른 테이블 목록을 만듭니다. Flyway 파일은 DB 비교 탭에서 만듭니다" @click="openExport">내보내기</button>
                   <button v-if="selected.length" class="add" @click="addSql(buildJoinSelect(model!, selected))">SELECT 만들기 ({{ selected.length }})</button>
                   <button v-if="selected.length === 1" class="add" @click="openEditor(selected[0])">테이블 편집</button>
                   <span class="spacer" />

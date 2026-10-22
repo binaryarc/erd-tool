@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// 내보내기 (STEP 7, 설계 8-1): 지금 ERD 모델로 그룹별 테이블 정의서 MD 와 메뉴 물리 테이블 목록 조각을 만든다.
+// 내보내기 (STEP 7, 설계 8-1): 지금 ERD 모델로 그룹별 테이블 정의서 MD 와 고른 테이블 목록 조각을 만든다.
 // 폴더는 내보낼 때마다 고르고 마지막 위치를 기억한다. 파일 이름에 시각을 붙이지 않고 같은 이름은 덮어쓴다(사용자 지정 2026-10-16).
 // Flyway 파일은 DB 비교 탭의 「Flyway 파일 만들기」 에서 만든다(두 쪽 차이가 필요하다).
 // 템플릿 폴더를 정하면 내장 템플릿과 이름이 같은 파일은 그 파일로 만든다(2026-10-22).
 import { onMounted, ref } from 'vue';
-import { buildMenuTables, buildSchemaDocs, type MdFile } from '../../../shared/export/md';
+import { buildSchemaDocs, buildTableList, type MdFile } from '../../../shared/export/md';
 import { TEMPLATE_NAMES } from '../../../shared/export/builtin-templates';
 import type { SchemaModel } from '../../../shared/model/types';
 import { loadTemplates } from '../md-templates';
@@ -12,7 +12,7 @@ import { loadTemplates } from '../md-templates';
 const props = defineProps<{ model: SchemaModel | null; selected: string[] }>();
 const emit = defineEmits<{ compare: [] }>();
 
-const menuCode = ref('');
+const listTitle = ref('');
 const written = ref<string[]>([]);
 const replaced = ref(0);
 const error = ref('');
@@ -64,9 +64,9 @@ async function schemaFiles() {
   if (!props.model) throw new Error('ERD 에 열린 모델이 없습니다');
   return buildSchemaDocs(props.model, new Date(), await loadTemplates());
 }
-async function menuFile(code = menuCode.value, tables = props.selected) {
+async function listFile(title = listTitle.value, tables = props.selected) {
   if (!props.model) throw new Error('ERD 에 열린 모델이 없습니다');
-  return buildMenuTables(props.model, code.trim(), tables, new Date(), await loadTemplates());
+  return buildTableList(props.model, title.trim(), tables, new Date(), await loadTemplates());
 }
 
 async function run(make: () => Promise<MdFile[]>) {
@@ -80,7 +80,7 @@ async function run(make: () => Promise<MdFile[]>) {
 defineExpose({
   /** 시험용: 폴더 고르기 없이 쓴다 */
   writeSchema: async (dir: string) => write(dir, await schemaFiles()),
-  writeMenu: async (dir: string, code: string, tables: string[]) => write(dir, [await menuFile(code, tables)]),
+  writeTableList: async (dir: string, title: string, tables: string[]) => write(dir, [await listFile(title, tables)]),
 });
 </script>
 
@@ -104,11 +104,11 @@ defineExpose({
         <button @click="run(schemaFiles)">폴더 골라 만들기</button>
       </div>
       <div class="box">
-        <h4>메뉴 물리 테이블 목록</h4>
-        <p class="muted">메뉴 설계 문서({메뉴코드}-03-data-model.md)의 「물리 테이블 목록」 절에 붙여 넣는 조각입니다. 그 문서 체계를 쓰는 팀 전용 기능입니다. ERD 에서 Ctrl+클릭으로 고른 테이블을 고른 순서대로 넣습니다.</p>
-        <label>메뉴코드 <input v-model="menuCode" spellcheck="false" placeholder="menu01" /></label>
+        <h4>고른 테이블 목록</h4>
+        <p class="muted">ERD 에서 Ctrl+클릭으로 고른 테이블을 고른 순서대로 표 하나에 담아 {이름}-tables.md 로 만듭니다. 설계 문서 등에 붙여 넣는 조각입니다. 모양은 템플릿 table-list.md 로 바꿀 수 있습니다.</p>
+        <label>이름 <input v-model="listTitle" spellcheck="false" placeholder="order-screen" /></label>
         <p>고른 테이블 {{ selected.length }}개<span v-if="selected.length">: {{ selected.join(', ') }}</span></p>
-        <button :disabled="!selected.length || !menuCode.trim()" @click="run(async () => [await menuFile()])">폴더 골라 만들기</button>
+        <button :disabled="!selected.length || !listTitle.trim()" @click="run(async () => [await listFile()])">폴더 골라 만들기</button>
       </div>
       <div class="box">
         <h4>Flyway 파일</h4>

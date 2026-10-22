@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_RULE, arrange, NODE, syncLayout, tableHeight } from '../../src/shared/model/arrange';
 import { emptyLayout } from '../../src/shared/model/layout';
-import { detectCommon, groupsFromErdGroupsJson, groupsFromPrefixes } from '../../src/shared/model/groups';
+import { detectCommon, groupsFromRulesJson, groupsFromPrefixes } from '../../src/shared/model/groups';
 import { isEmptyDiff, mergeModel } from '../../src/shared/model/merge';
 import type { Column, SchemaModel, Table } from '../../src/shared/model/types';
 import { SAMPLE_GROUPS } from '../helpers/fixtures';
@@ -103,10 +103,12 @@ describe('리버스 결과 맞추기', () => {
 
 describe('그룹 규칙과 공통 컬럼', () => {
   it('그룹 규칙 파일 erd-groups.json 을 그룹 규칙으로 바꾼다', () => {
-    expect(groupsFromErdGroupsJson({
-      grp_rules: [{ prefix: 'whs_', grp: 'whs' }, { prefix: 'mst_', grp: 'mst' }, { prefix: 'sys_', grp: 'sys' }, { prefix: 'sio_', grp: 'sio' }, { prefix: 'wcs_', grp: 'wcs' }],
-      grp_default: 'sys',
+    expect(groupsFromRulesJson({
+      groups: [{ name: 'whs', prefix: 'whs_' }, { name: 'mst', prefix: 'mst_' }, { name: 'sys', prefix: 'sys_' }, { name: 'sio', prefix: 'sio_' }, { name: 'wcs', prefix: 'wcs_' }],
+      defaultGroup: 'sys',
     })).toEqual(SAMPLE_GROUPS);
+    expect(groupsFromRulesJson({ defaultGroup: 'etc' })).toEqual([{ name: 'etc', isDefault: true }]);
+    expect(() => groupsFromRulesJson({ groups: {} as never })).toThrow('groups 는');
   });
 
   it('접두어 목록으로 그룹 규칙을 만든다 (이름은 끝 _ 를 뗀 접두어, 나머지는 기본 그룹 etc)', () => {
