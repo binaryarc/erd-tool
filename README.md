@@ -25,7 +25,8 @@ npm ci
 npm run dev        # 개발 모드로 실행
 npm run typecheck
 npm test           # DB 없이 도는 시험. DB 시험은 아래 설정이 있을 때만 돈다
-npm run dist       # Windows 설치 파일 (dist/)
+npm run dist       # Windows 설치 파일 (dist/). 시험 모드 코드는 빠진다
+npm run build:auto # 시험 모드(ERD_AUTO) 시나리오를 넣은 빌드. 시나리오는 src/main/auto, src/renderer/src/auto
 ```
 
 ### DB 시험
