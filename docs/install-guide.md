@@ -179,5 +179,6 @@ BE 폴더의 프로필은 이름이 쓰기 허용 목록에 있을 때만 쓰기
 | 3 | 설치 파일 빌드 | `npm run dist` → `dist/ERD-Tool-Setup-{버전}.exe` |
 
 - 버전은 `package.json` 의 `version` 이다. 올린 뒤 빌드한다.
+- 설치용 빌드(`npm run build`, `npm run dist`)에는 시험 모드(`ERD_AUTO`) 코드가 들어가지 않는다. 시험 모드 시나리오는 `npm run build:auto` 로 빌드한 뒤 돌린다.
 - 빌드 설정은 `electron-builder.yml` 이다. 디버거 연결과 Node 로 실행하기를 막는 Electron 퓨즈, 한국어, 영어 화면 글자 묶음만 넣기, 내장 터미널 파일을 압축 밖에 두기가 여기 있다.
 - 코드 서명 인증서가 생기면 `win.signtoolOptions` 에 넣는다. 지금은 서명이 없어 설치할 때 2장 2번 창이 뜬다.

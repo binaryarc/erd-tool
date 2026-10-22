@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:auto": "electron-vite build --mode auto",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "dist": "npm run build && electron-builder --win nsis"
