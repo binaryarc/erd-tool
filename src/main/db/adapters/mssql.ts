@@ -7,7 +7,7 @@
 import mssql from 'mssql';
 import type { SqlCatalog } from '../../../shared/ipc';
 import type { Column, FkAction, ForeignKey, Table } from '../../../shared/model/types';
-import { firstWord, stripParens, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
+import { firstWord, rowBuffer, stripParens, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
 
 /** 값은 DB 가 보여주는 글자에 가깝게: 날짜는 저장된 값 그대로(UTC 로 읽음), 이진은 0x16진수 */
 function cell(v: unknown): unknown {
@@ -37,34 +37,28 @@ function wrap(pool: mssql.ConnectionPool): MsConn {
       const req = request(conn.timeoutMs);
       req.stream = true;
       req.arrayRowMode = true;
-      let sets = 0, fields: string[] | null = null, affected = 0, want = 0, done = false, err: unknown = null;
-      const buf: unknown[][] = [];
-      let wake: (() => void) | null = null;
-      const poke = () => { const w = wake; wake = null; w?.(); };
+      let sets = 0, fields: string[] | null = null, affected = 0;
+      const rb = rowBuffer();
       // 첫 결과 집합만 보여준다 (여러 SELECT 를 한 배치로 보내면 나머지는 버린다)
       req.on('recordset', (cols: { name: string }[]) => { if (++sets === 1) fields = cols.map(c => c.name); });
       req.on('row', (row: unknown[]) => {
         if (sets !== 1) return;
-        buf.push(row.map(cell));
-        if (buf.length >= want) { req.pause(); poke(); }
+        rb.push(row.map(cell), () => req.pause());
       });
       req.on('rowsaffected', (n: number) => { affected += n; });
-      req.on('error', (e: unknown) => { err ??= e; });
-      req.on('done', () => { done = true; poke(); });
+      req.on('error', (e: unknown) => rb.fail(e));
+      req.on('done', () => rb.finish());
       void Promise.resolve(req.batch(sql)).catch(() => {}); // 오류는 error 이벤트로 받는다
       return {
         async read(n): Promise<CursorRead> {
-          want = n;
-          while (buf.length < n && !done) await new Promise<void>(ok => { wake = ok; req.resume(); });
-          if (err) throw err;
-          const rows = buf.splice(0, n);
+          const rows = await rb.take(n, () => req.resume());
           return { rows, fields: fields ?? [], command: firstWord(sql), rowCount: fields ? null : affected };
         },
         async close() {
-          if (done) return;
+          if (rb.done) return;
           req.cancel();
           req.resume();
-          await new Promise<void>(ok => { wake = ok; setTimeout(ok, 5000); });
+          await rb.wait(5000);
         },
       };
     },

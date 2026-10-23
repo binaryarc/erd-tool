@@ -7,7 +7,7 @@
 import mysqlDriver from 'mysql2';
 import type { SqlCatalog } from '../../../shared/ipc';
 import type { Column, FkAction, ForeignKey, Table } from '../../../shared/model/types';
-import { firstWord, stripParens, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
+import { firstWord, rowBuffer, stripParens, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
 
 const cell = (v: unknown) => (Buffer.isBuffer(v) ? '0x' + v.toString('hex').toUpperCase() : v);
 const NO_SAVEPOINT = 1305; // ER_SP_DOES_NOT_EXIST: DDL 이 트랜잭션을 커밋해 savepoint 가 사라졌다
@@ -36,10 +36,8 @@ function wrap(c: mysqlDriver.Connection, t: Target): DbConn {
     query,
     exec,
     cursor(sql): RowCursor {
-      let fields: string[] | null = null, affected: number | null = null, want = 0, done = false, err: unknown = null, sets = 0, paused = false;
-      const buf: unknown[][] = [];
-      let wake: (() => void) | null = null;
-      const poke = () => { const w = wake; wake = null; w?.(); };
+      let fields: string[] | null = null, affected: number | null = null, sets = 0, paused = false;
+      const rb = rowBuffer();
       const pause = () => { if (!paused) { paused = true; c.pause(); } };
       const resume = () => { if (paused) { paused = false; c.resume(); } };
       const qy = c.query({ sql, rowsAsArray: true });
@@ -49,30 +47,25 @@ function wrap(c: mysqlDriver.Connection, t: Target): DbConn {
       qy.on('result', (row: unknown) => {
         if (Array.isArray(row)) {
           if (sets !== 1) return;
-          buf.push(row.map(cell));
-          if (buf.length >= want) { pause(); poke(); }
+          rb.push(row.map(cell), pause);
         } else if (sets === 0) affected = (affected ?? 0) + Number((row as { affectedRows?: number }).affectedRows ?? 0);
       });
       // 오류 뒤 end 가 오지 않아도 기다림이 끝나게 done 을 둔다
-      qy.on('error', (e: unknown) => { err ??= e; done = true; poke(); });
-      qy.on('end', () => { done = true; poke(); });
+      qy.on('error', (e: unknown) => { rb.fail(e); rb.finish(); });
+      qy.on('end', () => rb.finish());
       return {
         async read(n): Promise<CursorRead> {
-          want = n;
-          while (buf.length < n && !done) await new Promise<void>(ok => { wake = ok; resume(); });
-          if (err) throw err;
-          const rows = buf.splice(0, n);
+          const rows = await rb.take(n, resume);
           return { rows, fields: fields ?? [], command: firstWord(sql), rowCount: fields ? null : affected };
         },
         // 다 받기 전에 닫으면 문장을 멈추고 남은 행은 버린다. 멈추기에 실패하면 끝까지 받으며 버린다
         // (전에는 늘 끝까지 받아 400만 행, 약 800MB 결과에서 닫는 데 7.4초 걸렸다, 2026-10-16 실측)
         async close() {
-          if (done) return;
-          want = Infinity;
-          buf.length = 0;
+          if (rb.done) return;
+          rb.discard();
           qy.removeAllListeners('result');
           qy.on('result', () => {});
-          const ended = new Promise<void>(ok => { wake = ok; });
+          const ended = rb.wait();
           await killQuery(t, c.threadId!).catch(() => {});
           resume();
           await ended;

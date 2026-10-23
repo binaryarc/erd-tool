@@ -85,6 +85,42 @@ export interface DbAdapter {
   beginAiQuery(c: DbConn, timeoutMs: number): Promise<void>;
 }
 
+/**
+ * 이벤트로 한 행씩 오는 드라이버(mysql2, mssql)의 커서가 같이 쓰는 대기 처리.
+ * 행을 모아 두고, read(n) 이 n 행이 차거나 끝날 때까지 기다리게 한다. 드라이버를 멈추고 푸는 방법은 DB 마다 달라 호출하는 쪽이 넘긴다.
+ */
+export function rowBuffer() {
+  const buf: unknown[][] = [];
+  let want = 0, done = false, err: unknown = null;
+  let wake: (() => void) | null = null;
+  const poke = () => { const w = wake; wake = null; w?.(); };
+  return {
+    get done() { return done; },
+    /** 행을 더한다. 읽으려는 만큼 찼으면 pause 로 드라이버를 멈추고 기다리는 read 를 깨운다 */
+    push(row: unknown[], pause: () => void) {
+      buf.push(row);
+      if (buf.length >= want) { pause(); poke(); }
+    },
+    /** 첫 오류만 기억한다. 기다리는 read 는 깨우지 않는다 (끝났다는 신호가 깨운다) */
+    fail(e: unknown) { err ??= e; },
+    /** 더 올 행이 없다 */
+    finish() { done = true; poke(); },
+    /** n 행이 차거나 끝날 때까지 기다렸다가 n 행까지 꺼낸다. 기다리기 전에 resume 으로 드라이버를 푼다. 오류가 있으면 던진다 */
+    async take(n: number, resume: () => void): Promise<unknown[][]> {
+      want = n;
+      while (buf.length < n && !done) await new Promise<void>(ok => { wake = ok; resume(); });
+      if (err) throw err;
+      return buf.splice(0, n);
+    },
+    /** 다 받기 전에 닫을 때: 쌓인 행을 버리고 앞으로 오는 행도 쌓지 않게 한다 */
+    discard() { want = Infinity; buf.length = 0; },
+    /** 끝났다는 신호(finish)를 기다린다. timeoutMs 가 있으면 그 시간이 지나도 풀린다 */
+    wait(timeoutMs?: number) {
+      return new Promise<void>(ok => { wake = ok; if (timeoutMs) setTimeout(ok, timeoutMs); });
+    },
+  };
+}
+
 /** 드라이버가 명령 이름을 주지 않을 때: 문장 첫 단어 (앞 주석은 뗀다) */
 export function firstWord(sql: string): string {
   return sql.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, '').match(/^[a-z]+/i)?.[0].toUpperCase() ?? '';
