@@ -1,6 +1,6 @@
 // 위 영역 탭(ERD, SQL, DB 비교, 내보내기), 아래 터미널, 확인 창, 비밀번호 창, 탭 닫기 (App.vue 에서 나눔, 2026-10-22).
 
-import { nextTick, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import type TerminalPanel from '../components/TerminalPanel.vue';
 import type { ShellKind } from '../../../shared/ipc';
 import { docTitle, newDoc } from '../erd-doc';
@@ -85,11 +85,9 @@ export function useTopTabs(core: ErdDocs, onErdClosed: (id: string) => void) {
   const pwAsk = ref<{ id: number; label: string; reason: string } | null>(null);
   const pwInput = ref({ password: '', save: false });
   const pwQueue: { id: number; label: string; reason: string }[] = [];
-  const pwBox = ref<HTMLInputElement>();
   function nextPw() {
     pwAsk.value = pwQueue.shift() ?? null;
     pwInput.value = { password: '', save: false };
-    if (pwAsk.value) void nextTick(() => pwBox.value?.focus());
   }
   window.erd.password.onAsk((id, req) => { pwQueue.push({ id, ...req }); if (!pwAsk.value) nextPw(); });
   function answerPw(ok: boolean) {
@@ -135,7 +133,7 @@ export function useTopTabs(core: ErdDocs, onErdClosed: (id: string) => void) {
     if (tabs.value.some(t => t.dirty)) e.returnValue = false;
   });
 
-  return { dlg, askDlg, answerDlg, tabs, activeTab, isErd, titleOf, seqs, addErd, tabRefs, setTabRef, openCompare, openExport, addSql, terminals, termVisible, addTerm, toggleTerm, pwAsk, pwInput, pwQueue, pwBox, nextPw, answerPw, closeAsk, ask, answerClose, closeTab };
+  return { dlg, askDlg, answerDlg, tabs, activeTab, isErd, titleOf, seqs, addErd, tabRefs, setTabRef, openCompare, openExport, addSql, terminals, termVisible, addTerm, toggleTerm, pwAsk, pwInput, pwQueue, nextPw, answerPw, closeAsk, ask, answerClose, closeTab };
 }
 
 export type TopTabs = ReturnType<typeof useTopTabs>;

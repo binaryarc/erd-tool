@@ -12,6 +12,12 @@ import ExportTab from './components/ExportTab.vue';
 import DiagramTabs from './components/DiagramTabs.vue';
 import TablePickDialog from './components/TablePickDialog.vue';
 import DomainPanel from './components/DomainPanel.vue';
+import PasswordDialog from './components/PasswordDialog.vue';
+import GroupContextMenu from './components/GroupContextMenu.vue';
+import ConnectDialog from './components/ConnectDialog.vue';
+import SavePreviewDialog from './components/SavePreviewDialog.vue';
+import AskDialog from './components/AskDialog.vue';
+import CloseConfirmDialog from './components/CloseConfirmDialog.vue';
 import { addTable, domainUsage, dropDomain, dropFk, pasteColumns } from '../../shared/model/edit';
 import { applyConnect, planConnect, type ConnectPlan, type End } from '../../shared/model/connect';
 import type { Column, FkAction } from '../../shared/model/types';
@@ -47,7 +53,7 @@ const panel = ref<InstanceType<typeof ConnPanel>>();
 const core = useErdDocs();
 const { docs, cur, modelDir, model, layout, diagram, version, errors, dirty, fitKey, message, canvas, tab, tabNames, membersOf, shown, refreshDiagram, canUndo, canRedo, editId, editName, edit, undo, redo, pickId, aiBase, miniName, selected } = core;
 const top = useTopTabs(core, id => { if (aiTab.value === id) aiTab.value = null; });
-const { dlg, askDlg, answerDlg, tabs, activeTab, isErd, titleOf, addErd, setTabRef, openCompare, openExport, addSql, terminals, termVisible, toggleTerm, pwAsk, pwInput, pwBox, answerPw, closeAsk, answerClose, closeTab } = top;
+const { dlg, askDlg, answerDlg, tabs, activeTab, isErd, titleOf, addErd, setTabRef, openCompare, openExport, addSql, terminals, termVisible, toggleTerm, pwAsk, pwInput, answerPw, closeAsk, answerClose, closeTab } = top;
 const groups = useGroupTabs(core, top);
 const { onPin, autoArrange, setArrangeMode, selectTab, addTab, onRenameTab, onRemoveTab, onPrefixTabs, addToGroup, newGroupWith, removeFromGroup, deleteTables, menu, onMenu, menuGroups, runMenu, pickOpen, pickTables, onPick } = groups;
 const files = useModelFiles(core, top);
@@ -357,99 +363,15 @@ if (__ERD_AUTO__) void import('./auto').then(m => m.install({ ...core, ...top, .
         </template>
       </SplitPane>
     </div>
-    <div v-if="pwAsk" class="modal">
-      <form class="dialog" @submit.prevent="answerPw(true)">
-        <p><b>{{ pwAsk.label }}</b> 비밀번호</p>
-        <p class="warn">{{ pwAsk.reason }}</p>
-        <input ref="pwBox" v-model="pwInput.password" type="password" autocomplete="off" class="pw" />
-        <label class="save"><input v-model="pwInput.save" type="checkbox" /> 이 PC 에 저장 (Windows 계정 암호화, 다음부터 묻지 않음)</label>
-        <div class="row">
-          <button type="submit" :disabled="!pwInput.password">접속</button>
-          <button type="button" @click="answerPw(false)">취소</button>
-        </div>
-      </form>
-    </div>
-    <div v-if="menu" class="ctx" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @contextmenu.prevent>
-      <template v-if="menu.names.length">
-        <div class="ctx-title">{{ menu.names.length === 1 ? menu.names[0] : `테이블 ${menu.names.length}개` }}</div>
-        <div class="ctx-sub">그룹에 추가</div>
-        <button v-for="g in menuGroups" :key="g" class="ind" @click="runMenu(n => addToGroup(n, g))">{{ g }}</button>
-        <button class="ind" @click="runMenu(newGroupWith)">새 그룹 만들어 추가</button>
-        <button v-if="tab !== DEFAULT_DIAGRAM" @click="runMenu(removeFromGroup)">이 그룹에서 빼기 (모델에는 남김)</button>
-        <button v-if="menu.names.length === 1" @click="runMenu(n => openEditor(n[0]))">테이블 편집</button>
-        <button class="danger" @click="runMenu(deleteTables)">모델에서 삭제 (Delete)</button>
-      </template>
-      <template v-else>
-        <button v-if="tab !== DEFAULT_DIAGRAM" @click="runMenu(() => (pickOpen = true))">테이블 추가 (이 그룹에 없는 테이블)</button>
-        <button @click="runMenu(() => newTable())">새 테이블</button>
-      </template>
-    </div>
+    <PasswordDialog v-if="pwAsk" :ask="pwAsk" :input="pwInput" @answer="answerPw" />
+    <GroupContextMenu v-if="menu" :menu="menu" :groups="menuGroups" :tab="tab"
+                      @add-to-group="g => runMenu(n => addToGroup(n, g))" @new-group="runMenu(newGroupWith)" @remove-from-group="runMenu(removeFromGroup)"
+                      @edit="runMenu(n => openEditor(n[0]))" @remove="runMenu(deleteTables)" @pick-tables="runMenu(() => (pickOpen = true))" @new-table="runMenu(() => newTable())" />
     <TablePickDialog v-if="pickOpen" ref="picker" :group="tab" :tables="pickTables" @pick="onPick" @close="pickOpen = false" />
-    <div v-if="connectAsk" class="modal" @keydown.esc="answerConnect(false)">
-      <form class="dialog conn" @submit.prevent="answerConnect(true)">
-        <p><b>FK 만들기</b>: {{ connectAsk.plan.child }} → {{ connectAsk.plan.parent }}({{ connectAsk.plan.parentColumn }} {{ connectAsk.plan.parentType }})</p>
-        <label>FK 이름 <input v-model="connectAsk.fkName" spellcheck="false" /></label>
-        <label>{{ connectAsk.plan.child }} 컬럼
-          <select v-model="connectAsk.childColumn">
-            <option :value="NEW_COL">새 컬럼 {{ connectAsk.plan.newColumn }} ({{ connectAsk.plan.parentType }}, NULL 허용)</option>
-            <option v-for="c in connectAsk.plan.childOptions" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }}){{ c.type !== connectAsk.plan.parentType ? ' 타입 다름' : '' }}</option>
-          </select>
-        </label>
-        <label>ON DELETE
-          <select v-model="connectAsk.onDelete">
-            <option value="">NO ACTION (기본)</option>
-            <option value="restrict">RESTRICT</option>
-            <option value="cascade">CASCADE</option>
-            <option value="set null">SET NULL</option>
-            <option value="set default">SET DEFAULT</option>
-          </select>
-        </label>
-        <div class="row">
-          <button type="submit" :disabled="!connectAsk.fkName.trim()">만들기</button>
-          <button type="button" @click="answerConnect(false)">취소</button>
-        </div>
-      </form>
-    </div>
-    <div v-if="savePreview" class="modal" @keydown.esc="answerSave(false)">
-      <div class="dialog save-preview">
-        <p><b>ERD 저장</b> <span class="muted">{{ savePreview.dir }}</span></p>
-        <p v-if="savePreview.otherModel" class="warn">이 폴더에는 다른 ERD 모델이 있습니다. 이 모델로 덮어씁니다.</p>
-        <p v-if="!savePreview.plan.added.length && !savePreview.plan.changed.length && !savePreview.plan.removed.length">바뀌는 파일이 없습니다 (그대로 {{ savePreview.plan.unchanged.length }}개).</p>
-        <template v-for="g in [
-          { key: 'added', label: '새로 만듦', cls: 'ok' },
-          { key: 'changed', label: '바뀜', cls: '' },
-          { key: 'removed', label: '삭제 (이 모델에 없는 모델 파일)', cls: 'warn' },
-          { key: 'unchanged', label: '그대로', cls: 'muted' },
-        ] as const" :key="g.key">
-          <div v-if="savePreview.plan[g.key].length" class="sp-group" :data-kind="g.key">
-            <div :class="g.cls"><b>{{ g.label }} {{ savePreview.plan[g.key].length }}개</b></div>
-            <ul><li v-for="f in savePreview.plan[g.key]" :key="f">{{ f }}</li></ul>
-          </div>
-        </template>
-        <div class="row">
-          <button @click="answerSave(true)">저장</button>
-          <button @click="answerSave(false)">취소</button>
-        </div>
-      </div>
-    </div>
-    <div v-if="dlg" class="modal">
-      <div class="dialog ask">
-        <p>{{ dlg.text }}</p>
-        <div class="row">
-          <button v-for="b in dlg.buttons" :key="b.label" @click="answerDlg(b.value)">{{ b.label }}</button>
-        </div>
-      </div>
-    </div>
-    <div v-if="closeAsk" class="modal">
-      <div class="dialog">
-        <p>커밋하지 않은 변경이 있습니다: <b>{{ closeAsk.labels.join(', ') }}</b></p>
-        <div class="row">
-          <button @click="answerClose('commit')">커밋하고 닫기</button>
-          <button @click="answerClose('rollback')">롤백하고 닫기</button>
-          <button @click="answerClose('cancel')">취소</button>
-        </div>
-      </div>
-    </div>
+    <ConnectDialog v-if="connectAsk" :ask="connectAsk" :new-col="NEW_COL" @answer="answerConnect" />
+    <SavePreviewDialog v-if="savePreview" :preview="savePreview" @answer="answerSave" />
+    <AskDialog v-if="dlg" :dlg="dlg" @answer="answerDlg" />
+    <CloseConfirmDialog v-if="closeAsk" :ask="closeAsk" @answer="answerClose" />
     <footer>
       <span>{{ message }}</span>
       <span v-if="model">테이블 {{ model.tables.length }}, FK {{ model.tables.reduce((n, t) => n + t.fks.length, 0) }}</span>
@@ -498,8 +420,6 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .dialog { background: var(--bg); border: 1px solid var(--line); padding: 16px; max-width: 480px; }
 .dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
-.dialog .pw { width: 100%; box-sizing: border-box; margin: 4px 0 8px; }
-.dialog .save { display: block; margin-bottom: 10px; font-size: 12px; }
 .mini { height: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); }
 .ai-bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; gap: 8px; align-items: center;
   background: var(--bg); border: 2px solid #f08c00; padding: 4px 10px; font-size: 12px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2); }
@@ -510,22 +430,5 @@ footer { border-top: 1px solid var(--line); border-bottom: none; font-size: 12px
 .ag-cell.is-null { color: var(--muted); font-style: italic; }
 .pane.canvas { display: flex; flex-direction: column; }
 .erd-area { flex: 1; min-height: 0; position: relative; }
-.dialog.ask p { white-space: pre-line; margin-top: 0; }
-.save-preview { min-width: 420px; max-height: 80vh; display: flex; flex-direction: column; gap: 6px; }
-.save-preview p { margin: 0; word-break: break-all; }
-.save-preview .sp-group { font-size: 12px; }
-.save-preview ul { margin: 2px 0 0; padding-left: 18px; max-height: 140px; overflow: auto; font: 12px Consolas, 'Malgun Gothic', monospace; }
-.save-preview .ok { color: var(--ok); } .save-preview .muted { color: var(--muted); }
-.dialog.conn { display: flex; flex-direction: column; gap: 8px; min-width: 420px; }
-.dialog.conn p { margin: 0; }
-.dialog.conn label { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 8px; font-size: 12px; }
-.dialog.conn input, .dialog.conn select { color: var(--fg); background: var(--bg); border: 1px solid var(--line); padding: 2px 4px; font: 12px Consolas, 'Malgun Gothic', monospace; }
-.ctx { position: fixed; z-index: 60; min-width: 200px; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); padding: 3px 0; font-size: 12px; }
-.ctx button { text-align: left; border: none; background: transparent; color: var(--fg); padding: 3px 12px; cursor: pointer; }
-.ctx button:hover { background: var(--sel-bg); }
-.ctx .ind { padding-left: 24px; }
-.ctx .danger { color: var(--warn); }
-.ctx-title { padding: 2px 12px 4px; font-weight: bold; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
-.ctx-sub { padding: 2px 12px; color: var(--muted); }
 .warn { color: var(--warn); }
 </style>
