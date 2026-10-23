@@ -126,6 +126,31 @@ export function arrangeTree(model: SchemaModel, size: TreeSize): Map<string, { x
   return best.pos;
 }
 
+/** 지난 트리 배치 (arrangeTreeStable 이 다음 호출에 넘겨받는다) */
+export interface TreeMemo { key: string; pos: Map<string, { x: number; y: number }>; heights: Map<string, number> }
+
+/**
+ * 트리 배치. 지난 배치에서 테이블, 이름, 폭, FK 가 그대로이고 높이(컬럼 수)만 바뀌었으면, 다시 배치하지 않고 지난 좌표를 쓴다.
+ * 그 결과 테이블끼리 겹치면 처음부터 다시 배치한다 (2026-10-22 사용자 결정: 컬럼 하나 더할 때 다른 테이블이 움직이지 않게. 500개에서 381ms 걸렸다).
+ * 그래서 같은 모델도 고쳐 온 순서에 따라 좌표가 다를 수 있다. 앱을 다시 켜거나 「자동 정렬」 하면 처음부터 배치한다
+ */
+export function arrangeTreeStable(model: SchemaModel, size: TreeSize, memo?: TreeMemo): { pos: Map<string, { x: number; y: number }>; memo: TreeMemo } {
+  const names = new Set(model.tables.map(t => t.name));
+  const key = model.tables.map(t => `${t.id}:${t.name}:${size.width(t)}>${t.fks.filter(f => names.has(f.refTable)).map(f => f.refTable).join(',')}`).join('|');
+  const heights = new Map(model.tables.map(t => [t.id, size.height(t)]));
+  if (memo && memo.key === key) {
+    const box = (t: Table) => ({ ...memo.pos.get(t.id)!, w: size.width(t), h: heights.get(t.id)! });
+    const grown = model.tables.filter(t => heights.get(t.id)! > (memo.heights.get(t.id) ?? 0));
+    const overlaps = grown.some(g => {
+      const a = box(g);
+      return model.tables.some(t => t !== g && (b => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h)(box(t)));
+    });
+    if (!overlaps) return { pos: new Map(memo.pos), memo: { key, pos: memo.pos, heights } };
+  }
+  const pos = arrangeTree(model, size);
+  return { pos: new Map(pos), memo: { key, pos, heights } };
+}
+
 /** 한 테이블과 FK 로 바로 이어진 테이블들 (참조하는 쪽, 참조되는 쪽 모두) */
 export function neighborhood(model: SchemaModel, name: string): SchemaModel {
   const keep = new Set([name]);
