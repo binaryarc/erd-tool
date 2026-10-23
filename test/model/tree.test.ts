@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import dagre from '@dagrejs/dagre';
-import { arrangeTree, components, neighborhood } from '../../src/shared/model/tree';
+import { arrangeTree, arrangeTreeStable, components, neighborhood } from '../../src/shared/model/tree';
 import type { SchemaModel, Table } from '../../src/shared/model/types';
 
 const t = (id: string, name: string, refs: string[] = [], rows = 3): Table => ({
@@ -47,6 +47,30 @@ describe('트리 배치', () => {
 
   it('같은 모델은 항상 같은 좌표', () => {
     expect([...arrangeTree(m, size)]).toEqual([...arrangeTree(m, size)]);
+  });
+
+  it('높이만 바뀌고 겹치지 않으면 다시 배치하지 않고 지난 좌표를 그대로 쓴다', () => {
+    const one = arrangeTreeStable(m, size);
+    const taller = model(m.tables.map(x => (x.id === 't2' ? t('t2', 'mst_center', ['mst_brand'], 4) : x)));
+    const spy = vi.spyOn(dagre, 'layout');
+    const two = arrangeTreeStable(taller, size, one.memo);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    expect([...two.pos]).toEqual([...one.pos]);
+  });
+
+  it('커져서 다른 테이블과 겹치면 처음부터 다시 배치해 겹치지 않는다', () => {
+    const one = arrangeTreeStable(m, size);
+    const huge = model(m.tables.map(x => (x.id === 't1' ? t('t1', 'mst_brand', [], 30) : x)));
+    const two = arrangeTreeStable(huge, size, one.memo);
+    expect(two.pos.get('t2')!.y).toBeGreaterThan(two.pos.get('t1')!.y + size.height(huge.tables[0]));
+    expect([...two.pos]).toEqual([...arrangeTree(huge, size)]);
+  });
+
+  it('테이블, FK 가 바뀌면 지난 좌표를 쓰지 않는다', () => {
+    const one = arrangeTreeStable(m, size);
+    const more = model([...m.tables, t('t8', 'mst_dock', ['mst_wh'])]);
+    expect([...arrangeTreeStable(more, size, one.memo).pos]).toEqual([...arrangeTree(more, size)]);
   });
 
   it('컬럼을 더한 묶음만 다시 배치하고, 결과는 처음부터 계산한 것과 같다', () => {

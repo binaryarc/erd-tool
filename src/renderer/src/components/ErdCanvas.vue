@@ -12,7 +12,7 @@ import '@vue-flow/minimap/dist/style.css';
 import TableNode, { type TableNodeData } from './TableNode.vue';
 import ErdEdge, { type ErdEdgeData } from './ErdEdge.vue';
 import { arrange, tableHeight } from '../../../shared/model/arrange';
-import { arrangeTree } from '../../../shared/model/tree';
+import { arrangeTreeStable, type TreeMemo } from '../../../shared/model/tree';
 import { arrangeMode, type Diagram } from '../../../shared/model/layout';
 import type { SchemaModel } from '../../../shared/model/types';
 import { COMPACT_ZOOM, VIEW_KEY, type ViewState } from '../view';
@@ -58,6 +58,8 @@ const view = inject(VIEW_KEY) as ViewState;
 // 테이블 ID 별 마지막 표시 데이터. 내용이 같으면 같은 객체를 다시 넘겨, 바뀌지 않은 테이블은 다시 그리지 않는다
 // (컬럼 하나 더할 때 500개 전부를 다시 그려 2초 넘게 걸렸다, 2026-10-22 측정)
 let lastData = new Map<string, { json: string; data: TableNodeData }>();
+// 지난 트리 배치. 높이만 바뀌면 이 좌표를 그대로 쓴다 (arrangeTreeStable). 「자동 정렬」 은 resetLayout 으로 비운다
+let treeMemo: TreeMemo | undefined;
 const nodes = computed<Node[]>(() => {
   void props.version; // layout 이 바뀌면 다시 계산
   // 폭은 보기 모드에 따라 바뀐다 (둘 다 보기에서 긴 이름이 잘리지 않게)
@@ -66,7 +68,9 @@ const nodes = computed<Node[]>(() => {
   let positions: Map<string, { x: number; y: number }>;
   let groupNodes: Node[] = [];
   if (arrangeMode(props.diagram) === 'tree') {
-    positions = arrangeTree(props.model, { width: widthOf, height: t => tableHeight(t) });
+    const r = arrangeTreeStable(props.model, { width: widthOf, height: t => tableHeight(t) }, treeMemo);
+    positions = r.pos;
+    treeMemo = r.memo;
     for (const [id, [x, y]] of Object.entries(props.diagram.pinned)) if (positions.has(id)) positions.set(id, { x, y });
   } else {
     const r = arrange(props.model, props.diagram, widthOf);
@@ -246,7 +250,7 @@ function boxes() {
   return m;
 }
 
-defineExpose({ bench, fitView, focusTable, boxes, zoom: () => viewport.value.zoom, viewportNow: () => ({ ...viewport.value }),
+defineExpose({ bench, fitView, focusTable, boxes, /** 다음 트리 배치를 처음부터 (자동 정렬, 정렬 방식 바꾸기) */ resetLayout: () => { treeMemo = undefined; }, zoom: () => viewport.value.zoom, viewportNow: () => ({ ...viewport.value }),
   /** 시험용 */ setViewportTo: (v: { x: number; y: number; zoom: number }) => void setViewport(v) });
 </script>
 

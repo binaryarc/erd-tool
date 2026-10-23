@@ -9,7 +9,7 @@ import type { ErdDocs } from './useErdDocs';
 import type { TopTabs } from './useTopTabs';
 
 export function useGroupTabs(core: ErdDocs, top: TopTabs) {
-  const { model, layout, diagram, version, dirty, fitKey, message, tab, tabNames, membersOf, refreshDiagram, snapNow, history, edit, selected, keepViewport } = core;
+  const { model, layout, diagram, version, dirty, fitKey, message, tab, tabNames, membersOf, refreshDiagram, snapNow, history, edit, selected, keepViewport, canvas } = core;
   const { askDlg } = top;
 
   /** 끌어 옮긴 테이블들 (한 번 끌기에 여러 개면 되돌리기도 한 번) */
@@ -27,6 +27,7 @@ export function useGroupTabs(core: ErdDocs, top: TopTabs) {
     if (!diagram.value || !model.value) return;
     history.pushSnap(snapNow());
     diagram.value.pinned = {};
+    canvas.value?.resetLayout(); // 높이만 바뀌어 지난 좌표를 쓰던 트리 배치도 처음부터
     version.value++;
     dirty.value = true;
   }
@@ -37,6 +38,7 @@ export function useGroupTabs(core: ErdDocs, top: TopTabs) {
     history.pushSnap(snapNow());
     diagram.value.mode = mode;
     diagram.value.pinned = {};
+    canvas.value?.resetLayout();
     refreshDiagram(); // 그룹 격자 배치는 격자로 바꿀 때 만들고, 트리로 바꾸면 지운다
     version.value++;
     dirty.value = true;
