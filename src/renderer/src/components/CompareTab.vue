@@ -3,14 +3,14 @@
 // 왼쪽을 오른쪽처럼 바꾸는 ALTER 를 만들거나 왼쪽 DB 에 적용한다(새 SQL 탭에 넣을 뿐, 바로 실행하지 않는다).
 // 바로 적용은 dev 기준이다. test, 운영은 「Flyway 파일로」 로 만든 파일로 반영한다(STEP 7). 파일만 만들고 DB 에 실행하지 않는다.
 // 비교 결과는 MD 로 저장하거나 클립보드에 복사할 수 있다(2026-10-22). 화면에서 좁힌 줄만 담는다.
-import { computed, onMounted, ref, shallowRef } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { DIFF_CHANGE_LABEL, DIFF_KIND_LABEL, diffModels, summarize, type DiffItem, type DiffKind } from '../../../shared/model/diff';
 import { buildAlter } from '../../../shared/sql/alter';
 import { dialectOf } from '../../../shared/dialect/names';
 import { buildFlyway, suggestDescription, validDescription } from '../../../shared/export/flyway';
 import { buildCompareMd, compareMdName } from '../../../shared/export/compare-md';
 import type { SchemaModel } from '../../../shared/model/types';
-import { defaultOption, loadConnOptions, type ConnOption } from '../conn-options';
+import { defaultOption, loadConnOptions, onConnsChanged, type ConnOption } from '../conn-options';
 import { loadTemplates } from '../md-templates';
 
 const props = defineProps<{ model: SchemaModel | null }>();
@@ -46,6 +46,10 @@ const ready = new Promise<void>(done => onMounted(async () => {
   right.value.key = has(last?.right) ? last!.right! : options.value.find(o => o.key !== left.value.key)?.key ?? '';
   done();
 }));
+
+// 탭을 연 뒤 접속 패널에서 추가, 삭제한 접속도 고르기 목록에 보이게 한다. 골라 둔 두 쪽은 그대로 둔다
+const offConns = onConnsChanged(async () => { options.value = await loadConnOptions(); });
+onBeforeUnmount(offConns);
 
 const sideValue = (s: Side) => (s.kind === 'conn' ? 'conn:' + s.key : s.kind);
 async function setSide(which: 'left' | 'right', v: string) {

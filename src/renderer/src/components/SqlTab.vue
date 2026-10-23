@@ -6,7 +6,7 @@ import { AgGridVue } from 'ag-grid-vue3';
 import { AllCommunityModule, ModuleRegistry, colorSchemeDark, themeQuartz, type ColDef, type GridApi } from 'ag-grid-community';
 import { bindContext, catalogCache, catalogFromModel, monaco, registerSqlProviders, unbindContext } from '../sql/monaco';
 import SplitPane from './SplitPane.vue';
-import { defaultOption, loadConnOptions, type ConnOption } from '../conn-options';
+import { defaultOption, loadConnOptions, onConnsChanged, type ConnOption } from '../conn-options';
 import { rulesFor } from '../../../shared/dialect';
 import { splitStatements, statementAt } from '../../../shared/sql/text';
 import type { ConnRef, HistoryEntry, SqlCatalog, SqlResult, SqlState } from '../../../shared/ipc';
@@ -216,7 +216,11 @@ onMounted(async () => {
 
 watch(() => props.active, a => { if (a) setTimeout(() => editor?.focus(), 0); });
 
+// 탭을 연 뒤 접속 패널에서 추가, 삭제한 접속도 고르기 목록에 보이게 한다
+const offConns = onConnsChanged(() => void loadOptions());
+
 onBeforeUnmount(() => {
+  offConns();
   const m = editor?.getModel();
   if (m) unbindContext(m);
   editor?.dispose();
