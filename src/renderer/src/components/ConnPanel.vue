@@ -5,6 +5,7 @@ import type { ConnRef, ConnSource, ConnTestResult, ManualConnInfo, ProfileInfo, 
 import { applySelected, isEmptyDiff } from '../../../shared/model/merge';
 import { groupsFromPrefixes } from '../../../shared/model/groups';
 import ManualConnForm from './ManualConnForm.vue';
+import { notifyConnsChanged } from '../conn-options';
 
 /** canReplace: 지금 ERD 를 바꿔도 되는지 (저장 안 한 변경이 있으면 화면이 묻는다). false 면 불러온 결과를 그대로 둔다 */
 const props = defineProps<{ modelDir: string; canReplace?: () => boolean }>();
@@ -49,6 +50,7 @@ async function setBeDir(dir: string) {
   if (source.value === 'be' && !profiles.value.some(p => p.name === selected.value)) selected.value = defaultProfile();
   await window.erd.settings.set({ beDir: dir });
   emit('beDir', dir);
+  notifyConnsChanged();
 }
 
 async function pickBe() {
@@ -60,6 +62,7 @@ async function onSaved(c: ManualConnInfo) {
   manuals.value = await window.erd.manual.list();
   selected.value = c.id;
   editing.value = null;
+  notifyConnsChanged();
 }
 
 async function removeManual(c: ManualConnInfo) {
@@ -67,6 +70,7 @@ async function removeManual(c: ManualConnInfo) {
   await window.erd.manual.remove(c.id);
   manuals.value = await window.erd.manual.list();
   if (selected.value === c.id) selected.value = manuals.value[0]?.id ?? '';
+  notifyConnsChanged();
 }
 
 // ---------- 그룹 규칙 (모델이 처음 생길 때만 쓴다, 2026-10-22) ----------
