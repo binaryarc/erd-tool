@@ -8,7 +8,7 @@ import Cursor from 'pg-cursor';
 import { shortType } from '../../../shared/dialect/postgresql';
 import type { SqlCatalog } from '../../../shared/ipc';
 import type { Column, FkAction, ForeignKey, FunctionDef, Table } from '../../../shared/model/types';
-import type { CursorRead, DbAdapter, DbConn, ReverseRaw, RowCursor, Target } from './types';
+import { stripParens, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
 
 // DB 도구라 값은 DB 가 준 글자 그대로 보여준다 (날짜, numeric, json, bytea, 배열). 숫자와 참거짓만 바꾼다
 const KEEP_PARSED = new Set([16, 21, 23, 26, 700, 701]); // bool, int2, int4, oid, float4, float8
@@ -51,17 +51,6 @@ const SEP = '\u001f';
 
 /** pg_constraint.confdeltype, confupdtype → 모델 값 (a = NO ACTION 은 적지 않는다) */
 const FK_ACTION: Record<string, FkAction | undefined> = { r: 'restrict', c: 'cascade', n: 'set null', d: 'set default' };
-
-/** 생성식은 pg_get_expr 가 바깥 괄호를 붙여 준다 ((qty * 2)). DDL 에 다시 괄호를 씌우므로 한 겹 벗긴다 */
-function stripParens(s: string): string {
-  if (!s.startsWith('(') || !s.endsWith(')')) return s;
-  let depth = 0;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === '(') depth++;
-    else if (s[i] === ')' && --depth === 0 && i < s.length - 1) return s; // 첫 괄호가 끝보다 먼저 닫힌다: (a) + (b)
-  }
-  return s.slice(1, -1);
-}
 
 async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
   const q = <T>(sql: string): Promise<T[]> => c.query<T>(sql, [schema]);
@@ -125,6 +114,7 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
   for (const c of cols) {
     const col: Column = { name: c.col, type: shortType(c.typ), notNull: c.nn };
     if (c.ident === 'a' || c.ident === 'd') col.identity = c.ident === 'a' ? 'always' : 'default';
+    // pg_get_expr 가 생성식에 바깥 괄호를 붙여 준다 ((qty * 2))
     if (c.gen === 's' && c.def !== null) col.generated = stripParens(c.def);
     else if (c.def !== null) col.default = c.def;
     if (c.cmt) col.comment = c.cmt;

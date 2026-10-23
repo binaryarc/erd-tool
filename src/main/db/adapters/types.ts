@@ -89,3 +89,14 @@ export interface DbAdapter {
 export function firstWord(sql: string): string {
   return sql.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, '').match(/^[a-z]+/i)?.[0].toUpperCase() ?? '';
 }
+
+/** 생성식을 DDL 에 다시 괄호로 씌우기 때문에, 시스템 표가 붙여 준 바깥 괄호 한 겹을 벗긴다. (a) + (b) 는 그대로 둔다 */
+export function stripParens(s: string): string {
+  if (!s.startsWith('(') || !s.endsWith(')')) return s;
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth++;
+    else if (s[i] === ')' && --depth === 0 && i < s.length - 1) return s; // 첫 괄호가 끝보다 먼저 닫힌다
+  }
+  return s.slice(1, -1);
+}

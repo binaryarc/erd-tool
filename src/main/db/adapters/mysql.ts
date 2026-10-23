@@ -7,7 +7,7 @@
 import mysqlDriver from 'mysql2';
 import type { SqlCatalog } from '../../../shared/ipc';
 import type { Column, FkAction, ForeignKey, Table } from '../../../shared/model/types';
-import { firstWord, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
+import { firstWord, stripParens, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
 
 const cell = (v: unknown) => (Buffer.isBuffer(v) ? '0x' + v.toString('hex').toUpperCase() : v);
 const NO_SAVEPOINT = 1305; // ER_SP_DOES_NOT_EXIST: DDL 이 트랜잭션을 커밋해 savepoint 가 사라졌다
@@ -96,16 +96,6 @@ function defaultText(def: string | null, extra: string, type: string): string | 
   if (/DEFAULT_GENERATED/i.test(extra)) return /^(current_timestamp|now|localtime|localtimestamp)\b/i.test(def) ? def : `(${def})`;
   if (/^(tinyint|smallint|mediumint|int|bigint|decimal|numeric|float|double|real)\b/i.test(type) || /^b'[01]*'$/.test(def)) return def;
   return `'${def.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`;
-}
-
-function stripParens(s: string): string {
-  if (!s.startsWith('(') || !s.endsWith(')')) return s;
-  let depth = 0;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === '(') depth++;
-    else if (s[i] === ')' && --depth === 0 && i < s.length - 1) return s;
-  }
-  return s.slice(1, -1);
 }
 
 const FK_ACTION: Record<string, FkAction | undefined> = { RESTRICT: 'restrict', CASCADE: 'cascade', 'SET NULL': 'set null', 'SET DEFAULT': 'set default' };

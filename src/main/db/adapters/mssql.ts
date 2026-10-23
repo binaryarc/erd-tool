@@ -7,7 +7,7 @@
 import mssql from 'mssql';
 import type { SqlCatalog } from '../../../shared/ipc';
 import type { Column, FkAction, ForeignKey, Table } from '../../../shared/model/types';
-import { firstWord, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
+import { firstWord, stripParens, type CursorRead, type DbAdapter, type DbConn, type ReverseRaw, type RowCursor, type Target } from './types';
 
 /** 값은 DB 가 보여주는 글자에 가깝게: 날짜는 저장된 값 그대로(UTC 로 읽음), 이진은 0x16진수 */
 function cell(v: unknown): unknown {
@@ -94,17 +94,6 @@ function typeText(c: { typ: string; len: number; prec: number; scale: number }):
   return t;
 }
 
-/** 계산식은 sys.computed_columns 가 바깥 괄호를 붙여 준다. DDL 이 다시 괄호를 씌우므로 한 겹 벗긴다 */
-function stripParens(s: string): string {
-  if (!s.startsWith('(') || !s.endsWith(')')) return s;
-  let depth = 0;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === '(') depth++;
-    else if (s[i] === ')' && --depth === 0 && i < s.length - 1) return s;
-  }
-  return s.slice(1, -1);
-}
-
 const COMMENT = `ep.class = 1 AND ep.name = 'MS_Description'`;
 
 async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
@@ -166,6 +155,7 @@ async function reverse(c: DbConn, schema: string): Promise<ReverseRaw> {
       if (Number(c.seed) !== 1 || Number(c.inc) !== 1) { col.identityStart = Number(c.seed); col.identityStep = Number(c.inc); }
     }
     if (c.gen !== null) {
+      // sys.computed_columns 가 계산식에 바깥 괄호를 붙여 준다
       col.generated = stripParens(c.gen);
       if (!c.persisted) warnings.push(`컬럼 ${c.t}.${c.col}: 저장하지 않는 계산 컬럼입니다. 다시 만들면 PERSISTED 가 됩니다`);
     } else if (c.def !== null) col.default = c.def;
