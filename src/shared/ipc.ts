@@ -7,55 +7,6 @@ import type { Layout } from './model/layout';
 import type { ModelDiff } from './model/merge';
 import type { ModelError, SchemaModel } from './model/types';
 
-export const IPC = {
-  pickFolder: 'dialog:pickFolder',
-  settingsGet: 'settings:get',
-  settingsSet: 'settings:set',
-  modelLoad: 'model:load',
-  modelSave: 'model:save',
-  modelPickSaveDir: 'model:pickSaveDir',
-  modelPlanSave: 'model:planSave',
-  modelPickOpen: 'model:pickOpen',
-  connList: 'conn:list',
-  connTest: 'conn:test',
-  connTestDraft: 'conn:testDraft',
-  manualList: 'manual:list',
-  manualSave: 'manual:save',
-  manualRemove: 'manual:remove',
-  dbReverse: 'db:reverse',
-  dbCatalog: 'db:catalog',
-  dbRead: 'db:read',
-  sqlOpen: 'sql:open',
-  sqlRun: 'sql:run',
-  sqlFetchMore: 'sql:fetchMore',
-  sqlCommit: 'sql:commit',
-  sqlRollback: 'sql:rollback',
-  sqlAllowWrite: 'sql:allowWrite',
-  sqlClose: 'sql:close',
-  historyList: 'history:list',
-  termSpawn: 'term:spawn',
-  termInput: 'term:input',
-  termResize: 'term:resize',
-  termKill: 'term:kill',
-  termData: 'term:data',
-  termExit: 'term:exit',
-  closeRequest: 'app:closeRequest',
-  closeConfirm: 'app:closeConfirm',
-  modelDirty: 'app:modelDirty',
-  pickFile: 'dialog:pickFile',
-  exportNextVersion: 'export:nextVersion',
-  exportFlywayDir: 'export:flywayDir',
-  exportWrite: 'export:write',
-  exportTemplates: 'export:templates',
-  mcpInfo: 'mcp:info',
-  mcpCall: 'mcp:call',
-  mcpReply: 'mcp:reply',
-  pwAsk: 'pw:ask',
-  pwReply: 'pw:reply',
-  connForgetPassword: 'conn:forgetPassword',
-  sessionGet: 'session:get',
-  sessionSet: 'session:set',
-} as const;
 
 /** 접속 정보를 어디서 가져올지: BE 폴더 properties 자동 매핑, 또는 직접 입력 */
 export type ConnSource = 'be' | 'manual';
@@ -250,96 +201,111 @@ export type SessionTab =
   }
   | { kind: 'sql'; id: string; title: string; sql: string; conn?: string };
 
-export interface ErdApi {
-  pickFolder(defaultPath?: string): Promise<string | null>;
+
+// 채널 이름은 `영역:동작` 규칙. 함수 하나는 한 줄(`invoke<타입>('채널')`)로 이름과 타입을 함께 정한다.
+// 렌더러 타입(ErdApi)과 preload 연결은 이 표에서 만들어 낸다. 메인은 `API.영역.함수.channel` 로 같은 이름을 쓴다.
+type ApiFn = (...args: never[]) => unknown;
+/** kind 별 preload 연결: invoke 는 응답을 기다림, send 는 응답 없이 보냄, on 은 메인이 보낸 이벤트를 받음 */
+export interface ApiDef<K extends 'invoke' | 'send' | 'on', F extends ApiFn> { readonly kind: K; readonly channel: string; readonly fn: F }
+const def = <K extends 'invoke' | 'send' | 'on'>(kind: K) => <F extends ApiFn>(channel: string) => ({ kind, channel }) as ApiDef<K, F>;
+const invoke = def('invoke');
+const send = def('send');
+const on = def('on');
+
+export const API = {
+  pickFolder: invoke<(defaultPath?: string) => Promise<string | null>>('dialog:pickFolder'),
   /** 파일 고르기. md: 이력 파일 (기본), json: 그룹 규칙 파일 */
-  pickFile(defaultPath?: string, kind?: 'md' | 'json'): Promise<string | null>;
+  pickFile: invoke<(defaultPath?: string, kind?: 'md' | 'json') => Promise<string | null>>('dialog:pickFile'),
   export: {
     /** 폴더의 V 파일 중 가장 큰 번호 + 1 */
-    nextVersion(dir: string): Promise<number>;
+    nextVersion: invoke<(dir: string) => Promise<number>>('export:nextVersion'),
     /** BE 폴더에서 실제로 있는 Flyway 폴더 (src/main/resource 또는 resources 의 db/migration). 없으면 null */
-    flywayDir(beDir: string): Promise<string | null>;
+    flywayDir: invoke<(beDir: string) => Promise<string | null>>('export:flywayDir'),
     /** 기본은 새 파일만 (같은 이름이 있으면 하나도 쓰지 않고 오류). overwrite 면 덮어쓴다 */
-    write(dir: string, files: ExportFile[], history?: HistoryAppend, opts?: ExportOptions): Promise<ExportResult>;
+    write: invoke<(dir: string, files: ExportFile[], history?: HistoryAppend, opts?: ExportOptions) => Promise<ExportResult>>('export:write'),
     /** 템플릿 폴더에서 내장 템플릿과 이름이 같은 파일만 읽는다. 폴더가 없으면 오류 */
-    templates(dir: string): Promise<TemplateSet>;
-  };
+    templates: invoke<(dir: string) => Promise<TemplateSet>>('export:templates'),
+  },
   settings: {
-    get(): Promise<Settings>;
-    set(patch: Settings): Promise<Settings>;
-  };
+    get: invoke<() => Promise<Settings>>('settings:get'),
+    set: invoke<(patch: Settings) => Promise<Settings>>('settings:set'),
+  },
   session: {
     /** 없거나 읽지 못하면 null. 시험 모드(ERD_AUTO)는 ERD_SESSION 이 없으면 항상 null */
-    get(): Promise<SessionData | null>;
-    set(data: SessionData): Promise<void>;
-  };
+    get: invoke<() => Promise<SessionData | null>>('session:get'),
+    set: invoke<(data: SessionData) => Promise<void>>('session:set'),
+  },
   model: {
-    load(dir: string): Promise<LoadResult>;
-    save(dir: string, model: SchemaModel, layout: Layout): Promise<SaveResult>;
+    load: invoke<(dir: string) => Promise<LoadResult>>('model:load'),
+    save: invoke<(dir: string, model: SchemaModel, layout: Layout) => Promise<SaveResult>>('model:save'),
     /** 「ERD 저장」 폴더 고르기. 처음 위치는 지금 모델 폴더, 없으면 사용자 홈. hasModel: 고른 폴더에 모델 파일(.erd)이 이미 있다 */
-    pickSaveDir(): Promise<{ dir: string; hasModel: boolean } | null>;
+    pickSaveDir: invoke<() => Promise<{ dir: string; hasModel: boolean } | null>>('model:pickSaveDir'),
     /** 저장하면 바뀔 파일 목록 (쓰지 않는다) */
-    planSave(dir: string, model: SchemaModel, layout: Layout): Promise<SavePlan>;
+    planSave: invoke<(dir: string, model: SchemaModel, layout: Layout) => Promise<SavePlan>>('model:planSave'),
     /** 「ERD 폴더 열기」: 모든 파일이 보이는 파일 창에서 폴더 안 파일 하나를 고르면 그 폴더 (functions 안 파일이면 그 위 폴더) */
-    pickOpen(defaultDir?: string): Promise<PickedModelDir | null>;
-  };
+    pickOpen: invoke<(defaultDir?: string) => Promise<PickedModelDir | null>>('model:pickOpen'),
+  },
   conn: {
     /** BE 폴더 properties 로 만든 프로필 */
-    list(beDir: string): Promise<ProfileInfo[]>;
-    test(ref: ConnRef): Promise<ConnTestResult>;
+    list: invoke<(beDir: string) => Promise<ProfileInfo[]>>('conn:list'),
+    test: invoke<(ref: ConnRef) => Promise<ConnTestResult>>('conn:test'),
     /** 저장 전 입력값으로 접속 시험 */
-    testDraft(conn: ManualConn, password: string): Promise<ConnTestResult>;
+    testDraft: invoke<(conn: ManualConn, password: string) => Promise<ConnTestResult>>('conn:testDraft'),
     /** BE 프로필에 저장한 비밀번호를 지운다 (다음 접속은 다시 properties 자동부터) */
-    forgetPassword(beDir: string, name: string): Promise<void>;
-  };
+    forgetPassword: invoke<(beDir: string, name: string) => Promise<void>>('conn:forgetPassword'),
+  },
   /** 접속할 비밀번호를 물으면 화면이 답한다. null 은 취소 */
   password: {
-    onAsk(cb: (id: number, req: PasswordAsk) => void): void;
-    reply(id: number, answer: { password: string; save: boolean } | null): void;
-  };
+    onAsk: on<(cb: (id: number, req: PasswordAsk) => void) => void>('pw:ask'),
+    reply: send<(id: number, answer: { password: string; save: boolean } | null) => void>('pw:reply'),
+  },
   manual: {
-    list(): Promise<ManualConnInfo[]>;
+    list: invoke<() => Promise<ManualConnInfo[]>>('manual:list'),
     /** password 를 주지 않으면 기존 비밀번호를 그대로 둔다 */
-    save(conn: ManualConn, password?: string): Promise<ManualConnInfo>;
-    remove(id: string): Promise<void>;
-  };
+    save: invoke<(conn: ManualConn, password?: string) => Promise<ManualConnInfo>>('manual:save'),
+    remove: invoke<(id: string) => Promise<void>>('manual:remove'),
+  },
   db: {
-    reverse(ref: ConnRef, modelDir: string): Promise<ReverseResult>;
+    reverse: invoke<(ref: ConnRef, modelDir: string) => Promise<ReverseResult>>('db:reverse'),
     /** SQL 자동완성용 테이블, 컬럼, 함수 목록 */
-    catalog(ref: ConnRef): Promise<SqlCatalog>;
+    catalog: invoke<(ref: ConnRef) => Promise<SqlCatalog>>('db:catalog'),
     /** DB 구조를 읽기만 한다 (모델 폴더와 맞추지 않음, DB 비교용) */
-    read(ref: ConnRef): Promise<{ model: SchemaModel; warnings: string[] }>;
-  };
+    read: invoke<(ref: ConnRef) => Promise<{ model: SchemaModel; warnings: string[] }>>('db:read'),
+  },
   sql: {
-    open(tabId: string, ref: ConnRef, label: string): Promise<SqlState>;
-    run(tabId: string, sql: string): Promise<SqlResult>;
-    fetchMore(tabId: string): Promise<SqlResult>;
-    commit(tabId: string): Promise<SqlResult>;
-    rollback(tabId: string): Promise<SqlResult>;
-    allowWrite(tabId: string): Promise<SqlState>;
-    close(tabId: string): Promise<void>;
-  };
+    open: invoke<(tabId: string, ref: ConnRef, label: string) => Promise<SqlState>>('sql:open'),
+    run: invoke<(tabId: string, sql: string) => Promise<SqlResult>>('sql:run'),
+    fetchMore: invoke<(tabId: string) => Promise<SqlResult>>('sql:fetchMore'),
+    commit: invoke<(tabId: string) => Promise<SqlResult>>('sql:commit'),
+    rollback: invoke<(tabId: string) => Promise<SqlResult>>('sql:rollback'),
+    allowWrite: invoke<(tabId: string) => Promise<SqlState>>('sql:allowWrite'),
+    close: invoke<(tabId: string) => Promise<void>>('sql:close'),
+  },
   history: {
-    list(connKey: string): Promise<HistoryEntry[]>;
-  };
+    list: invoke<(connKey: string) => Promise<HistoryEntry[]>>('history:list'),
+  },
   term: {
-    spawn(termId: string, shell: ShellKind, cols: number, rows: number): Promise<{ shell: string; label: string; cwd: string }>;
-    input(termId: string, data: string): void;
-    resize(termId: string, cols: number, rows: number): void;
-    kill(termId: string): void;
-    onData(cb: (termId: string, data: string) => void): void;
-    onExit(cb: (termId: string, code: number) => void): void;
-  };
+    spawn: invoke<(termId: string, shell: ShellKind, cols: number, rows: number) => Promise<{ shell: string; label: string; cwd: string }>>('term:spawn'),
+    input: send<(termId: string, data: string) => void>('term:input'),
+    resize: send<(termId: string, cols: number, rows: number) => void>('term:resize'),
+    kill: send<(termId: string) => void>('term:kill'),
+    onData: on<(cb: (termId: string, data: string) => void) => void>('term:data'),
+    onExit: on<(cb: (termId: string, code: number) => void) => void>('term:exit'),
+  },
   /** 창을 닫을 때 커밋 안 한 탭이나 저장 안 한 ERD 변경이 있으면 메인이 묻는다. 화면은 확인 결과를 돌려준다 */
-  onCloseRequest(cb: (dirty: { tabId: string; label: string }[], modelDirty: boolean) => void): void;
-  confirmClose(ok: boolean): void;
+  onCloseRequest: on<(cb: (dirty: { tabId: string; label: string }[], modelDirty: boolean) => void) => void>('app:closeRequest'),
+  confirmClose: send<(ok: boolean) => void>('app:closeConfirm'),
   /** 저장 안 한 ERD 변경(확정 대기 중인 AI 변경 포함)이 있는지 메인에 알린다. 창 닫기 확인에 쓴다 */
-  setModelDirty(dirty: boolean): void;
+  setModelDirty: send<(dirty: boolean) => void>('app:modelDirty'),
   /** AI(MCP) 연결. ERD 도구 호출은 화면이 처리해 답한다 */
   mcp: {
     /** 서버를 못 띄웠으면 null */
-    info(): Promise<McpInfo | null>;
-    onCall(cb: (id: number, tool: string, args: Record<string, unknown>) => void): void;
-    reply(id: number, r: McpReply): void;
-  };
-}
+    info: invoke<() => Promise<McpInfo | null>>('mcp:info'),
+    onCall: on<(cb: (id: number, tool: string, args: Record<string, unknown>) => void) => void>('mcp:call'),
+    reply: send<(id: number, r: McpReply) => void>('mcp:reply'),
+  },
+};
+
+/** API 표에서 화면이 쓰는 함수 타입만 뽑는다 (window.erd 의 타입) */
+type ApiOf<T> = { [K in keyof T]: T[K] extends ApiDef<'invoke' | 'send' | 'on', infer F> ? F : ApiOf<T[K]> };
+export type ErdApi = ApiOf<typeof API>;

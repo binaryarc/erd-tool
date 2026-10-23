@@ -1,5 +1,5 @@
 import { dialog, ipcMain, type BrowserWindow } from 'electron';
-import { IPC } from '../../shared/ipc';
+import { API } from '../../shared/ipc';
 import { dirtyTabs } from '../db/session';
 
 export function registerWindowCloseIpc(win: BrowserWindow) {
@@ -8,7 +8,7 @@ export function registerWindowCloseIpc(win: BrowserWindow) {
   // 마지막 화면 시험(ERD_SESSION)은 X 버튼과 같은 길로 닫아 본다
   let closing = !!process.env.ERD_AUTO && !process.env.ERD_SESSION;
   let modelDirty = false;
-  ipcMain.on(IPC.modelDirty, (_e, d: boolean) => { modelDirty = d; });
+  ipcMain.on(API.setModelDirty.channel, (_e, d: boolean) => { modelDirty = d; });
   // X 버튼이 아닌 길(화면 안의 window.close(), 새로 고침 Ctrl+R)은 'close' 이벤트를 거치지 않는다.
   // 화면의 beforeunload 가 막으면 여기로 오고, 메인이 창으로 묻는다 (2026-10-16: window.close() 로 묻지 않고 닫혔다)
   win.webContents.on('will-prevent-unload', e => {
@@ -30,9 +30,9 @@ export function registerWindowCloseIpc(win: BrowserWindow) {
     if (askedAt && Date.now() - askedAt > 3000) return;
     e.preventDefault();
     askedAt = Date.now();
-    win.webContents.send(IPC.closeRequest, dirtyTabs(), modelDirty);
+    win.webContents.send(API.onCloseRequest.channel, dirtyTabs(), modelDirty);
   });
-  ipcMain.on(IPC.closeConfirm, (_e, ok: boolean) => {
+  ipcMain.on(API.confirmClose.channel, (_e, ok: boolean) => {
     askedAt = 0;
     if (!ok) return;
     closing = true;

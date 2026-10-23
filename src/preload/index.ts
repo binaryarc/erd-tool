@@ -1,79 +1,18 @@
 // 렌더러에 ErdApi 함수만 연다. ipcRenderer 자체는 열지 않는다 (Electron 보안 권고)
+// 함수 목록과 채널 이름은 shared/ipc.ts 의 API 표 하나에서 정한다. 여기서는 그 표대로 연결만 만든다.
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type ErdApi } from '../shared/ipc';
+import { API, type ApiDef, type ErdApi } from '../shared/ipc';
 
-const api: ErdApi = {
-  pickFolder: defaultPath => ipcRenderer.invoke(IPC.pickFolder, defaultPath),
-  pickFile: (defaultPath, kind) => ipcRenderer.invoke(IPC.pickFile, defaultPath, kind),
-  export: {
-    nextVersion: dir => ipcRenderer.invoke(IPC.exportNextVersion, dir),
-    flywayDir: beDir => ipcRenderer.invoke(IPC.exportFlywayDir, beDir),
-    write: (dir, files, history, opts) => ipcRenderer.invoke(IPC.exportWrite, dir, files, history, opts),
-    templates: dir => ipcRenderer.invoke(IPC.exportTemplates, dir),
-  },
-  settings: {
-    get: () => ipcRenderer.invoke(IPC.settingsGet),
-    set: patch => ipcRenderer.invoke(IPC.settingsSet, patch),
-  },
-  session: {
-    get: () => ipcRenderer.invoke(IPC.sessionGet),
-    set: data => ipcRenderer.invoke(IPC.sessionSet, data),
-  },
-  model: {
-    load: dir => ipcRenderer.invoke(IPC.modelLoad, dir),
-    save: (dir, model, layout) => ipcRenderer.invoke(IPC.modelSave, dir, model, layout),
-    pickSaveDir: () => ipcRenderer.invoke(IPC.modelPickSaveDir),
-    planSave: (dir, model, layout) => ipcRenderer.invoke(IPC.modelPlanSave, dir, model, layout),
-    pickOpen: defaultDir => ipcRenderer.invoke(IPC.modelPickOpen, defaultDir),
-  },
-  conn: {
-    list: beDir => ipcRenderer.invoke(IPC.connList, beDir),
-    test: ref => ipcRenderer.invoke(IPC.connTest, ref),
-    testDraft: (conn, password) => ipcRenderer.invoke(IPC.connTestDraft, conn, password),
-    forgetPassword: (beDir, name) => ipcRenderer.invoke(IPC.connForgetPassword, beDir, name),
-  },
-  manual: {
-    list: () => ipcRenderer.invoke(IPC.manualList),
-    save: (conn, password) => ipcRenderer.invoke(IPC.manualSave, conn, password),
-    remove: id => ipcRenderer.invoke(IPC.manualRemove, id),
-  },
-  db: {
-    reverse: (ref, modelDir) => ipcRenderer.invoke(IPC.dbReverse, ref, modelDir),
-    catalog: ref => ipcRenderer.invoke(IPC.dbCatalog, ref),
-    read: ref => ipcRenderer.invoke(IPC.dbRead, ref),
-  },
-  sql: {
-    open: (tabId, ref, label) => ipcRenderer.invoke(IPC.sqlOpen, tabId, ref, label),
-    run: (tabId, sql) => ipcRenderer.invoke(IPC.sqlRun, tabId, sql),
-    fetchMore: tabId => ipcRenderer.invoke(IPC.sqlFetchMore, tabId),
-    commit: tabId => ipcRenderer.invoke(IPC.sqlCommit, tabId),
-    rollback: tabId => ipcRenderer.invoke(IPC.sqlRollback, tabId),
-    allowWrite: tabId => ipcRenderer.invoke(IPC.sqlAllowWrite, tabId),
-    close: tabId => ipcRenderer.invoke(IPC.sqlClose, tabId),
-  },
-  history: {
-    list: key => ipcRenderer.invoke(IPC.historyList, key),
-  },
-  term: {
-    spawn: (id, shell, cols, rows) => ipcRenderer.invoke(IPC.termSpawn, id, shell, cols, rows),
-    input: (id, data) => ipcRenderer.send(IPC.termInput, id, data),
-    resize: (id, cols, rows) => ipcRenderer.send(IPC.termResize, id, cols, rows),
-    kill: id => ipcRenderer.send(IPC.termKill, id),
-    onData: cb => { ipcRenderer.on(IPC.termData, (_e, id, d) => cb(id, d)); },
-    onExit: cb => { ipcRenderer.on(IPC.termExit, (_e, id, c) => cb(id, c)); },
-  },
-  onCloseRequest: cb => { ipcRenderer.on(IPC.closeRequest, (_e, dirty, modelDirty) => cb(dirty, modelDirty)); },
-  confirmClose: ok => ipcRenderer.send(IPC.closeConfirm, ok),
-  setModelDirty: dirty => ipcRenderer.send(IPC.modelDirty, dirty),
-  password: {
-    onAsk: cb => { ipcRenderer.on(IPC.pwAsk, (_e, id, req) => cb(id, req)); },
-    reply: (id, answer) => ipcRenderer.send(IPC.pwReply, id, answer),
-  },
-  mcp: {
-    info: () => ipcRenderer.invoke(IPC.mcpInfo),
-    onCall: cb => { ipcRenderer.on(IPC.mcpCall, (_e, id, tool, args) => cb(id, tool, args)); },
-    reply: (id, r) => ipcRenderer.send(IPC.mcpReply, id, r),
-  },
+type Def = ApiDef<'invoke' | 'send' | 'on', (...args: never[]) => unknown>;
+
+const connect = (def: Def): unknown => {
+  const { kind, channel } = def;
+  if (kind === 'invoke') return (...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
+  if (kind === 'send') return (...args: unknown[]) => ipcRenderer.send(channel, ...args);
+  return (cb: (...args: unknown[]) => void) => { ipcRenderer.on(channel, (_e, ...args) => cb(...args)); };
 };
 
-contextBridge.exposeInMainWorld('erd', api);
+const build = (node: object): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(node).map(([name, v]) => [name, 'channel' in v ? connect(v as Def) : build(v)]));
+
+contextBridge.exposeInMainWorld('erd', build(API) as unknown as ErdApi);

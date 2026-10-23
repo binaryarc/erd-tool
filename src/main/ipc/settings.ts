@@ -1,10 +1,10 @@
 import { ipcMain } from 'electron';
-import { IPC } from '../../shared/ipc';
+import { API } from '../../shared/ipc';
 import { getSession, getSettings, setSession, setSettings } from '../settings';
 
 export function registerSettingsIpc() {
-  ipcMain.handle(IPC.settingsGet, () => getSettings());
-  ipcMain.handle(IPC.settingsSet, (_e, patch) => setSettings(patch));
-  ipcMain.handle(IPC.sessionGet, () => getSession());
-  ipcMain.handle(IPC.sessionSet, (_e, data) => setSession(data));
+  ipcMain.handle(API.settings.get.channel, () => getSettings());
+  ipcMain.handle(API.settings.set.channel, (_e, patch) => setSettings(patch));
+  ipcMain.handle(API.session.get.channel, () => getSession());
+  ipcMain.handle(API.session.set.channel, (_e, data) => setSession(data));
 }

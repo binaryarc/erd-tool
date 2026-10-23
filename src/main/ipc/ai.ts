@@ -1,7 +1,7 @@
 import { app, ipcMain, type BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { IPC, type ConnRef as Ref, type McpInfo, type McpReply, type PasswordAsk } from '../../shared/ipc';
+import { API, type ConnRef as Ref, type McpInfo, type McpReply, type PasswordAsk } from '../../shared/ipc';
 import { listManual, profileSecretStore } from '../db/manual';
 import { setPasswordAsker, setSecretStore } from '../db/passwords';
 import { listProfiles } from '../db/profiles';
@@ -20,7 +20,7 @@ const pwWaits = new Map<number, { ok: (a: { password: string; save: boolean } | 
 let pwSeq = 0;
 
 /** 새로 뜬 화면에 아직 답을 못 받은 비밀번호 창을 다시 띄운다 */
-export const resendPasswordAsks = (win: BrowserWindow) => { for (const [id, w] of pwWaits) win.webContents.send(IPC.pwAsk, id, w.ask); };
+export const resendPasswordAsks = (win: BrowserWindow) => { for (const [id, w] of pwWaits) win.webContents.send(API.password.onAsk.channel, id, w.ask); };
 /** 창이 없어지면 기다리던 비밀번호 요청을 취소로 끝낸다 */
 export const cancelPasswordAsks = () => { for (const w of pwWaits.values()) w.ok(null); pwWaits.clear(); };
 
@@ -54,7 +54,7 @@ function askRenderer(tool: string, args: Record<string, unknown>): Promise<strin
       bad(new Error(`ERD 도구 화면이 ${ms / 1000}초 안에 답하지 않았다${pw.length ? `. 비밀번호 입력을 기다리는 접속이 있다: ${pw.join(', ')}. 사람에게 ERD 도구 창에서 입력해 달라고 한 뒤 다시 부르세요` : ''}`));
     }, ms);
     mcpWaits.set(id, { ok, bad, timer });
-    mainWin.webContents.send(IPC.mcpCall, id, tool, args);
+    mainWin.webContents.send(API.mcp.onCall.channel, id, tool, args);
   });
 }
 
@@ -75,20 +75,20 @@ export function registerAiIpc() {
     const id = ++pwSeq;
     const ask = { label: req.label, reason: req.reason };
     pwWaits.set(id, { ok, ask });
-    mainWin.webContents.send(IPC.pwAsk, id, ask);
+    mainWin.webContents.send(API.password.onAsk.channel, id, ask);
   }));
-  ipcMain.on(IPC.pwReply, (_e, id: number, answer: { password: string; save: boolean } | null) => {
+  ipcMain.on(API.password.reply.channel, (_e, id: number, answer: { password: string; save: boolean } | null) => {
     pwWaits.get(id)?.ok(answer);
     pwWaits.delete(id);
   });
-  ipcMain.on(IPC.mcpReply, (_e, id: number, r: McpReply) => {
+  ipcMain.on(API.mcp.reply.channel, (_e, id: number, r: McpReply) => {
     const w = mcpWaits.get(id);
     if (!w) return;
     mcpWaits.delete(id);
     clearTimeout(w.timer);
     if (r.error !== undefined) w.bad(new Error(r.error)); else w.ok(r.text ?? '');
   });
-  ipcMain.handle(IPC.mcpInfo, () => mcpInfo);
+  ipcMain.handle(API.mcp.info.channel, () => mcpInfo);
 }
 
 export async function startAi() {
