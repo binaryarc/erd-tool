@@ -18,16 +18,13 @@ import ConnectDialog from './components/ConnectDialog.vue';
 import SavePreviewDialog from './components/SavePreviewDialog.vue';
 import AskDialog from './components/AskDialog.vue';
 import CloseConfirmDialog from './components/CloseConfirmDialog.vue';
-import { addTable, domainUsage, dropDomain, dropFk, pasteColumns } from '../../shared/model/edit';
-import { applyConnect, planConnect, type ConnectPlan, type End } from '../../shared/model/connect';
-import type { Column, FkAction } from '../../shared/model/types';
-import { columnText } from '../../shared/model/erd-format';
+import { addTable, domainUsage, dropDomain } from '../../shared/model/edit';
 import { addMembers, forgetIds } from '../../shared/model/group-tabs';
 import { buildCreateAll } from '../../shared/sql/create';
 import { buildJoinSelect } from '../../shared/sql/join';
 import { DEFAULT_DIAGRAM } from '../../shared/model/arrange';
 import { arrangeMode, type Diagram } from '../../shared/model/layout';
-import { VIEW_KEY, colKey, loadPref, savePref, type ViewState } from './view';
+import { VIEW_KEY, loadPref, savePref, type ViewState } from './view';
 import { neighborhood } from '../../shared/model/tree';
 import { useErdDocs } from './composables/useErdDocs';
 import { useTopTabs } from './composables/useTopTabs';
@@ -35,6 +32,9 @@ import { useGroupTabs } from './composables/useGroupTabs';
 import { useModelFiles } from './composables/useModelFiles';
 import { useAi } from './composables/useAi';
 import { useSession } from './composables/useSession';
+import { useConnectFk } from './composables/useConnectFk';
+import { useColumnClipboard } from './composables/useColumnClipboard';
+import { useShortcuts } from './composables/useShortcuts';
 
 const view = reactive<ViewState>({
   nameMode: loadPref('nameMode', 'both', ['physical', 'logical', 'both'] as const),
@@ -61,6 +61,9 @@ const { onBeDir, discardOk, openModel, applyReverse, save, savePreview, answerSa
 const ai = useAi(core, top, groups);
 const { aiChanged, aiConfirm, aiCancel, aiTab, releaseAiTab } = ai;
 const session = useSession(core, top);
+const connect = useConnectFk(core, openEditor);
+const { canConnect, connectAsk, NEW_COL, onConnectTables, answerConnect, selectedFks } = connect;
+const clip = useColumnClipboard(core, view);
 
 function openEditor(name: string) {
   const t = model.value?.tables.find(x => x.name === name);
@@ -114,77 +117,6 @@ async function applyToDb() {
   await compare.value!.compare();
 }
 
-// ---------- 선 끌어 FK 만들기 (STEP 10) ----------
-// 놓으면 확인 창에서 FK 이름, 자식 컬럼(기존 또는 새 컬럼), ON DELETE 를 고른다. 새 컬럼과 FK 는 되돌리기 한 번이다.
-// 그룹 탭에는 소속 테이블만 그려지므로 같은 그룹끼리만 이어진다 (결정 의 선 연결 마지막 줄)
-const canConnect = (a: End, b: End) => !!model.value && planConnect(model.value, a, b).ok;
-const connectAsk = ref<{ plan: Extract<ConnectPlan, { ok: true }>; fkName: string; childColumn: string; onDelete: FkAction | '' } | null>(null);
-const NEW_COL = ' new'; // 「새 컬럼」 고르기 값. 컬럼 이름에는 공백이 들어갈 수 없어 겹치지 않는다
-function onConnectTables(a: End, b: End) {
-  if (!model.value) return;
-  const plan = planConnect(model.value, a, b);
-  if (!plan.ok) {
-    message.value = `선으로 연결할 수 없습니다: ${plan.error}`;
-    // 복합 PK 부모는 자식 쪽 편집 패널로 안내한다 (결정 9)
-    if (plan.composite) {
-      const ta = model.value.tables.find(t => t.name === a.table);
-      const aIsParent = !!ta && ta.pk.length > 1 && (!a.column || ta.pk.includes(a.column));
-      openEditor(aIsParent ? b.table : a.table);
-    }
-    return;
-  }
-  connectAsk.value = { plan, fkName: plan.fkName, childColumn: plan.childColumn ?? NEW_COL, onDelete: '' };
-}
-function answerConnect(ok: boolean) {
-  const c = connectAsk.value;
-  connectAsk.value = null;
-  if (!ok || !c) return;
-  const choice = { fkName: c.fkName.trim(), childColumn: c.childColumn === NEW_COL ? null : c.childColumn, ...(c.onDelete ? { onDelete: c.onDelete } : {}) };
-  if (edit(m => applyConnect(m, c.plan, choice))) message.value = `FK ${choice.fkName} 을(를) 만들었습니다: ${c.plan.child} → ${c.plan.parent} (저장 전)`;
-}
-/** 고른 FK 선 (Delete 로 지운다) */
-const selectedFks = ref<{ table: string; fk: string }[]>([]);
-function deleteFks(fks: { table: string; fk: string }[]) {
-  if (edit(m => fks.reduce((acc, f) => dropFk(acc, f.table, f.fk), m))) message.value = `FK 를 지웠습니다: ${fks.map(f => f.fk).join(', ')} (저장 전)`;
-}
-
-// ---------- 컬럼 고르기, 복사, 붙여넣기 (2026-10-16 사용자 요청) ----------
-// 컬럼 행을 누르면 고르고(Shift, Ctrl 로 더하기), Ctrl+C 로 복사, 붙일 테이블을 고르고 Ctrl+V 로 그 테이블 맨 아래에 붙인다.
-// 복사한 컬럼은 다른 ERD 탭(다른 모델)에도 붙일 수 있다. 같은 이름이 있으면 건너뛴다
-view.onColumnClick = (table, column, add) => {
-  const k = colKey(table, column);
-  view.colSel = add ? (view.colSel.includes(k) ? view.colSel.filter(x => x !== k) : [...view.colSel, k]) : [k];
-};
-let colClipboard: { from: string; columns: Column[] } | null = null;
-function copyColumns(): boolean {
-  const m = model.value;
-  if (!m || !view.colSel.length) return false;
-  const cols = view.colSel.map(k => { const [t, c] = k.split('\t'); return m.tables.find(x => x.name === t)?.columns.find(x => x.name === c); })
-    .filter((c): c is Column => !!c).map(c => ({ ...c }));
-  if (!cols.length) return false;
-  const from = [...new Set(view.colSel.map(k => k.split('\t')[0]))].join(', ');
-  colClipboard = { from, columns: cols };
-  // 글로도 복사해 둔다 (메모장, 메신저에 붙일 때). 한 줄에 컬럼 하나, 모델 파일 표기
-  void navigator.clipboard?.writeText(cols.map(c => columnText(c, false)).join(NL)).catch(() => undefined);
-  message.value = `컬럼 ${cols.length}개를 복사했습니다 (${from}). 붙일 테이블을 고르고 Ctrl+V 를 누르세요`;
-  return true;
-}
-function pasteColumnsHere(): boolean {
-  if (!colClipboard || !model.value) return false;
-  const target = model.value.tables.find(t => t.id === pickId.value)?.name;
-  if (!target) { message.value = '붙일 테이블을 먼저 고르세요'; return true; }
-  let r: ReturnType<typeof pasteColumns> | null = null;
-  const clip = colClipboard;
-  if (!edit(m => { r = pasteColumns(m, target, clip.columns); return r.model; })) return true;
-  const res = r as ReturnType<typeof pasteColumns> | null;
-  if (!res) return true;
-  view.colSel = res.added.map(c => colKey(target, c));
-  message.value = res.added.length
-    ? `${target} 에 컬럼 ${res.added.length}개를 붙였습니다${res.skipped.length ? ` (같은 이름이 있어 건너뜀: ${res.skipped.join(', ')})` : ''}`
-    : `붙일 컬럼이 없습니다. ${target} 에 같은 이름이 모두 있습니다 (${res.skipped.join(', ')})`;
-  return true;
-}
-
 // ---------- 도메인 관리 패널 (STEP 10) ----------
 // 오른쪽 영역은 테이블 편집 패널 > 도메인 패널 > 미니 ERD 순서로 보인다
 const domainOpen = ref(false);
@@ -208,39 +140,7 @@ const editor = ref<InstanceType<typeof TableEditor>>();
 const picker = ref<InstanceType<typeof TablePickDialog>>();
 const exporter = ref<InstanceType<typeof ExportTab>>();
 
-window.addEventListener('keydown', e => {
-  if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleTerm(); }
-  const el = e.target as HTMLElement;
-  if (e.key === 'Escape' && menu.value) { menu.value = null; return; }
-  if (e.key === 'Escape' && dlg.value) { answerDlg(''); return; }
-  if (e.key === 'Escape' && view.colSel.length && isErd(activeTab.value)) { view.colSel = []; return; }
-  if (!isErd(activeTab.value) || pwAsk.value || closeAsk.value || dlg.value || pickOpen.value || connectAsk.value || savePreview.value) return;
-  // Delete: 고른 테이블을 모델에서 지운다 (확인 창). 입력 칸 안의 Delete 는 그대로 둔다 (STEP 10)
-  if (e.key === 'Delete' && !el.closest('input, textarea, select, [contenteditable]')) {
-    if (selected.value.length) { e.preventDefault(); void deleteTables([...selected.value]); }
-    else if (selectedFks.value.length) { e.preventDefault(); deleteFks([...selectedFks.value]); }
-    return;
-  }
-  // Enter: 고른 테이블(없으면 편집 중인 테이블)에 컬럼을 더한다 (STEP 10). 입력 칸, 버튼 위의 Enter 는 그대로 둔다
-  if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing && !el.closest('input, textarea, select, button, [contenteditable]')) {
-    const name = model.value?.tables.find(t => t.id === pickId.value)?.name;
-    if (name) { e.preventDefault(); void enterColumn(name); }
-    return;
-  }
-  // 되돌리기, 다시 하기는 ERD 탭에서만. 입력 칸 안에서는 그 칸의 글자 되돌리기를 그대로 둔다.
-  // 단 Enter 로 막 더한 컬럼 이름 칸처럼 글자를 고치지 않은 칸(data-orig 와 같은 칸)은 모델 되돌리기로 넘긴다
-  // Ctrl+C, Ctrl+V: 고른 컬럼 복사, 고른 테이블에 붙이기. 입력 칸 안에서는 글자 복사 그대로
-  if (e.ctrlKey && !e.shiftKey && !el.closest('input, textarea, select, [contenteditable]')) {
-    const k = e.key.toLowerCase();
-    if (k === 'c' && copyColumns()) { e.preventDefault(); return; }
-    if (k === 'v' && pasteColumnsHere()) { e.preventDefault(); return; }
-  }
-  const untouched = el instanceof HTMLInputElement && el.dataset.orig !== undefined && el.value === el.dataset.orig;
-  if (!e.ctrlKey || (!untouched && el.closest('input, textarea, select, [contenteditable]'))) return;
-  const k = e.key.toLowerCase();
-  if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-  else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
-});
+useShortcuts(core, top, groups, files, connect, clip, view, enterColumn);
 
 // 시험 모드(ERD_AUTO) 함수는 auto/ 에 있다. 설치용 빌드에서는 __ERD_AUTO__ 가 false 라 이 줄과 그 파일이 빠진다
 if (__ERD_AUTO__) void import('./auto').then(m => m.install({ ...core, ...top, ...groups, ...files, ...ai, ...session, view, panel, compare, editor, exporter, mini, domainPanel, domainOpen, miniModel, connectAsk, selectedFks, applyToDb, newTable, openEditor }));
