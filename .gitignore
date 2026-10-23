@@ -4,3 +4,8 @@ out/
 *.log
 test/.env.local
 docker/.env
+# 작업 계획 문서 (개인용, 올리지 않음)
+/task/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
